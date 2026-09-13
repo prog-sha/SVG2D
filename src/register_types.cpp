@@ -1,5 +1,5 @@
 // SVG2D 拡張を Godot へ登録する入口。
-// 責務: SVG と SVG2D を場面の読み込み前に使える状態へすること。
+// 責務: SVG2D を場面の読み込み前に使える状態へすること。
 // 設計思想: 登録処理を描画本体から分け、拡張の入口を短く保つ。
 #include "svg.h"
 
@@ -10,10 +10,9 @@
 
 using namespace godot;
 
-// SVG を扱う 2 クラスを、場面で使える型として知らせる。
+// SVG2D を場面で使える型として知らせる。
 static void initialize_svg2d(ModuleInitializationLevel level) {
 	if (level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
-	GDREGISTER_CLASS(svg2d::SVG);
 	GDREGISTER_CLASS(svg2d::SVG2D);
 }
 

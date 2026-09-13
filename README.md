@@ -15,23 +15,15 @@ scons platform=macos target=template_release
 
 Linux、Windows、Android、Web 向けでは `platform` を使う環境の名前へ替えよう。配布するときは `template_release`、開発中は `template_debug` の成果物を使うよ。
 
-別のプロジェクトで使うときは、`addons/svg2d` をそのプロジェクトへ移そう。使う環境向けに作った `bin/<環境>` も一緒に入れるよ。
+使うプロジェクトへ `addons` フォルダーをコピーしよう。Godot の「プロジェクト」→「プロジェクト設定」→「プラグイン」で SVG2D を有効にするよ。
 
-場面へ `SVG2D` ノードを追加し、Inspector の `source` に SVG を入れよう。大きさを変えたいときは `size` を指定できるよ。
+場面へ `SVG2D` ノードを追加し、インスペクターの `src` に SVG を入れよう。大きさを変えたいときは `size` を指定できるよ。
 
 ```gdscript
 var picture := SVG2D.new()
-picture.source = FileAccess.get_file_as_string("res://picture.svg")
+picture.src = FileAccess.get_file_as_string("res://picture.svg")
 picture.size = Vector2(320, 240)
 add_child(picture)
-```
-
-画像として扱うときは `SVG` を使おう。
-
-```gdscript
-var document := SVG.new()
-if document.parse(svg_text):
-	var image := document.render(320, 240)
 ```
 
 四角、丸、道、塗り、線、色の移り変わり、切り抜き、`use`、入れ子の `svg`、`viewBox`、`style` を描けるよ。文字、filter、mask、pattern、marker、animation、外部画像は扱わないよ。

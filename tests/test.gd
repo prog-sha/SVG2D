@@ -19,37 +19,31 @@ func _initialize() -> void:
 				"res://addons/svg2d/svg2d.gdextension")
 		check(status == GDExtensionManager.LOAD_STATUS_OK,
 				"GDExtension を読み込めなかったよ: %s" % status)
-	check(ClassDB.class_exists("SVG"), "SVG が登録されていないよ")
 	check(ClassDB.class_exists("SVG2D"), "SVG2D が登録されていないよ")
+	check(not ClassDB.class_exists("SVG"), "内部の SVG が公開されているよ")
 	if failed:
 		quit(1)
 		return
 
-	var text := FileAccess.get_file_as_string("res://tests/svg/hello.svg")
 	for path in ["hello.svg", "spec.svg", "spec2.svg"]:
-		var doc: Object = ClassDB.instantiate("SVG")
 		var sample := FileAccess.get_file_as_string("res://tests/svg/" + path)
-		check(doc.call("parse", sample), "%s を読み取れなかったよ: %s" % [path, doc.call("get_error")])
-		var image: Image = doc.call("render", 64, 48)
-		check(image != null, "%s の画像を作れなかったよ" % path)
-		if image != null:
+		var node: Node2D = ClassDB.instantiate("SVG2D")
+		node.set("src", sample)
+		node.set("size", Vector2(64, 48))
+		check(node.get("src") == sample, "%s の src が戻らないよ" % path)
+		check(node.get("size") == Vector2(64, 48), "%s の大きさが戻らないよ" % path)
+		var texture: Texture2D = node.call("get_texture")
+		check(texture != null, "%s の画像を作れなかったよ" % path)
+		if texture != null:
+			var image := texture.get_image()
 			check(image.get_size() == Vector2i(64, 48), "%s の画像の大きさが違うよ" % path)
-			check(image.get_used_rect().has_area(), "%s の絵が空だよ" % path)
+			check(image.get_used_rect().has_area(), "%s の画像が空だよ" % path)
+		node.free()
 
-	var sized: Object = ClassDB.instantiate("SVG")
-	check(sized.call("parse", text), "大きさ確認用の SVG を読み取れなかったよ")
-	check(sized.call("doc_size") == Vector2(100, 100), "文書の大きさが違うよ")
-
-	var node: Node2D = ClassDB.instantiate("SVG2D")
-	node.set("source", text)
-	node.set("size", Vector2(40, 30))
-	check(node.get("source") == text, "SVG2D の source が戻らないよ")
-	check(node.get("size") == Vector2(40, 30), "SVG2D の size が戻らないよ")
-	var texture: Texture2D = node.call("get_texture")
-	check(texture != null, "SVG2D の画像を作れなかったよ")
-	if texture != null:
-		check(texture.get_image().get_used_rect().has_area(), "SVG2D の画像が空だよ")
-	node.free()
+	var config := ConfigFile.new()
+	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfg を読めなかったよ")
+	check(config.get_value("plugin", "script") == "plugin.gd", "プラグインの入口が違うよ")
+	check(load("res://addons/svg2d/plugin.gd") != null, "プラグインの入口を読めなかったよ")
 	if not failed:
 		print("SVG2D の試験に通ったよ")
 	quit(1 if failed else 0)

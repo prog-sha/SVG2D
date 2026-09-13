@@ -1277,21 +1277,12 @@ Ref<Image> SVG::render(int w, int h) const {
 	return Image::create_from_data(w, h, false, Image::FORMAT_RGBA8, buf);
 }
 
-void SVG::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("parse", "text"), &SVG::parse);
-	ClassDB::bind_method(D_METHOD("get_error"), &SVG::get_error);
-	ClassDB::bind_method(D_METHOD("doc_size"), &SVG::doc_size);
-	ClassDB::bind_method(D_METHOD("render", "width", "height"), &SVG::render);
-	ClassDB::bind_method(D_METHOD("clear_cache"), &SVG::clear_cache);
-	ClassDB::bind_method(D_METHOD("cache_bytes"), &SVG::cache_bytes);
-}
-
 // --- 画面へ置くノード ---
 
-void SVG2D::set_source(const String &s) {
-	_source = s;
-	_doc.instantiate();
-	if (!_doc->parse(s)) _doc.unref();
+void SVG2D::set_src(const String &s) {
+	_src = s;
+	_doc = std::make_unique<SVG>();
+	if (!_doc->parse(s)) _doc.reset();
 	_baked = Vector2(0, 0);
 	queue_redraw();
 }
@@ -1304,7 +1295,7 @@ void SVG2D::set_size(const Vector2 &s) {
 
 // いまの大きさで焼く。大きさが変わっていなければ、前に焼いたものを使い回す。
 void SVG2D::_bake() {
-	if (_doc.is_null()) {
+	if (_doc == nullptr) {
 		_tex.unref();
 		return;
 	}
@@ -1331,13 +1322,13 @@ Ref<Texture2D> SVG2D::get_texture() {
 }
 
 void SVG2D::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("set_source", "text"), &SVG2D::set_source);
-	ClassDB::bind_method(D_METHOD("get_source"), &SVG2D::get_source);
+	ClassDB::bind_method(D_METHOD("set_src", "text"), &SVG2D::set_src);
+	ClassDB::bind_method(D_METHOD("get_src"), &SVG2D::get_src);
 	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG2D::set_size);
 	ClassDB::bind_method(D_METHOD("get_size"), &SVG2D::get_size);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "source", PROPERTY_HINT_MULTILINE_TEXT),
-			"set_source", "get_source");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
+			"set_src", "get_src");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");
 }
 

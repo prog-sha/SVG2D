@@ -23,9 +23,7 @@
 
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/node2d.hpp>
-#include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/texture2d.hpp>
-#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 
@@ -36,9 +34,7 @@
 
 namespace svg2d {
 
-class SVG : public godot::RefCounted {
-	GDCLASS(SVG, godot::RefCounted)
-
+class SVG {
 public:
 	// 読み取った札 1 つぶん。中身は SVG の書きかたのまま持つ。
 	struct Elem {
@@ -66,9 +62,6 @@ private:
 
 	void _index(const std::shared_ptr<Elem> &e);
 
-protected:
-	static void _bind_methods();
-
 public:
 	SVG();
 	~SVG();
@@ -93,9 +86,9 @@ class SVG2D : public godot::Node2D {
 	GDCLASS(SVG2D, godot::Node2D)
 
 private:
-	godot::String _source;
+	godot::String _src;
 	godot::Vector2 _size = godot::Vector2(0, 0);
-	godot::Ref<SVG> _doc;
+	std::unique_ptr<SVG> _doc;
 	godot::Ref<godot::Texture2D> _tex;
 	godot::Vector2 _baked = godot::Vector2(0, 0);
 
@@ -107,8 +100,8 @@ protected:
 public:
 	void _draw() override;
 	// SVG の中身を入れる。入れると次に描くときに焼き直す。
-	void set_source(const godot::String &s);
-	godot::String get_source() const { return _source; }
+	void set_src(const godot::String &s);
+	godot::String get_src() const { return _src; }
 	// 出す大きさ。0 なら札に書いてある大きさをそのまま使う。
 	void set_size(const godot::Vector2 &s);
 	godot::Vector2 get_size() const { return _size; }
