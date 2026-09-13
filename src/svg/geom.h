@@ -141,7 +141,7 @@ inline Path moved(const Path &in, const godot::Transform2D &m) {
 }
 
 // --- 破線 ---
-// ひと続きの折れ線を、型のとおりに切り分ける。出るところだけを返す。
+// ひと続きの折れ線を、型のとおりに切り分ける。描かれるところを返す。
 // 型の数が奇数のときは 2 回つないで偶数にする（SVG の決まり）。
 inline Path dashed(const Path &in, const std::vector<double> &pat, double offset) {
 	std::vector<double> d = pat;
@@ -217,7 +217,7 @@ inline void arc_to(std::vector<godot::Vector2> &out, const godot::Vector2 &c, do
 	}
 }
 
-// 角を 1 つ足す。外まわりの側にだけ形を置き、内まわりは中心の点を通す。
+// 角を 1 つ足す。外まわりの側へ形を置き、内まわりは中心の点を通す。
 // 内まわりをわざと交わらせるのは Skia と Qt が同じで、巻き数で塗るから正しく片付く。
 inline void add_join(std::vector<godot::Vector2> &out, const godot::Vector2 &pivot,
 		const godot::Vector2 &n0, const godot::Vector2 &n1, double r, Join join,

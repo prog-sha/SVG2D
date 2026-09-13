@@ -10,7 +10,10 @@ Godot 4.7 と C++17 のコンパイラ、SCons を用意しよう。リポジト
 git clone --recurse-submodules https://github.com/prog-sha/SVG2D.git
 cd SVG2D
 scons platform=macos target=template_debug
+scons platform=macos target=template_release
 ```
+
+Linux、Windows、Android、Web 向けでは `platform` を使う環境の名前へ替えよう。配布するときは `template_release`、開発中は `template_debug` の成果物を使うよ。
 
 別のプロジェクトで使うときは、`addons/svg2d` をそのプロジェクトへ移そう。使う環境向けに作った `bin/<環境>` も一緒に入れるよ。
 

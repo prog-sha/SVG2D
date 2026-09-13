@@ -1,6 +1,6 @@
 // svg.h の読み取りと組み立てを実装する。
 // 責務: 札を上から順にたどり、受け継ぐ見た目と変形を重ねながら、形を覆いに変えて色を乗せること。
-// 設計思想: 受け継ぐもの（塗り・線・破線）と、その札だけのもの（薄さ・切り抜き）を
+// 設計思想: 受け継ぐもの（塗り・線・破線）と、その札固有のもの（薄さ・切り抜き）を
 // はっきり分ける。SVG はこの 2 つが混ざると、入れ子の深い絵で色が合わなくなる。
 #include "svg.h"
 
@@ -29,7 +29,7 @@ namespace svg2d {
 // Skia が塗りで使う細かさ（1/16 画素ほど）に合わせてある。粗いと、丸みの縁が
 // 内がわへ寄って、絵が少しやせて出る。
 // これ以上細かくしても絵は良くならない。8 倍で焼いて縮めた真値と比べると、
-// この細かさで Chromium より真値に近い（曲線だけの絵で 0.96 と 2.06）
+// この細かさで Chromium より真値に近い（曲線中心の絵で 0.96 と 2.06）
 static const double FLAT = 0.05;
 
 // --- 読みかたの小道具 ---
@@ -100,7 +100,7 @@ static const String &attr_of(const SVG::Elem &e, const char *name) {
 }
 
 // <style> に書いた 1 つぶんの決まり。selector { 中身 } の形。
-// 見るのは「札の名前・.組・#名札」だけ。入れ子で指す書きかたは見ない
+// 見るのは「札の名前・.組・#名札」まで。入れ子で指す書きかたは見ない
 struct Rule {
 	std::string tag;
 	String cls, id;
@@ -168,7 +168,7 @@ static void read_css(const SVG::Elem &e, std::vector<Rule> &out) {
 // 決まりと style="" を、ふつうの決めごとと同じ棚へ溶かす。
 // 読み取りのときに 1 度やる。強さの順は 札の決めごと → <style> → style=""
 static void dress(SVG::Elem &e, const std::vector<Rule> &rules) {
-	// 前後の空きは読み取りのときに 1 度だけ落とす。使うたびに落とすと、
+	// 前後の空きは読み取り時に一度落とす。使うたびに落とすと、
 	// 長さや色を読むたびに字を写し直すことになる
 	for (auto &kv : e.attr) kv.second = kv.second.strip_edges();
 	if (!rules.empty()) {
@@ -249,8 +249,8 @@ static Path parse_path(const String &d, double tol) {
 	char last = 0;
 	CharString cs = d.utf8();
 	const char *p = cs.get_data();
-	// ひと続きを 1 本ぶんとして納める。点が 1 つのものは、閉じたときだけ残す。
-	// 「M だけ」は何も描かない決まり、「M のあと Z」は端の形で点を打つ決まり。
+	// ひと続きを 1 本ぶんとして納める。点が 1 つのものは、閉じた場合に残す。
+	// 「M 単独」は何も描かない決まり、「M のあと Z」は端の形で点を打つ決まり。
 	// 閉じていない 1 点を残すと、Z の次に M が来たときに余計な点が打たれる
 	auto flush = [&](bool closed) {
 		if (cur.p.size() >= 2 || (closed && cur.p.size() == 1)) {
@@ -491,9 +491,9 @@ struct SVG::Store {
 	Cache<Built> geo{ GEO };
 	Cache<GradHit> grad{ GRAD };
 	Cache<std::shared_ptr<const Cover>> clip{ CLIP };
-	Canvas cv;            // 描く先。大きさが同じなら取り直さず、触った所だけ 0 へ戻す
+	Canvas cv;            // 描く先。大きさが同じなら取り直さず、触った所を 0 へ戻す
 	// まとまりの薄さで使う紙。深さごとに使い回す。札ごとに作り直すと、
-	// 800x800 で 2.5 MB を用意して 0 で埋めるのが、薄いまとまりの数だけ起きる
+	// 800x800 で 2.5 MB を用意して 0 で埋めるのが、薄いまとまりの数に応じて起きる
 	std::vector<std::unique_ptr<Canvas>> pool;
 	int pw = 0, ph = 0;   // 紙の大きさ。変わったら作り直す
 	uint64_t turn = 0;
@@ -621,7 +621,7 @@ static const GradHit &lut_of(Ctx &c, const SVG::Elem &g) {
 // box は、その形を囲む四角（元の座標）。objectBoundingBox の指定に使う。
 static Paint make_paint(Ctx &c, const String &s, double opacity, const State &st,
 		const Rect2 &box) {
-	// 見比べる字は 1 度だけ作る。作り直すと、札ごとに 4 回ぶん字を組み立てることになる
+	// 見比べる字は最初に作る。作り直すと、札ごとに 4 回ぶん字を組み立てることになる
 	static const String NONE = "none", CUR = "currentColor", URL = "url(";
 	Paint p;
 	if (s.is_empty() || s == NONE) return p;
@@ -696,8 +696,8 @@ static void paint_mask(Ctx &c, const Mask &mk, const Paint &p) {
 	if (p.kind == Paint::NONE || mk.empty()) return;
 	bool flat = p.kind == Paint::SOLID;
 	Color solid = flat ? paint_at(p, 0, 0) : Color();
-	// 移り変わりのときは、段の始めで 1 度だけ変形を掛け、あとは横に足していく。
-	// 画素ごとに変形を掛け直すと、そのぶんだけで塗りの半分ほどを使う
+	// 移り変わりのときは、段の始めで一度変形を掛け、あとは横に足していく。
+	// 画素ごとに変形を掛け直すと、その処理で塗りの半分ほどを使う
 	Vector2 step = p.inv.columns[0];
 	for (int y = 0; y < mk.h; y++) {
 		int py = mk.y0 + y;
@@ -845,7 +845,7 @@ static Path shape_of(const SVG::Elem &e, double tol, const State &st) {
 }
 
 // 切り抜きの覆いを作る。中の形をぜんぶ足して、重なりも「中」として数える。
-// 入る四角ぶんだけ持つ。画面ぜんぶぶんを札ごとに用意すると、
+// 入る四角ぶんを持つ。画面ぜんぶぶんを札ごとに用意すると、
 // 小さな丸 1 つの切り抜きでも 800x800 の入れ物を毎回埋めることになる
 static Cover clip_cover(Ctx &c, const SVG::Elem &clip, const State &st) {
 	State cs = st;
@@ -924,7 +924,7 @@ static std::shared_ptr<const Cover> clip_of(Ctx &c, const SVG::Elem &clip, const
 	return c.store->clip.keep(key, std::move(cov), n);
 }
 
-// 2 つの切り抜きを掛け合わせる。重なった四角のぶんだけ残る。
+// 2 つの切り抜きを掛け合わせる。重なった四角のぶんが残る。
 static std::shared_ptr<const Cover> clip_and(const Cover &a, const Cover &b) {
 	Cover out;
 	int x0 = std::max(a.x0, b.x0), y0 = std::max(a.y0, b.y0);
@@ -985,7 +985,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 	if (disp == "none") return;
 	inherit(e, st);
 
-	// その札だけのもの。受け継がない
+	// その札固有のもの。受け継がない
 	String op_s = attr_of(e, "opacity");
 	double op = op_s.is_empty() ? 1.0 : std::clamp(length_of(op_s, 1.0, 1.0), 0.0, 1.0);
 	String clip_s = attr_of(e, "clip-path");
@@ -1026,7 +1026,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 				cst.m = st.m * bt;
 			}
 			// 上から掛かっている切り抜きがあれば、掛け合わせる。
-			// 控えるのは切り抜きを掛けるときだけ
+			// 控えるのは切り抜きを掛ける場合に
 			keep_clip = std::move(c.clip);
 			auto add = ok ? clip_of(c, *cp, cst) : std::make_shared<const Cover>();
 			c.clip = keep_clip ? clip_and(*keep_clip, *add) : add;
@@ -1078,7 +1078,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 			if (viewed) c.clip = std::move(keep_view);
 		}
 	} else {
-		// 曲線をどれだけ細かく開くかは、画面での大きさから決める
+		// 曲線をどの程度細かく開くかは、画面での大きさから決める
 		double sc = std::max((double)st.m.get_scale().length() * 0.7071, 1e-6);
 		double tol = FLAT / sc;
 		// 組んだ形は控えから引く。同じ大きさで描き続けるかぎり、組むのは 1 度きり
@@ -1103,7 +1103,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 			if (sp.kind != Paint::NONE && st.width > 0.0) {
 				// 線を引くと外周は太さのぶん外へ広がる。同じ角度で曲線を割ると、
 				// 広がった先では折れが粗く出る。小さい形に太い線を引くほど響くので、
-				// 形の大きさと太さの比だけ細かく開き直す
+				// 形の大きさと太さの比に応じて細かく開き直す
 				double ext = std::max(b->box.size.x, b->box.size.y);
 				double tight = tol * ext / std::max(ext + st.width, 1e-6);
 				const double rlook[] = { tight, st.width, (double)st.cap, (double)st.join,
@@ -1246,7 +1246,7 @@ Ref<Image> SVG::render(int w, int h) const {
 	draw_elem(c, *_root, st);
 	// 掛け合わせ済みの色を、ふつうの色へ戻して絵にする。
 	// resize は 0 で埋めてくれるので、触っていない所はそのまま透けた色でよい。
-	// 割り算は 256 目の表に置き換える。1 枚ぶん割り算すると、それだけで 2 ミリ秒かかる
+	// 割り算は 256 目の表に置き換える。1 枚ぶん割り算すると、その処理で 2 ミリ秒かかる
 	static uint32_t recip[256];
 	static bool made = false;
 	if (!made) {
@@ -1262,7 +1262,7 @@ Ref<Image> SVG::render(int w, int h) const {
 		for (int x = cv.dx0; x <= cv.dx1; x++, src += 4, dst += 4) {
 			uint8_t a = src[3];
 			if (a == 0) continue;
-			if (a == 255) {   // まるごと乗った所は写すだけ
+			if (a == 255) {   // まるごと乗った所はそのまま写す
 				dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = 255;
 				continue;
 			}
@@ -1320,8 +1320,14 @@ void SVG2D::_bake() {
 }
 
 void SVG2D::_draw() {
+	Ref<Texture2D> tex = get_texture();
+	if (tex.is_valid()) draw_texture(tex, Vector2(0, 0));
+}
+
+// いまの設定で焼いた画像を、ほかの 2D 描画でも使える形で返す。
+Ref<Texture2D> SVG2D::get_texture() {
 	_bake();
-	if (_tex.is_valid()) draw_texture(_tex, Vector2(0, 0));
+	return _tex;
 }
 
 void SVG2D::_bind_methods() {
@@ -1329,6 +1335,7 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_source"), &SVG2D::get_source);
 	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG2D::set_size);
 	ClassDB::bind_method(D_METHOD("get_size"), &SVG2D::get_size);
+	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "source", PROPERTY_HINT_MULTILINE_TEXT),
 			"set_source", "get_source");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");

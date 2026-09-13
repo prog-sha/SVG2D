@@ -34,6 +34,7 @@ func _initialize() -> void:
 		check(image != null, "%s の画像を作れなかったよ" % path)
 		if image != null:
 			check(image.get_size() == Vector2i(64, 48), "%s の画像の大きさが違うよ" % path)
+			check(image.get_used_rect().has_area(), "%s の絵が空だよ" % path)
 
 	var sized: Object = ClassDB.instantiate("SVG")
 	check(sized.call("parse", text), "大きさ確認用の SVG を読み取れなかったよ")
@@ -44,6 +45,10 @@ func _initialize() -> void:
 	node.set("size", Vector2(40, 30))
 	check(node.get("source") == text, "SVG2D の source が戻らないよ")
 	check(node.get("size") == Vector2(40, 30), "SVG2D の size が戻らないよ")
+	var texture: Texture2D = node.call("get_texture")
+	check(texture != null, "SVG2D の画像を作れなかったよ")
+	if texture != null:
+		check(texture.get_image().get_used_rect().has_area(), "SVG2D の画像が空だよ")
 	node.free()
 	if not failed:
 		print("SVG2D の試験に通ったよ")

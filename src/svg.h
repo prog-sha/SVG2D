@@ -3,7 +3,7 @@
 // 責務: SVG の中身を読み取り、決められた大きさの絵にすること。
 // どこに置くかも、いつ描き直すかも知らない（それは SVG2D の受け持ち）。
 //
-// 設計思想: 覆い（どれだけ塗られているか）を面積として数えてから色を乗せる。
+// 設計思想: 覆い（どの程度塗られているか）を面積として数えてから色を乗せる。
 // Chromium も同じ考え方で描いているので、同じ SVG からほぼ同じ絵が出る。
 // 三角形にして GPU へ渡すやり方も試せるが、まとまりごとの薄さ・切り抜き・
 // 色の移り変わりが、どれも別の描き先を用意しないと正しくならない。
@@ -47,11 +47,11 @@ public:
 		// 混ぜ直すので、札 1 つで 20 回、絵 1 枚で 2 万回それをやることになる
 		std::string tag;
 		std::unordered_map<std::string, godot::String> attr;
-		godot::String text;   // 札にはさまれた字。<style> の中身にだけ使う
+		godot::String text;   // 札にはさまれた字。<style> の中身に使う
 		std::vector<std::shared_ptr<Elem>> kids;
 	};
 
-	// 描くたびに変わらないものを控えておく入れ物。中身は svg.cpp の中だけで使う。
+	// 描くたびに変わらないものを控えておく入れ物。中身は svg.cpp の内部で使う。
 	// 毎コマ描くつもりなら、道の字を読み直して折れ線に開き直すのがいちばん重い
 	struct Store;
 
@@ -82,13 +82,13 @@ public:
 	godot::Ref<godot::Image> render(int w, int h) const;
 	// 控えを空ける。使っていない絵を抱えたままにしたくないときに呼ぶ。
 	void clear_cache();
-	// 控えが抱えている量。ためしと、どれだけ効いているかを見るのに使う。
+	// 控えが抱えている量。ためしと、どの程度効いているかを見るのに使う。
 	int cache_bytes() const;
 };
 
 // SVG を画面へ置くノード。
 // 責務: 読み取った絵を、いまの大きさで焼いて貼ること。
-// 大きさが変わったときだけ焼き直す。毎フレーム焼くと、置いてあるだけで重くなる。
+// 大きさが変わった場合に焼き直す。毎フレーム焼くと、置いてある間も重くなる。
 class SVG2D : public godot::Node2D {
 	GDCLASS(SVG2D, godot::Node2D)
 
@@ -112,6 +112,8 @@ public:
 	// 出す大きさ。0 なら札に書いてある大きさをそのまま使う。
 	void set_size(const godot::Vector2 &s);
 	godot::Vector2 get_size() const { return _size; }
+	// ノードが貼る画像を返す。Sprite2D など別の描き手でも使える。
+	godot::Ref<godot::Texture2D> get_texture();
 };
 
 } // namespace svg2d

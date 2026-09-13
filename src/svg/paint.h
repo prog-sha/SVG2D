@@ -299,7 +299,7 @@ inline godot::Color stop_at(const std::vector<Stop> &st, double t) {
 	return st.back().col;
 }
 
-// 色の表を作る。区切りが決まったあと 1 度だけ通す。
+// 色の表を作る。区切りが決まったあと、一度通す。
 inline std::shared_ptr<const std::vector<godot::Color>> build_lut(const std::vector<Stop> &st) {
 	auto out = std::make_shared<std::vector<godot::Color>>((size_t)LUT_N);
 	for (int i = 0; i < LUT_N; i++)
@@ -320,7 +320,7 @@ inline double spread_at(double t, Spread s) {
 
 // 色の移り変わりに混ぜる、ごく細かいばらつき。
 // Chromium は移り変わりを塗るとき必ずこれを混ぜる（Skia の dither）。
-// 8x8 の決まった型で ±0.49/255 だけ色をずらすもので、混ぜないと、
+// 8x8 の決まった型で ±0.49/255 ほど色をずらすもので、混ぜないと、
 // 色の変わりめに階段が見えるところが向こうと食い違う。
 inline double dither_at(int x, int y) {
 	int yy = y ^ x;

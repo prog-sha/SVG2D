@@ -21,6 +21,6 @@ fi
 
 cd "$root"
 scons platform="$platform" target=template_debug
-result=$("$godot" --headless --path "$root" --script tests/test.gd 2>&1)
+result=$("$godot" --headless --quit-after 120 --path "$root" --script tests/test.gd 2>&1)
 printf '%s\n' "$result"
 printf '%s\n' "$result" | grep -q "SVG2D の試験に通ったよ"
