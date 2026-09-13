@@ -2,7 +2,7 @@
 
 SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D scenes. It rasterizes an SVG only when its requested size changes, then reuses the resulting texture.
 
-The packaged add-on currently supports Godot 4.7 or later on Windows x86_64. See [`addons/svg2d/README.md`](addons/svg2d/README.md) for installation, usage, and supported SVG features.
+The packaged add-on currently supports Godot 4.7 or later on Windows x86_64 and macOS Universal. See [`addons/svg2d/README.md`](addons/svg2d/README.md) for installation, usage, and supported SVG features.
 
 ## Building from source
 
@@ -11,8 +11,8 @@ Install Godot 4.7, a C++17 compiler, and SCons, then clone the repository with i
 ```sh
 git clone --recurse-submodules https://github.com/prog-sha/SVG2D.git
 cd SVG2D
-scons platform=windows target=template_debug
-scons platform=windows target=template_release
+scons platform=macos target=template_debug
+scons platform=macos target=template_release
 ```
 
 Replace `platform` when building for another supported target. Use `template_release` for distribution and `template_debug` for development.
