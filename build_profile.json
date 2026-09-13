@@ -1,0 +1,13 @@
+{
+	"_": "SVG2D が直接使う Godot クラスを残し、必要な親クラスは godot-cpp に解決させる。",
+	"type": "feature_profile",
+	"enabled_classes": [
+		"Image",
+		"ImageTexture",
+		"Node2D",
+		"OS",
+		"RefCounted",
+		"Texture2D",
+		"XMLParser"
+	]
+}

@@ -1,0 +1,11 @@
+# 組み立て直せる生成物を、ソースの履歴から外す。
+.godot/
+*.import
+.DS_Store
+.sconsign.dblite
+addons/svg2d/bin/*/
+src/*.os
+src/*.o
+src/*.obj
+godot-cpp/bin/
+godot-cpp/gen/

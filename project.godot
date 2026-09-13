@@ -1,0 +1,11 @@
+; SVG2D を単独で読み込み、動作を確かめる最小の Godot プロジェクト。
+; 描画本体は addons/svg2d にあり、このファイルは開発時の確認場所を用意する。
+config_version=5
+
+[application]
+
+config/name="SVG2D"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
