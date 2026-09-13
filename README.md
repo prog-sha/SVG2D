@@ -1,5 +1,7 @@
 # SVG2D
 
+**English** | [日本語](README.ja.md)
+
 SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D scenes. It rasterizes an SVG only when its requested size changes, then reuses the resulting texture.
 
 The packaged add-on currently supports Godot 4.7 or later on Windows x86_64 and macOS Universal. See [`addons/svg2d/README.md`](addons/svg2d/README.md) for installation, usage, and supported SVG features.
@@ -24,18 +26,3 @@ On macOS, the test script automatically looks for Godot 4.7.1. Set `GODOT` when 
 ```sh
 GODOT=/path/to/godot sh tests/test.sh
 ```
-
-## 日本語
-
-SVG を Godot の 2D 場面へ軽く置くための GDExtension アドオンだよ。SVG の文字列を `SVG2D` ノードへ渡すと、必要な大きさで一度画像にし、大きさが変わるまで使い回すよ。
-
-使うプロジェクトへ `addons/svg2d` フォルダーをコピーし、Godot の「プロジェクト」→「プロジェクト設定」→「プラグイン」で SVG2D を有効にしよう。
-
-```gdscript
-var picture := SVG2D.new()
-picture.src = FileAccess.get_file_as_string("res://picture.svg")
-picture.size = Vector2(320, 240)
-add_child(picture)
-```
-
-四角、丸、道、塗り、線、色の移り変わり、切り抜き、`use`、入れ子の `svg`、`viewBox`、`style` を描けるよ。文字、filter、mask、pattern、marker、animation、外部画像は扱わないよ。

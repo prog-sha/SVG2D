@@ -1,5 +1,7 @@
 # SVG2D
 
+**English** | [日本語](README.ja.md)
+
 SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D scenes. It rasterizes an SVG only when its requested size changes, then reuses the resulting texture.
 
 ## Compatibility
