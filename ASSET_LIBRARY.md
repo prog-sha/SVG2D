@@ -12,7 +12,7 @@ Use these values when submitting SVG2D to the Godot Asset Library.
 | Repository URL | https://github.com/prog-sha/SVG2D |
 | Issues URL | https://github.com/prog-sha/SVG2D/issues |
 | Minimum Godot version | 4.7 |
-| Asset Version | 0.4.1 |
+| Asset Version | 0.5.0 |
 | Download Commit | Use the full commit SHA containing the release files. |
 | Icon URL | https://raw.githubusercontent.com/prog-sha/SVG2D/main/addons/svg2d/icon.png |
 

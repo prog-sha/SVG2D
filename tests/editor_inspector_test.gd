@@ -64,6 +64,20 @@ func run_checks() -> void:
 	var svg_plugin := get_tree().get_first_node_in_group("svg2d_editor_plugin")
 	check(svg_plugin != null, "SVG2Dの2D編集プラグインが動いていないよ")
 	if svg_plugin:
+		var rope_editor: Node2D = ClassDB.instantiate("SVGRope2D")
+		scene_root.add_child(rope_editor)
+		rope_editor.owner = scene_root
+		check(svg_plugin.get("svg_inspector").call("_can_handle", rope_editor),
+			"SVGRope2DをSVG素材Inspectorの対象にしていないよ")
+		var rope_property: EditorProperty = SVGSourceProperty.new()
+		rope_property.set_object_and_property(rope_editor, &"src")
+		rope_property.property_changed.connect(apply_inspector_change.bind(rope_editor))
+		rope_property.call("_file_selected", "res://tests/svg/hello.svg")
+		check(rope_editor.get("src") == "res://tests/svg/hello.svg"
+			and rope_editor.call("get_svg_size") == Vector2(100, 100),
+			"SVGRope2DへInspectorからSVG素材を設定できないよ")
+		rope_property.free()
+		rope_editor.free()
 		# 2D編集Canvasのズーム、ノード拡縮、Retina相当の画面倍率を合成する。
 		var zoomed_canvas := Transform2D.IDENTITY.scaled(Vector2(2.0, 3.0))
 		var editor_density: Vector2 = svg_plugin.call("svg2d_density", node, zoomed_canvas, 2.0)

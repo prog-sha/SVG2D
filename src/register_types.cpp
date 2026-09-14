@@ -1,7 +1,8 @@
 // SVG2D 拡張を Godot へ登録する入口。
-// 責務: SVG2D と SVG3D を場面の読み込み前に使える状態へすること。
+// 責務: SVG表示ノードとPBD紐ノードを場面の読み込み前に使える状態へすること。
 // 設計思想: 登録処理を描画本体から分け、拡張の入口を短く保つ。
 #include "svg.h"
+#include "rope.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -10,11 +11,13 @@
 
 using namespace godot;
 
-// SVG2D を場面で使える型として知らせる。
+// 2D・3DのSVG表示と紐を場面で使える型として知らせる。
 static void initialize_svg2d(ModuleInitializationLevel level) {
 	if (level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
 	GDREGISTER_CLASS(svg2d::SVG2D);
 	GDREGISTER_CLASS(svg2d::SVG3D);
+	GDREGISTER_CLASS(svg2d::SVGRope2D);
+	GDREGISTER_CLASS(svg2d::SVGRope3D);
 }
 
 // 拡張を外す段階を受け取る。解放が必要な共有資源は持たない。

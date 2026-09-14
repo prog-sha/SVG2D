@@ -542,6 +542,110 @@ func check_appearance() -> void:
 		check(texture.get_image().has_mipmaps(), "固定SVG3Dにミップマップがないよ")
 	svg3.free()
 
+func check_ropes() -> void:
+	check(ClassDB.class_exists("SVGRope2D"), "SVGRope2Dが登録されていないよ")
+	check(ClassDB.class_exists("SVGRope3D"), "SVGRope3Dが登録されていないよ")
+	if not ClassDB.class_exists("SVGRope2D") or not ClassDB.class_exists("SVGRope3D"):
+		return
+	var view := SubViewport.new()
+	view.size = Vector2i(256, 128)
+	view.transparent_bg = true
+	root.add_child(view)
+	var rope2: Node2D = ClassDB.instantiate("SVGRope2D")
+	rope2.set("line_mode", true)
+	rope2.set("line_width", 6.0)
+	rope2.set("line_color", Color(0.2, 0.8, 1.0, 1.0))
+	rope2.set("segments", 9)
+	rope2.set("max_length", 80.0)
+	rope2.set("elasticity", 1.0)
+	rope2.set("gravity", Vector2(800, 0))
+	rope2.set("simulation_enabled", false)
+	rope2.position = Vector2(128, 8)
+	view.add_child(rope2)
+	view.render_target_update_mode = SubViewport.UPDATE_ONCE
+	await process_frame
+	await RenderingServer.frame_post_draw
+	check(view.get_texture().get_image().get_used_rect().has_area(),
+		"SVGRope2DのLine ModeがSVGなしで描画されないよ")
+	rope2.set("simulation_enabled", true)
+	for i in 12:
+		await physics_frame
+	var points2: PackedVector2Array = rope2.call("get_rope_points")
+	check(points2.size() == 9 and points2[0].distance_to(Vector2.ZERO) < 0.001,
+		"SVGRope2Dの粒子数または上端固定が違うよ")
+	var max_link2 := 0.0
+	for i in points2.size() - 1:
+		max_link2 = max(max_link2, points2[i].distance_to(points2[i + 1]))
+	check(max_link2 <= 10.01, "SVGRope2DがPBD最大長を越えたよ: %.4f" % max_link2)
+	check(points2[-1].x > 1.0, "SVGRope2Dが横重力で変形しないよ")
+	rope2.set("simulation_enabled", false)
+	var stopped2: PackedVector2Array = rope2.call("get_rope_points")
+	for i in 3:
+		await physics_frame
+	check(rope2.call("get_rope_points") == stopped2, "SVGRope2Dを停止しても計算を続けているよ")
+	view.free()
+
+	var svg_view := SubViewport.new()
+	svg_view.size = Vector2i(256, 160)
+	svg_view.transparent_bg = true
+	root.add_child(svg_view)
+	var svg_rope2: Node2D = ClassDB.instantiate("SVGRope2D")
+	svg_rope2.set("src", sample())
+	svg_rope2.set("gravity", Vector2(500, 200))
+	svg_rope2.position = Vector2(128, 8)
+	svg_view.add_child(svg_rope2)
+	for i in 8:
+		await physics_frame
+	var svg_points2: PackedVector2Array = svg_rope2.call("get_rope_points")
+	check(svg_points2[-1].x > 0.1 and svg_points2[-1].length() <= float(H) + 0.01,
+		"SVGRope2DがSVG上端から下端を自動長として扱わないよ")
+	svg_view.render_target_update_mode = SubViewport.UPDATE_ONCE
+	await process_frame
+	await RenderingServer.frame_post_draw
+	check(svg_view.get_texture().get_image().get_used_rect().has_area(),
+		"SVGRope2DがSVGを粒子中心線に沿って変形描画しないよ")
+	svg_view.free()
+
+	var rope3: Node3D = ClassDB.instantiate("SVGRope3D")
+	rope3.set("line_mode", true)
+	rope3.set("line_width", 0.08)
+	rope3.set("line_color", Color(1.0, 0.4, 0.2, 0.8))
+	rope3.set("segments", 9)
+	rope3.set("max_length", 2.0)
+	rope3.set("elasticity", 1.0)
+	rope3.set("gravity", Vector3(10, 0, 0))
+	root.add_child(rope3)
+	for i in 12:
+		await physics_frame
+	var points3: PackedVector3Array = rope3.call("get_rope_points")
+	var max_link3 := 0.0
+	for i in points3.size() - 1:
+		max_link3 = max(max_link3, points3[i].distance_to(points3[i + 1]))
+	check(points3.size() == 9 and points3[0].distance_to(Vector3.ZERO) < 0.0001,
+		"SVGRope3Dの粒子数または上端固定が違うよ")
+	check(max_link3 <= 0.2501, "SVGRope3DがPBD最大長を越えたよ: %.5f" % max_link3)
+	check(points3[-1].x > 0.01, "SVGRope3Dが横重力で変形しないよ")
+	check(rope3.get_child_count(true) == 1 and rope3.get_child(0, true) is MeshInstance3D
+		and rope3.get_child(0, true).mesh.get_surface_count() == 1,
+		"SVGRope3DのLine Modeメッシュが作られないよ")
+	rope3.free()
+
+	var svg_rope3: Node3D = ClassDB.instantiate("SVGRope3D")
+	svg_rope3.set("src", sample())
+	svg_rope3.set("simulation_enabled", false)
+	root.add_child(svg_rope3)
+	await process_frame
+	var svg_points3: PackedVector3Array = svg_rope3.call("get_rope_points")
+	check(is_equal_approx(svg_points3[-1].y, -float(H) * 0.01),
+		"SVGRope3DがSVG上端から下端をpixel_size込みの自動長として扱わないよ")
+	var svg_mesh: Mesh = svg_rope3.get_child(0, true).mesh
+	var svg_material: StandardMaterial3D = svg_mesh.surface_get_material(0)
+	var rope_texture: Texture2D = svg_material.get_texture(BaseMaterial3D.TEXTURE_ALBEDO)
+	check(rope_texture != null and rope_texture.get_size() == Vector2(W * 1.5, H * 1.5),
+		"SVGRope3Dの帯メッシュへ1.5倍SVGテクスチャが設定されないよ")
+	svg_rope3.free()
+	print("SVG rope PBD: 2D %.3f px/link, 3D %.4f units/link" % [max_link2, max_link3])
+
 # 場面の準備が終わった次のコマから試験を始める。
 func _initialize() -> void:
 	DisplayServer.window_set_position(Vector2i(10000, 10000))
@@ -600,6 +704,7 @@ func _run() -> void:
 	await check_rotation_3d()
 	await check_jitter_animation()
 	await check_appearance()
+	await check_ropes()
 	check_large_profile()
 	var config := ConfigFile.new()
 	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfgを読めなかったよ")

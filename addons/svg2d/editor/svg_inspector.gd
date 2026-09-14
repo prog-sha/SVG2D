@@ -6,7 +6,8 @@ const SVGSourceProperty = preload("svg_source_property.gd")
 const SVGHitboxControl = preload("svg_hitbox_control.gd")
 
 func _can_handle(object: Object) -> bool:
-	return object != null and (object.is_class("SVG2D") or object.is_class("SVG3D"))
+	return object != null and (object.is_class("SVG2D") or object.is_class("SVG3D") \
+		or object.is_class("SVGRope2D") or object.is_class("SVGRope3D"))
 
 func _parse_property(
 		_object: Object,
@@ -23,6 +24,8 @@ func _parse_property(
 	return true
 
 func _parse_end(object: Object) -> void:
+	if object.is_class("SVGRope2D") or object.is_class("SVGRope3D"):
+		return
 	var hitbox := SVGHitboxControl.new()
 	hitbox.setup(object)
 	add_custom_control(hitbox)

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SVGRope2D" inherits="Node2D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/tools/doc_classes.xsd">
+	<brief_description>PBD rope that bends an SVG from top to bottom, or draws a plain line.</brief_description>
+	<description>The top particle is at the node origin. SVG mode maps horizontal slices of [member src] along the particle centerline. [member line_mode] uses the same solver without requiring an SVG.</description>
+	<methods>
+		<method name="get_rope_points" qualifiers="const"><return type="PackedVector2Array" /><description>Returns the current local-space PBD particle positions.</description></method>
+		<method name="reset_simulation"><return type="void" /><description>Places all particles in a straight top-to-bottom rest pose.</description></method>
+	</methods>
+	<members>
+		<member name="constraint_iterations" type="int" setter="set_constraint_iterations" getter="get_constraint_iterations" default="8">PBD distance-constraint passes per physics tick.</member>
+		<member name="damping" type="float" setter="set_damping" getter="get_damping" default="0.02">Fraction of Verlet velocity removed per physics tick.</member>
+		<member name="elasticity" type="float" setter="set_elasticity" getter="get_elasticity" default="0.9">Per-pass distance-constraint strength. 1 keeps links at their maximum length most firmly.</member>
+		<member name="gravity" type="Vector2" setter="set_gravity" getter="get_gravity" default="Vector2(0, 980)">Local acceleration applied to free particles.</member>
+		<member name="line_color" type="Color" setter="set_line_color" getter="get_line_color" default="Color(1, 1, 1, 1)">Color used by Line Mode.</member>
+		<member name="line_mode" type="bool" setter="set_line_mode" getter="is_line_mode" default="false">Draws a normal rope line without requiring [member src].</member>
+		<member name="line_width" type="float" setter="set_line_width" getter="get_line_width" default="4.0">Line Mode width in 2D units.</member>
+		<member name="max_length" type="float" setter="set_max_length" getter="get_max_length" default="0.0">Maximum total constraint length. 0 uses the SVG height, or 200 without an SVG.</member>
+		<member name="pin_start" type="bool" setter="set_pin_start" getter="is_pin_start" default="true">Pins the top particle to the node origin.</member>
+		<member name="segments" type="int" setter="set_segments" getter="get_segments" default="16">Number of PBD particles and SVG slice rows.</member>
+		<member name="simulation_enabled" type="bool" setter="set_simulation_enabled" getter="is_simulation_enabled" default="true">Runs the solver during physics ticks.</member>
+		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">SVG file path or inline SVG markup.</member>
+	</members>
+</class>

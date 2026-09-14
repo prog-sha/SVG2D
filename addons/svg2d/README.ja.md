@@ -31,6 +31,17 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
+`SVGRope2D` と `SVGRope3D` は上端をノード原点へ固定したPBD紐だよ。`src`を選ぶとSVGを上から下へ分割し、各段の中心を粒子列へ追従させて曲げるよ。`line_mode` をONにすればSVGなしで `line_width` と `line_color` の普通の紐になるよ。`segments`、`max_length`（0ならSVG高から自動算出）、`elasticity`、`damping`、`gravity`、`constraint_iterations`、`pin_start` をInspectorから調整できるよ。
+
+```gdscript
+var rope := SVGRope2D.new()
+rope.src = "res://banner.svg"
+rope.segments = 24
+rope.max_length = 320.0
+rope.elasticity = 0.85
+add_child(rope)
+```
+
 アニメーションは初めはOFFだよ。`animation_enabled` をONにすると、形全体は移動させず、`jitter_amount`（既定0.0008、最大0.3）を絵の縦横に対する輪郭の最大変形率として使うよ。seed 1〜4で固定した4枚だけを作り、`animation_interval`（既定10フレーム）ごとに順番に切り替えるよ。OFFに戻すとアニメ用3枚のキャッシュも解放するよ。
 
 2D・3Dとも `flip_h`、`flip_v`、`offset` を使えるよ。色と透明度は `modulate` で変えよう（2DではCanvasItem共通のVisibility欄、3DではAppearance欄）。

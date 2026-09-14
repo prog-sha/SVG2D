@@ -31,6 +31,17 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
+`SVGRope2D` and `SVGRope3D` provide a PBD rope pinned at the node origin. With `src`, the SVG is sliced from top to bottom and each slice center follows the particle chain. Enable `line_mode` to use a plain rope without an SVG, configured by `line_width` and `line_color`. The Inspector exposes `segments`, `max_length` (zero derives it from SVG height), `elasticity`, `damping`, `gravity`, `constraint_iterations`, and `pin_start`.
+
+```gdscript
+var rope := SVGRope2D.new()
+rope.src = "res://banner.svg"
+rope.segments = 24
+rope.max_length = 320.0
+rope.elasticity = 0.85
+add_child(rope)
+```
+
 Animation is disabled by default. Enable `animation_enabled` to deform path outlines without translating the whole shape. `jitter_amount` is the maximum peak-to-peak deformation as a ratio of the document dimensions (0.0008 by default, capped at 0.3). Four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default). Disabling animation releases its three extra cached textures. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).
 
 The `adaptive` property is enabled by default. It follows 2D editor zoom and display scale with at least 1.5x supersampling, as well as runtime cameras and the 3D editor camera. `SVG3D` applies the larger projected local-axis density to both texture axes, preserving the SVG aspect ratio while rotated. Disable adaptive rendering to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.

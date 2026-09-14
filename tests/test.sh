@@ -22,7 +22,7 @@ fi
 
 cd "$root"
 scons platform="$platform" target=template_debug svg2d_scalar="$scalar"
-result=$("$godot" --resolution 64x48 --quit-after 180 --path "$root" --script tests/test.gd 2>&1)
+result=$("$godot" --resolution 64x48 --quit-after 300 --path "$root" --script tests/test.gd 2>&1)
 printf '%s\n' "$result"
 printf '%s\n' "$result" | grep -q "SVG2D / SVG3Dの試験に通ったよ"
 printf '%s\n' "$result" | grep -q "SVG2D profile max RMSE"
