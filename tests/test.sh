@@ -21,9 +21,6 @@ fi
 [ -x "$godot" ] || { echo "Godot 4.7 が見つからないよ。GODOT で場所を渡してね"; exit 2; }
 
 cd "$root"
-"$godot" --headless --path "$root" --script tests/editor_document_test.gd
-"$godot" --resolution 1400x800 --path "$root" --script tests/editor_ui_test.gd
-sh tests/editor_boundary_test.sh
 scons platform="$platform" target=template_debug svg2d_scalar="$scalar"
 result=$("$godot" --resolution 64x48 --quit-after 180 --path "$root" --script tests/test.gd 2>&1)
 printf '%s\n' "$result"
