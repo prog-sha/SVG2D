@@ -24,7 +24,7 @@
 			The size of one SVG unit in 3D space. Adaptive texture changes do not change this visible size.
 		</member>
 		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">
-			The complete SVG markup to render on the 3D sprite. Load an SVG file as text and assign its contents here.
+			An SVG file path to render on the 3D sprite, such as [code]res://art/icon.svg[/code]. Complete SVG markup is also accepted for compatibility and generated images.
 		</member>
 	</members>
 	<signals>

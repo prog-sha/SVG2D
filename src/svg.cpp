@@ -11,6 +11,7 @@
 #include "svg/raster.h"
 
 #include <godot_cpp/classes/camera3d.hpp>
+#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/classes/xml_parser.hpp>
@@ -1331,8 +1332,25 @@ static const double MAX_TEX = 4096.0;   // 1枚の画像が占めるメモリー
 void SVGTexture::set_src(const String &s) {
 	if (_src == s) return;
 	_src = s;
+	String text = s;
+	String path = s.strip_edges();
+	// Inspector では SVG を素材として選ぶ。従来どおり SVG 本文を直接渡す API も
+	// 壊さないため、Godot のファイルパスだけを読み替える。
+	if ((path.begins_with("res://") || path.begins_with("user://")) &&
+			path.get_extension().to_lower() == "svg") {
+		text = FileAccess::file_exists(path) ? FileAccess::get_file_as_string(path) : String();
+	}
+	// 未設定・空ファイル・見つからない素材は「絵なし」。空の XML を読ませると
+	// XMLParser 自身が ERR_INVALID_DATA を出すため、ここで静かに止める。
+	if (text.strip_edges().is_empty()) {
+		_doc.reset();
+		_tex.unref();
+		_baked = Vector2();
+		_dirty = true;
+		return;
+	}
 	_doc = std::make_unique<SVG>();
-	if (!_doc->parse(s)) _doc.reset();
+	if (!_doc->parse(text)) _doc.reset();
 	_dirty = true;
 }
 
@@ -1424,7 +1442,7 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG2D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG2D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 }
@@ -1525,7 +1543,7 @@ void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG3D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG3D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG3D::get_texture);
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pixel_size", PROPERTY_HINT_RANGE,
 			"0.0001,128,0.0001,or_greater,exp"), "set_pixel_size", "get_pixel_size");

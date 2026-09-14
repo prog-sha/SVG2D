@@ -20,11 +20,11 @@ SVG2D は、SVG を Godot の 2D・3D シーンに表示するための軽量な
 
 ## 使ってみよう
 
-2Dシーンでは `SVG2D`、3Dシーンでは `SVG3D` ノードを追加し、インスペクターから `src` に SVG の文字列を設定しよう。SVG文書の幅と高さが自然な寸法になるよ。画面上の寸法は `SVG2D` の変形やカメラで変えよう。`SVG3D` の空間内での寸法は `pixel_size` で調整しよう。
+2Dシーンでは `SVG2D`、3Dシーンでは `SVG3D` ノードを追加し、インスペクターの `src` にある **Open SVG…** から `.svg` 素材を選ぼう。選んだ絵と寸法もその場でプレビューできるよ。SVG文書の幅と高さが自然な寸法になるよ。画面上の寸法は `SVG2D` の変形やカメラで変えよう。`SVG3D` の空間内での寸法は `pixel_size` で調整しよう。
 
 ```gdscript
 var picture := SVG2D.new()
-picture.src = FileAccess.get_file_as_string("res://picture.svg")
+picture.src = "res://picture.svg"
 picture.scale = Vector2(2, 2)
 add_child(picture)
 ```

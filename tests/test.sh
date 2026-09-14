@@ -27,3 +27,7 @@ printf '%s\n' "$result"
 printf '%s\n' "$result" | grep -q "SVG2D / SVG3Dの試験に通ったよ"
 printf '%s\n' "$result" | grep -q "SVG2D profile max RMSE"
 printf '%s\n' "$result" | grep -q "SVG3D profile max RMSE"
+if printf '%s\n' "$result" | grep -q '^ERROR:'; then
+  echo "Godotがエラーを出したよ"
+  exit 1
+fi

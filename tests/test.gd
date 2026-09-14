@@ -294,17 +294,24 @@ func _run() -> void:
 		return
 	check_docs("SVG2D")
 	check_docs("SVG3D")
+	# 空入力や壊れた参照は XMLParser へ渡さず、絵なしとして扱う。
+	var empty: Node2D = ClassDB.instantiate("SVG2D")
+	empty.set("src", "res://tests/svg/not_found.svg")
+	check(empty.call("get_texture") == null, "存在しないSVG素材が空画像にならないよ")
+	empty.set("src", "")
+	check(empty.call("get_texture") == null, "srcを消したとき空画像にならないよ")
+	empty.free()
 	for path in ["hello.svg", "spec.svg", "spec2.svg"]:
-		var src := FileAccess.get_file_as_string("res://tests/svg/" + path)
 		var node: Node2D = ClassDB.instantiate("SVG2D")
-		node.set("src", src)
+		# SVG2D と SVG3D が同じファイル素材を直接読めることを保証する。
+		node.set("src", "res://tests/svg/" + path)
 		check(not has_property(node, "size"), "%sのSVG2Dにsizeが残っているよ" % path)
 		var texture: Texture2D = node.call("get_texture")
 		check(texture != null and texture.get_image().get_used_rect().has_area(), "%sを画像化できないよ" % path)
 		if texture != null:
 			digest.update(texture.get_image().get_data())
 		var node3: Node3D = ClassDB.instantiate("SVG3D")
-		node3.set("src", src)
+		node3.set("src", "res://tests/svg/" + path)
 		root.add_child(node3)
 		await process_frame
 		check(not has_property(node3, "size"), "%sのSVG3Dにsizeが残っているよ" % path)

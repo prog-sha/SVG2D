@@ -21,7 +21,7 @@
 			If [code]true[/code], redraws the SVG when its integer pixel dimensions in the viewport change. The current texture is reused while those dimensions stay unchanged. Each texture axis is limited to 4096 pixels.
 		</member>
 		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">
-			The complete SVG markup to render. Load an SVG file as text and assign its contents here.
+			An SVG file path to render, such as [code]res://art/icon.svg[/code]. Complete SVG markup is also accepted for compatibility and generated images.
 		</member>
 	</members>
 	<signals>

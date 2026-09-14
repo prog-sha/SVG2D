@@ -3,6 +3,7 @@
 	"type": "feature_profile",
 	"enabled_classes": [
 		"Camera3D",
+		"FileAccess",
 		"Image",
 		"ImageTexture",
 		"Node2D",
