@@ -640,6 +640,18 @@ static Path jitter_path(const Path &path, const Ctx &c) {
 	return out;
 }
 
+// 中心線の短径以上に太い閉路へ点ごとの揺れを先に掛けると、隣り合う線分の
+// 法線が反転し、マイター上限まで伸びた棘になる。通常の線の描き味は変えず、
+// この幾何条件だけは先に線の外周を作ってから、その外周を揺らす。
+static bool jitter_after_outline(const Path &path, double width) {
+	if (path.empty() || width <= 0.0) return false;
+	for (const Sub &sub : path)
+		if (!sub.closed) return false;
+	Rect2 box = path_box(path);
+	double short_side = std::min((double)box.size.x, (double)box.size.y);
+	return short_side > 1e-6 && width >= short_side;
+}
+
 // id を指す書きかた（url(#name) や #name）から札を探す。
 static SVG::Elem *find_ref(const Ctx &c, const String &raw) {
 	String s = raw.strip_edges();
@@ -1210,9 +1222,18 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 				uint64_t rk = mix(mix(SEED, rlook, sizeof(rlook)), st.dash.data(),
 						st.dash.size() * sizeof(double));
 				if (!b->ringed || b->rkey != rk) {
-					Path fine = tight < tol * 0.9 ? jitter_path(shape_of(e, tight, st), c) : b->fill;
-					Path src = st.dash.empty() ? fine : dashed(fine, st.dash, st.dash_off);
-					b->ring = outline(src, st.width, st.cap, st.join, st.miter, tol);
+					// 例外条件の判定には既にキャッシュ済みの中心線を使い、通常の線で
+					// shape_ofを余分に呼ばない。
+					bool post_outline = st.dash.empty() && jitter_after_outline(b->fill, st.width);
+					if (post_outline) {
+						Path plain = shape_of(e, tight < tol * 0.9 ? tight : tol, st);
+						b->ring = jitter_path(outline(plain, st.width, st.cap, st.join,
+								st.miter, tol), c);
+					} else {
+						Path fine = tight < tol * 0.9 ? jitter_path(shape_of(e, tight, st), c) : b->fill;
+						Path src = st.dash.empty() ? fine : dashed(fine, st.dash, st.dash_off);
+						b->ring = outline(src, st.width, st.cap, st.join, st.miter, tol);
+					}
 					b->rbox = path_box(b->ring);
 					b->rkey = rk;
 					b->ringed = true;

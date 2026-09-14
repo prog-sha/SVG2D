@@ -420,6 +420,29 @@ func check_jitter_animation() -> void:
 		"穴あきリングの外周と内周が別々に暴れているよ: %.3f px" % (ring_max_radius - ring_min_radius))
 	print("SVG shape motion: circle %.3f px, ring %.3f px, ring radius delta %.3f px" % [circle_motion, ring_motion, ring_max_radius - ring_min_radius])
 	motion.free()
+	# spec.svg の黒い極小円と同じ、直径より線幅が太い閉路を高解像度で焼く。
+	# 中心線を先に乱すと法線が反転し、マイターが本来の倍以上まで棘状に伸びる。
+	var thick_ring: Node2D = ClassDB.instantiate("SVG2D")
+	thick_ring.set("src", '<svg width="1024" height="1024" viewBox="0 0 400 400"><circle cx="200" cy="200" r="3" fill="none" stroke="black" stroke-width="9"/></svg>')
+	thick_ring.set("adaptive", false)
+	thick_ring.set("animation_enabled", true)
+	thick_ring.set("animation_interval", 1)
+	thick_ring.set("jitter_amount", 0.0022)
+	root.add_child(thick_ring)
+	var thick_hashes: Dictionary = {}
+	var thick_largest := 0
+	for i in 4:
+		var thick_image: Image = thick_ring.call("get_texture").get_image()
+		var thick_used := thick_image.get_used_rect()
+		thick_largest = max(thick_largest, thick_used.size.x, thick_used.size.y)
+		thick_hashes[hash(thick_image.get_data())] = true
+		await process_frame
+	check(thick_largest <= 48,
+		"線幅が直径以上の閉路でマイターが棘状に突出しているよ: %d px" % thick_largest)
+	check(thick_hashes.size() == 4,
+		"太い閉路を安全に外周化したあと4パターンへ変形できていないよ")
+	print("SVG overwide closed stroke: max %d px, 4 unique patterns" % thick_largest)
+	thick_ring.free()
 	svg.set("animation_enabled", false)
 	check(not svg.is_processing(), "AnimationをOFFに戻しても処理を続けているよ")
 	var flag3: Node3D = ClassDB.instantiate("SVG3D")
