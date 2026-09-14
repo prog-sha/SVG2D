@@ -20,7 +20,9 @@ The packaged add-on includes precompiled debug and release binaries for Windows 
 
 ## Usage
 
-Add an `SVG2D` node to a 2D scene or an `SVG3D` node to a 3D scene. Use **Open SVG…** on `src` in the Inspector to choose a `.svg` asset and preview both the artwork and its dimensions. The SVG document width and height define its natural dimensions, and you can drag anywhere inside the artwork to move it in the 2D editor. Transform `SVG2D` or adjust the camera to change its on-screen dimensions. On `SVG3D`, use `pixel_size` to control its dimensions in 3D space.
+Add an `SVG2D` node to a 2D scene or an `SVG3D` node to a 3D scene. Use **Open SVG…** on `src` in the Inspector to choose a `.svg` asset and preview both the artwork and its dimensions. The SVG document width and height define its natural dimensions, and visible pixels can be selected and dragged in both the 2D and 3D editors. Transform `SVG2D` or adjust the camera to change its on-screen dimensions. On `SVG3D`, use `pixel_size` to control its dimensions in 3D space.
+
+The Inspector's **Create Hitbox** section adds the same standard `StaticBody` + collision child hierarchy used by Godot's 3D mesh collision tools. **Rect** creates a rectangular collision shape. **Shape** traces the visible outer silhouettes into collision polygons (or a thin 3D concave shape); transparent holes are intentionally omitted.
 
 ```gdscript
 var picture := SVG2D.new()

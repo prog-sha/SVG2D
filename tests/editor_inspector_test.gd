@@ -3,6 +3,7 @@
 extends EditorPlugin
 
 const SVGSourceProperty = preload("res://addons/svg2d/editor/svg_source_property.gd")
+const SVGHitboxControl = preload("res://addons/svg2d/editor/svg_hitbox_control.gd")
 
 var failed := false
 
@@ -62,7 +63,11 @@ func run_checks() -> void:
 	check(svg_plugin != null, "SVG2Dの2D編集プラグインが動いていないよ")
 	if svg_plugin:
 		check(svg_plugin.call("svg_rect", node) == Rect2(0, 0, 100, 100), "SVGの編集矩形が自然寸法と違うよ")
-		var center: Vector2 = svg_plugin.call("screen_transform", node) * Vector2(50, 50)
+		check(svg_plugin.call("_handles", node), "SVG2Dを編集対象として扱っていないよ")
+		var transparent_hole: Vector2 = svg_plugin.call("screen_transform", node) * Vector2(70, 70)
+		check(svg_plugin.call("pick_svg2d", transparent_hole) == null,
+			"SVGの透明な穴までクリック判定になっているよ")
+		var center: Vector2 = svg_plugin.call("screen_transform", node) * Vector2(20, 20)
 		var press := InputEventMouseButton.new()
 		press.button_index = MOUSE_BUTTON_LEFT
 		press.pressed = true
@@ -101,6 +106,7 @@ func run_checks() -> void:
 	if svg_plugin:
 		svg_plugin.set_process(false)
 		svg_plugin.call("update_svg3d_editor_camera", test_camera)
+		check(svg_plugin.call("_handles", node3), "SVG3Dを編集対象として扱っていないよ")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var texture3: Texture2D = node3.call("get_texture")
@@ -114,6 +120,81 @@ func run_checks() -> void:
 	texture3 = node3.call("get_texture")
 	check(texture3 != null and texture3.get_size() == Vector2(900, 900),
 		"3Dエディターで拡大しても解像度が追従しないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
+
+	# 実際の3D編集入力経路で、不透明画素だけを選び、カメラ面に沿って移動する。
+	if svg_plugin:
+		var transparent_3d := test_camera.unproject_position(node3.to_global(Vector3(0.2, -0.2, 0.0)))
+		check(svg_plugin.call("pick_svg3d", test_camera, transparent_3d).is_empty(),
+			"SVG3Dの透明な穴までクリック判定になっているよ")
+		var opaque_3d := test_camera.unproject_position(node3.to_global(Vector3(-0.3, 0.3, 0.0)))
+		var press3 := InputEventMouseButton.new()
+		press3.button_index = MOUSE_BUTTON_LEFT
+		press3.pressed = true
+		press3.position = opaque_3d
+		check(svg_plugin.call("_forward_3d_gui_input", test_camera, press3) == EditorPlugin.AFTER_GUI_INPUT_STOP,
+			"SVG3Dの絵をクリックして選択できないよ")
+		var motion3 := InputEventMouseMotion.new()
+		motion3.button_mask = MOUSE_BUTTON_MASK_LEFT
+		motion3.position = opaque_3d + Vector2(48, 30)
+		svg_plugin.call("_forward_3d_gui_input", test_camera, motion3)
+		var moved3 := node3.position
+		var release3 := InputEventMouseButton.new()
+		release3.button_index = MOUSE_BUTTON_LEFT
+		release3.position = motion3.position
+		svg_plugin.call("_forward_3d_gui_input", test_camera, release3)
+		check(moved3 != Vector3.ZERO and node3.position == moved3,
+			"SVG3Dを不透明画素からドラッグ移動できないよ")
+
+	# InspectorのRect / ShapeがSprite3D等と同じ標準のStaticBody + Collision子ノードを作る。
+	# Shapeは穴を無視し、離れた2つの塗りを2つの外周として残す。
+	var silhouette_svg := "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>" \
+		+ "<path fill='#fff' fill-rule='evenodd' d='M5 5H55V55H5Z M20 20H40V40H20Z'/>" \
+		+ "<rect x='70' y='70' width='20' height='20' fill='#fff'/></svg>"
+	var hit_node_2d: Node2D = ClassDB.instantiate("SVG2D")
+	hit_node_2d.set("src", silhouette_svg)
+	scene_root.add_child(hit_node_2d)
+	hit_node_2d.owner = scene_root
+	var hitbox_2d := SVGHitboxControl.new()
+	add_child(hitbox_2d)
+	hitbox_2d.setup(hit_node_2d)
+	hitbox_2d.call("_create_rect")
+	var rect_area_2d := hit_node_2d.get_node_or_null("SVGRectBody2D") as StaticBody2D
+	check(rect_area_2d != null and rect_area_2d.get_child(0) is CollisionShape2D
+		and (rect_area_2d.get_child(0) as CollisionShape2D).shape is RectangleShape2D,
+		"SVG2D RectがStaticBody2D/CollisionShape2D構成を作らないよ")
+	hitbox_2d.call("_create_shape")
+	var shape_area_2d := hit_node_2d.get_node_or_null("SVGShapeBody2D") as StaticBody2D
+	check(shape_area_2d != null and shape_area_2d.get_child_count() == 2,
+		"SVG2D Shapeが穴を除いた2つの外周にならないよ")
+	if shape_area_2d:
+		for collision in shape_area_2d.get_children():
+			check(collision is CollisionPolygon2D and collision.polygon.size() >= 4,
+				"SVG2D Shapeの外周ポリゴンが壊れているよ")
+
+	var hit_node_3d: Node3D = ClassDB.instantiate("SVG3D")
+	hit_node_3d.set("src", silhouette_svg)
+	scene_root.add_child(hit_node_3d)
+	hit_node_3d.owner = scene_root
+	await get_tree().process_frame
+	var hitbox_3d := SVGHitboxControl.new()
+	add_child(hitbox_3d)
+	hitbox_3d.setup(hit_node_3d)
+	hitbox_3d.call("_create_rect")
+	var rect_area_3d := hit_node_3d.get_node_or_null("SVGRectBody3D") as StaticBody3D
+	check(rect_area_3d != null and rect_area_3d.get_child(0) is CollisionShape3D
+		and (rect_area_3d.get_child(0) as CollisionShape3D).shape is BoxShape3D,
+		"SVG3D RectがStaticBody3D/CollisionShape3D構成を作らないよ")
+	hitbox_3d.call("_create_shape")
+	var shape_area_3d := hit_node_3d.get_node_or_null("SVGShapeBody3D") as StaticBody3D
+	var shape_collision_3d := shape_area_3d.get_child(0) as CollisionShape3D if shape_area_3d else null
+	var concave := shape_collision_3d.shape as ConcavePolygonShape3D if shape_collision_3d else null
+	check(concave != null and concave.get_faces().size() > 36,
+		"SVG3D Shapeが外周から薄いConcavePolygonShape3Dを作らないよ")
+	check(shape_area_3d != null and shape_area_3d.owner == scene_root
+		and shape_collision_3d.owner == scene_root,
+		"作った3D当たり判定がシーン保存対象になっていないよ")
+	hitbox_2d.free()
+	hitbox_3d.free()
 	if svg_plugin:
 		svg_plugin.set_process(true)
 	test_view.free()

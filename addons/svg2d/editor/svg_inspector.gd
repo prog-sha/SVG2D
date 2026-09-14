@@ -3,6 +3,7 @@
 extends EditorInspectorPlugin
 
 const SVGSourceProperty = preload("svg_source_property.gd")
+const SVGHitboxControl = preload("svg_hitbox_control.gd")
 
 func _can_handle(object: Object) -> bool:
 	return object != null and (object.is_class("SVG2D") or object.is_class("SVG3D"))
@@ -20,3 +21,8 @@ func _parse_property(
 		return false
 	add_property_editor(name, SVGSourceProperty.new())
 	return true
+
+func _parse_end(object: Object) -> void:
+	var hitbox := SVGHitboxControl.new()
+	hitbox.setup(object)
+	add_custom_control(hitbox)

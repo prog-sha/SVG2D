@@ -1814,6 +1814,7 @@ void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG3D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG3D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG3D::get_texture);
+	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVG3D::get_svg_size);
 	ClassDB::bind_method(D_METHOD("set_jitter_amount", "amount"), &SVG3D::set_jitter_amount);
 	ClassDB::bind_method(D_METHOD("get_jitter_amount"), &SVG3D::get_jitter_amount);
 	ClassDB::bind_method(D_METHOD("set_animation_interval", "frames"), &SVG3D::set_animation_interval);

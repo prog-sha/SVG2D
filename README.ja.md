@@ -4,6 +4,8 @@
 
 SVG2D は、SVG を Godot の 2D・3D シーンに表示するための軽量な GDExtension アドオンだよ。2Dでは `SVG2D`、3Dでは `SVG3D` ノードを使おう。どちらも画面上の描画領域を整数画素で見て解像度を更新し、同じ画素数の間は画像を使い回すよ。`SVG3D` を同じ奥行きで左右へ移動し、投影寸法が変わらないときも画像を使い回すよ。
 
+エディターではSVGの不透明な絵をクリックして2D・3Dノードをドラッグできるよ。Inspectorの **Create Hitbox** にある **Rect** はGodot標準の `StaticBody` + 矩形Collision子ノードを、**Shape** は透明な穴を除いたSVG外周から2Dポリゴンまたは薄い3D形状を自動生成するよ。
+
 配布済みのアドオンは Godot 4.7 以降、Windows x86_64、macOS Universal に対応しているよ。導入方法、使い方、対応している SVG 機能は [`addons/svg2d/README.ja.md`](addons/svg2d/README.ja.md) を見てね。
 
 ## ソースから組み立てよう

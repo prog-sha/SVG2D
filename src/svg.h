@@ -246,6 +246,8 @@ public:
 	void set_editor_camera(godot::Camera3D *camera);
 	// 内部の3D板が使っている画像を返す。
 	godot::Ref<godot::Texture2D> get_texture() const;
+	// SVG文書の自然寸法。エディターのクリック判定と当たり判定生成にも使う。
+	godot::Vector2 get_svg_size() const { return _svg.draw_size(); }
 };
 
 } // namespace svg2d
