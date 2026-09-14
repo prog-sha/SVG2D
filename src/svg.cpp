@@ -1789,8 +1789,15 @@ void SVG3D::set_editor_camera(Camera3D *camera) {
 		_editor_density_active = false;
 		return;
 	}
-	_editor_density = _density_for_camera(camera);
+	Vector2 density = _density_for_camera(camera);
+	bool changed = !_editor_density_active || density != _editor_density;
+	_editor_density = density;
 	_editor_density_active = true;
+	// エディター起動直後は、SVGのdeferred refreshが3D viewport/cameraの初期化より
+	// 先に走ることがある。その低い暫定画像をキャッシュしたままにせず、カメラの
+	// 投影寸法が届いた時点で自発的に更新する。Node::_processの実行順には依存しない。
+	if (_adaptive && changed && _svg.needs(_editor_density, _animation_pattern, true))
+		_queue_refresh();
 }
 
 Ref<Texture2D> SVG3D::get_texture() const {

@@ -98,20 +98,28 @@ func run_checks() -> void:
 	test_camera.position = Vector3(0, 0, 10)
 	test_view.add_child(test_camera)
 	test_camera.current = true
+	if svg_plugin:
+		# 初回3D画面がまだ有効でない状態を再現する。
+		svg_plugin.set_process(false)
 	var node3: Node3D = ClassDB.instantiate("SVG3D")
 	node3.set("jitter_amount", 0.0)
 	node3.set("src", "res://tests/svg/hello.svg")
 	scene_root.add_child(node3)
 	node3.owner = scene_root
+	node3.set_process(false)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var initial_texture3: Texture2D = node3.call("get_texture")
+	check(initial_texture3 != null and initial_texture3.get_size() == Vector2(150, 150),
+		"3D編集カメラ初期化前の暫定画像を再現できないよ")
 	if svg_plugin:
-		svg_plugin.set_process(false)
 		svg_plugin.call("update_svg3d_editor_camera", test_camera)
 		check(svg_plugin.call("_handles", node3), "SVG3Dを編集対象として扱っていないよ")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var texture3: Texture2D = node3.call("get_texture")
 	check(texture3 != null and texture3.get_size() == Vector2(450, 450),
-		"3Dエディター投影寸法の1.5倍で画像化されないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
+		"初回の暫定キャッシュが3Dエディター投影寸法の1.5倍へ更新されないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
 	test_camera.size = 1.0
 	if svg_plugin:
 		svg_plugin.call("update_svg3d_editor_camera", test_camera)
