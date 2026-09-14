@@ -586,19 +586,29 @@ static Path jitter_path(const Path &path, const Ctx &c) {
 	Path out = path;
 	Vector2 amount((float)(c.jitter_span.x * c.jitter),
 			(float)(c.jitter_span.y * c.jitter));
-	// 形全体の移動を主体にする。穴を含む複数subpathにも同じ移動を掛けることで、
-	// ドーナツの外周と内周が別方向へ暴れないようにする。
+	// 形全体の移動を主体にする。中心を乱数へ直接混ぜると、4 seedの最小・最大の
+	// 偏りが形ごとに変わり、特定のドーナツだけフレーム間で約2倍動くことがある。
+	// 一定半径の4点を形ごとに位相だけ変えて巡回し、すべての形の振幅をそろえる。
 	Rect2 box = path_box(path);
 	Vector2 center = box.position + box.size * 0.5f;
-	Vector2 shift(amount.x * 0.75f * jitter_unit(c.jitter_seed, 0, 0, 0, center),
-			amount.y * 0.75f * jitter_unit(c.jitter_seed, 0, 0, 1, center));
+	uint32_t center_key = (uint32_t)std::llround((double)center.x * 1024.0) * 0x27d4eb2du;
+	center_key ^= (uint32_t)std::llround((double)center.y * 1024.0) * 0x165667b1u;
+	static const Vector2 steps[4] = {
+		Vector2(-1, 0), Vector2(0, -1), Vector2(1, 0), Vector2(0, 1)
+	};
+	int phase = (int)(jitter_hash(center_key) & 3u);
+	Vector2 step = steps[(size_t)((c.jitter_seed - 1 + phase) & 3)];
+	// 基準移動の直径0.88 + 輪郭変形の最大差0.10 = 0.98。
+	// したがって4枚のどの2枚を比べてもJITTER指定量を越えない。
+	Vector2 shift(amount.x * 0.44f * step.x, amount.y * 0.44f * step.y);
 	for (size_t si = 0; si < out.size(); si++) {
 		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
 			const Vector2 original = out[si].p[pi];
-			out[si].p[pi].x += shift.x + amount.x * 0.25f *
-					jitter_unit(c.jitter_seed, si, pi, 0, original);
-			out[si].p[pi].y += shift.y + amount.y * 0.25f *
-					jitter_unit(c.jitter_seed, si, pi, 1, original);
+			Vector2 local(jitter_unit(c.jitter_seed, si, pi, 0, original),
+					jitter_unit(c.jitter_seed, si, pi, 1, original));
+			if (local.length_squared() > 1.0f) local = local.normalized();
+			out[si].p[pi].x += shift.x + amount.x * 0.05f * local.x;
+			out[si].p[pi].y += shift.y + amount.y * 0.05f * local.y;
 		}
 	}
 	return out;

@@ -408,8 +408,12 @@ func check_jitter_animation() -> void:
 			ring_motion = max(ring_motion, Vector2(ring_stats[i].x, ring_stats[i].y).distance_to(Vector2(ring_stats[j].x, ring_stats[j].y)))
 		ring_min_radius = min(ring_min_radius, ring_stats[i].z)
 		ring_max_radius = max(ring_max_radius, ring_stats[i].z)
+	var requested_motion := 1024.0 * 0.0008
 	check(circle_motion > 0.15, "単色円の重心が4パターンで動いていないよ: %.3f px" % circle_motion)
-	check(ring_motion <= 2.0, "穴あきリングが既定ぶれ量以上に動きすぎるよ: %.3f px" % ring_motion)
+	check(circle_motion <= requested_motion + 0.03,
+		"単色円がJITTER指定量以上に動いているよ: %.3f > %.3f px" % [circle_motion, requested_motion])
+	check(ring_motion <= requested_motion + 0.03,
+		"穴あきリングがJITTER指定量以上に動いているよ: %.3f > %.3f px" % [ring_motion, requested_motion])
 	check(ring_max_radius - ring_min_radius <= 0.75,
 		"穴あきリングの外周と内周が別々に暴れているよ: %.3f px" % (ring_max_radius - ring_min_radius))
 	print("SVG shape motion: circle %.3f px, ring %.3f px, ring radius delta %.3f px" % [circle_motion, ring_motion, ring_max_radius - ring_min_radius])
