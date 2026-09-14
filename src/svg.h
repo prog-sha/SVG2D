@@ -207,6 +207,8 @@ private:
 	// 現在のCamera3Dから画面上の拡大率を返す。
 	godot::Vector2 _density() const;
 	godot::Vector2 _density_for_camera(godot::Camera3D *camera) const;
+	// 3D編集カメラがまだ無い間も、低解像度画像を見せないための一時密度。
+	godot::Vector2 _editor_fallback_density() const;
 	// まとまった設定変更のあと、入力に対応する画像を3Dの板へ反映する。
 	void _queue_refresh();
 	void _refresh();

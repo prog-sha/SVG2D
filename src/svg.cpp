@@ -11,6 +11,7 @@
 #include "svg/raster.h"
 
 #include <godot_cpp/classes/camera3d.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/resource_uid.hpp>
@@ -1415,6 +1416,7 @@ Ref<Image> SVG::render(int w, int h, double jitter, int seed) const {
 // --- 画像を2D・3Dへ置くノード ---
 
 static const double MAX_TEX = 4096.0;   // 1枚の画像が占めるメモリーを最大64 MiBに抑える
+static const double EDITOR_FALLBACK_TEX = 2048.0; // 3D viewport初期化前だけ使う最大辺
 
 void SVGTexture::set_src(const String &s) {
 	if (_src == s) return;
@@ -1681,12 +1683,30 @@ Vector2 SVG3D::_density() const {
 	if (_editor_density_active) return _editor_density;
 	Viewport *view = get_viewport();
 	Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
+	if (camera == nullptr && Engine::get_singleton()->is_editor_hint())
+		return _editor_fallback_density();
 	return _density_for_camera(camera);
+}
+
+Vector2 SVG3D::_editor_fallback_density() const {
+	Vector2 size = _svg.draw_size();
+	double longest = std::max((double)size.x, (double)size.y);
+	if (longest <= 0.0) return Vector2(1.5f, 1.5f);
+	double density = std::max(1.5, EDITOR_FALLBACK_TEX / longest);
+	return Vector2((float)density, (float)density);
 }
 
 Vector2 SVG3D::_density_for_camera(Camera3D *camera) const {
 	Vector2 size = _svg.draw_size();
-	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return Vector2(1.5f, 1.5f);
+	if (size.x <= 0.0f || size.y <= 0.0f) return Vector2(1.5f, 1.5f);
+	bool editor = Engine::get_singleton()->is_editor_hint();
+	if (camera == nullptr) return editor ? _editor_fallback_density() : Vector2(1.5f, 1.5f);
+	Viewport *camera_view = camera->get_viewport();
+	Vector2 viewport_size = camera_view == nullptr ? Vector2() : camera_view->get_visible_rect().size;
+	// 起動直後の3D SubViewportはCamera3Dだけ先に存在し、表示面がまだ0に近い。
+	// その投影値を有効なキャッシュ寸法として採用しない。
+	if (editor && (viewport_size.x < 64.0f || viewport_size.y < 64.0f))
+		return _editor_fallback_density();
 	Transform3D t = get_global_transform();
 	double hw = size.x * _pixel_size * 0.5;
 	double hh = size.y * _pixel_size * 0.5;
@@ -1699,13 +1719,15 @@ Vector2 SVG3D::_density_for_camera(Camera3D *camera) const {
 	// 透視投影でカメラをまたぐ板は上限画素で保護する。
 	int behind = 0;
 	for (const Vector3 &p : world) behind += camera->is_position_behind(p) ? 1 : 0;
-	if (behind == 4) return Vector2(1.5f, 1.5f);
+	if (behind == 4) return editor ? _editor_fallback_density() : Vector2(1.5f, 1.5f);
 	if (behind > 0) return Vector2((float)(MAX_TEX / size.x), (float)(MAX_TEX / size.y));
 	Vector2 screen[4];
 	for (int i = 0; i < 4; i++) screen[i] = camera->unproject_position(world[i]);
 	// 斜めの板は近い辺ほど大きく見えるため、対向する辺の長い方を使う。
 	double w = std::max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]));
 	double h = std::max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]));
+	if (editor && (!std::isfinite(w) || !std::isfinite(h) || (w < 1.0 && h < 1.0)))
+		return _editor_fallback_density();
 	return Vector2((float)(w * 1.5 / size.x), (float)(h * 1.5 / size.y));
 }
 

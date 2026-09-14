@@ -110,8 +110,22 @@ func run_checks() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var initial_texture3: Texture2D = node3.call("get_texture")
-	check(initial_texture3 != null and initial_texture3.get_size() == Vector2(150, 150),
-		"3D編集カメラ初期化前の暫定画像を再現できないよ")
+	check(initial_texture3 != null and initial_texture3.get_size() == Vector2(2048, 2048),
+		"3D編集カメラ初期化前に高精細な暫定画像を作らないよ: %s" %
+		(initial_texture3.get_size() if initial_texture3 else Vector2.ZERO))
+	if svg_plugin:
+		svg_plugin.call("update_svg3d_editor_camera", null)
+	await get_tree().process_frame
+	check(node3.call("get_texture").get_size() == Vector2(2048, 2048),
+		"カメラ未取得通知で暫定画像が低解像度へ戻ったよ")
+	test_camera.position = Vector3.ZERO
+	if svg_plugin:
+		svg_plugin.call("update_svg3d_editor_camera", test_camera)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(node3.call("get_texture").get_size() == Vector2(2048, 2048),
+		"未初期化の3D編集カメラを低解像度キャッシュとして採用したよ")
+	test_camera.position = Vector3(0, 0, 10)
 	if svg_plugin:
 		svg_plugin.call("update_svg3d_editor_camera", test_camera)
 		check(svg_plugin.call("_handles", node3), "SVG3Dを編集対象として扱っていないよ")

@@ -30,7 +30,7 @@
 			Number of rendered frames to hold each jitter pattern. The four fixed patterns cycle in order.
 		</member>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
-			If [code]true[/code], redraws the SVG at no less than 1.5 times its projected pixel dimensions through the active camera. The current texture is reused while those dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
+			If [code]true[/code], redraws the SVG at no less than 1.5 times its projected pixel dimensions through the active camera. Before the 3D editor camera is initialized, a temporary texture with a 2048-pixel longest edge prevents a low-resolution first view. The current texture is reused while dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
 		</member>
 		<member name="flip_h" type="bool" setter="set_flip_h" getter="is_flipped_h" default="false">
 			Mirrors the rendered SVG horizontally.
