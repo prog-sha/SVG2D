@@ -10,9 +10,12 @@
 #include "svg/paint.h"
 #include "svg/raster.h"
 
+#include <godot_cpp/classes/camera3d.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/classes/xml_parser.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
@@ -1280,34 +1283,88 @@ Ref<Image> SVG::render(int w, int h) const {
 
 // --- 画像を2D・3Dへ置くノード ---
 
+static const double MAX_TEX = 4096.0;   // 1枚の画像が占めるメモリーを最大64 MiBに抑える
+
 void SVGTexture::set_src(const String &s) {
+	if (_src == s) return;
 	_src = s;
 	_doc = std::make_unique<SVG>();
 	if (!_doc->parse(s)) _doc.reset();
-	_baked = Vector2(0, 0);
+	_level = 0.0;
+	_dirty = true;
 }
 
 void SVGTexture::set_size(const Vector2 &s) {
+	if (_size == s) return;
 	_size = s;
-	_baked = Vector2(0, 0);
+	_level = 0.0;
+	_dirty = true;
 }
 
-// いまの大きさで焼く。大きさが変わっていなければ、前に焼いたものを使い回す。
-Ref<Texture2D> SVGTexture::get_texture() {
+Vector2 SVGTexture::draw_size() const {
+	if (_size.x > 0.0f && _size.y > 0.0f) return _size;
+	return _doc == nullptr ? Vector2() : _doc->doc_size();
+}
+
+// 必要値を2倍刻みに切り上げ、拡大中の画像化回数を対数回へ抑える。
+Vector2 SVGTexture::_target(double density, double &level) const {
+	Vector2 base = draw_size();
+	if (_doc == nullptr || base.x <= 0.0f || base.y <= 0.0f) {
+		level = 0.0;
+		return Vector2();
+	}
+	double cap = std::min(MAX_TEX / base.x, MAX_TEX / base.y);
+	double need = std::max(1.0, std::isfinite(density) ? density : 1.0);
+	level = std::min(1.0, cap);
+	while (level < need && level < cap) level = std::min(level * 2.0, cap);
+	// 段階を下げる境界に20%の余裕を持たせ、拡大率の小さな揺れによる描き直しを防ぐ。
+	if (_level > level && need * 2.5 > _level) level = _level;
+	return Vector2((float)std::max(1.0, std::ceil(base.x * level)),
+			(float)std::max(1.0, std::ceil(base.y * level)));
+}
+
+bool SVGTexture::needs(double density) const {
+	double level;
+	Vector2 target = _target(density, level);
+	return _dirty || target != _baked;
+}
+
+// いまの画面密度で焼く。段階が変わっていなければ、前に焼いたものを使い回す。
+Ref<Texture2D> SVGTexture::get_texture(double density) {
 	if (_doc == nullptr) {
 		_tex.unref();
+		_baked = Vector2();
+		_level = 0.0;
+		_dirty = false;
 		return _tex;
 	}
-	Vector2 want = (_size.x > 0.0f && _size.y > 0.0f) ? _size : _doc->doc_size();
-	if (_tex.is_valid() && _baked == want) return _tex;
-	Ref<Image> img = _doc->render((int)std::round(want.x), (int)std::round(want.y));
+	double level;
+	Vector2 target = _target(density, level);
+	if (!_dirty && _tex.is_valid() && _baked == target) return _tex;
+	Ref<Image> img = _doc->render((int)target.x, (int)target.y);
 	if (img.is_null()) {
 		_tex.unref();
 		return _tex;
 	}
-	_tex = ImageTexture::create_from_image(img);
-	_baked = want;
+	if (_tex.is_valid() && _baked == target) {
+		_tex->update(img);
+	} else {
+		_tex = ImageTexture::create_from_image(img);
+	}
+	_baked = target;
+	_level = level;
+	_dirty = false;
 	return _tex;
+}
+
+SVG2D::SVG2D() {
+	set_process(true);
+}
+
+double SVG2D::_density() const {
+	if (!_adaptive || !is_inside_tree()) return 1.0;
+	Transform2D t = get_global_transform_with_canvas();
+	return std::max((double)t[0].length(), (double)t[1].length());
 }
 
 void SVG2D::set_src(const String &s) {
@@ -1320,14 +1377,27 @@ void SVG2D::set_size(const Vector2 &s) {
 	queue_redraw();
 }
 
+void SVG2D::set_adaptive(bool enabled) {
+	if (_adaptive == enabled) return;
+	_adaptive = enabled;
+	set_process(enabled);
+	queue_redraw();
+}
+
+void SVG2D::_process(double) {
+	if (is_visible_in_tree() && _svg.needs(_density())) queue_redraw();
+}
+
 void SVG2D::_draw() {
 	Ref<Texture2D> tex = get_texture();
-	if (tex.is_valid()) draw_texture(tex, Vector2(0, 0));
+	Vector2 size = _svg.draw_size();
+	if (tex.is_valid() && size.x > 0.0f && size.y > 0.0f)
+		draw_texture_rect(tex, Rect2(Vector2(), size), false);
 }
 
 // いまの設定で焼いた画像を、ほかの 2D 描画でも使える形で返す。
 Ref<Texture2D> SVG2D::get_texture() {
-	return _svg.get_texture();
+	return _svg.get_texture(_density());
 }
 
 void SVG2D::_bind_methods() {
@@ -1335,20 +1405,58 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_src"), &SVG2D::get_src);
 	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG2D::set_size);
 	ClassDB::bind_method(D_METHOD("get_size"), &SVG2D::get_size);
+	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG2D::set_adaptive);
+	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG2D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
 			"set_src", "get_src");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 }
 
 SVG3D::SVG3D() {
-	// SVG の色を照明から切り離し、2Dで焼いた色をそのまま見せる。
-	set_draw_flag(SpriteBase3D::FLAG_SHADED, false);
+	set_process(true);
+}
+
+void SVG3D::_ensure_sprite() {
+	if (_sprite != nullptr) return;
+	_sprite = memnew(Sprite3D);
+	_sprite->set_name("SVG");
+	_sprite->set_draw_flag(SpriteBase3D::FLAG_SHADED, false);
+	add_child(_sprite, false, Node::INTERNAL_MODE_BACK);
+}
+
+double SVG3D::_density() const {
+	if (!_adaptive || !is_inside_tree()) return 1.0;
+	Viewport *view = get_viewport();
+	Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
+	Vector2 size = _svg.draw_size();
+	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return 1.0;
+	Transform3D t = get_global_transform();
+	Vector3 at = t.get_origin();
+	if (camera->is_position_behind(at)) return 1.0;
+	double hw = size.x * _pixel_size * 0.5;
+	double hh = size.y * _pixel_size * 0.5;
+	double w = camera->unproject_position(t.xform(Vector3((float)hw, 0, 0))).distance_to(
+			camera->unproject_position(t.xform(Vector3((float)-hw, 0, 0))));
+	double h = camera->unproject_position(t.xform(Vector3(0, (float)hh, 0))).distance_to(
+			camera->unproject_position(t.xform(Vector3(0, (float)-hh, 0))));
+	return std::max(w / size.x, h / size.y);
 }
 
 void SVG3D::_refresh() {
 	_queued = false;
-	Sprite3D::set_texture(_svg.get_texture());
+	_ensure_sprite();
+	Ref<Texture2D> tex = _svg.get_texture(_density());
+	_sprite->set_texture(tex);
+	_sprite->set_pixel_size((float)_pixel_size);
+	// 焼いた画像の縦横を別々に縮め、切り上げや上限があっても空間内の大きさを保つ。
+	Vector2 base = _svg.draw_size();
+	Vector2 baked = tex.is_valid() ? tex->get_size() : Vector2();
+	Vector3 scale(1, 1, 1);
+	if (base.x > 0.0f && base.y > 0.0f && baked.x > 0.0f && baked.y > 0.0f)
+		scale = Vector3(base.x / baked.x, base.y / baked.y, 1);
+	_sprite->set_scale(scale);
 }
 
 void SVG3D::_queue_refresh() {
@@ -1367,14 +1475,44 @@ void SVG3D::set_size(const Vector2 &s) {
 	_queue_refresh();
 }
 
+void SVG3D::set_pixel_size(double size) {
+	double value = std::isfinite(size) ? std::max(0.0001, size) : 0.01;
+	if (_pixel_size == value) return;
+	_pixel_size = value;
+	_queue_refresh();
+}
+
+void SVG3D::set_adaptive(bool enabled) {
+	if (_adaptive == enabled) return;
+	_adaptive = enabled;
+	set_process(enabled);
+	_queue_refresh();
+}
+
+Ref<Texture2D> SVG3D::get_texture() const {
+	return _sprite == nullptr ? Ref<Texture2D>() : _sprite->get_texture();
+}
+
+void SVG3D::_process(double) {
+	if (is_visible_in_tree() && _svg.needs(_density())) _queue_refresh();
+}
+
 void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_src", "text"), &SVG3D::set_src);
 	ClassDB::bind_method(D_METHOD("get_src"), &SVG3D::get_src);
 	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG3D::set_size);
 	ClassDB::bind_method(D_METHOD("get_size"), &SVG3D::get_size);
+	ClassDB::bind_method(D_METHOD("set_pixel_size", "size"), &SVG3D::set_pixel_size);
+	ClassDB::bind_method(D_METHOD("get_pixel_size"), &SVG3D::get_pixel_size);
+	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG3D::set_adaptive);
+	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG3D::is_adaptive);
+	ClassDB::bind_method(D_METHOD("get_texture"), &SVG3D::get_texture);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
 			"set_src", "get_src");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pixel_size", PROPERTY_HINT_RANGE,
+			"0.0001,128,0.0001,or_greater,exp"), "set_pixel_size", "get_pixel_size");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 }
 
 } // namespace svg2d

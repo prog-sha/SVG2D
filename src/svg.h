@@ -22,7 +22,9 @@
 #define SVG2D_SVG_H
 
 #include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/node2d.hpp>
+#include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/sprite3d.hpp>
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -88,8 +90,13 @@ private:
 	godot::String _src;
 	godot::Vector2 _size = godot::Vector2(0, 0);
 	std::unique_ptr<SVG> _doc;
-	godot::Ref<godot::Texture2D> _tex;
+	godot::Ref<godot::ImageTexture> _tex;
 	godot::Vector2 _baked = godot::Vector2(0, 0);
+	double _level = 0.0;
+	bool _dirty = true;
+
+	// 画面密度を更新回数の少ない解像度段階へ丸める。
+	godot::Vector2 _target(double density, double &level) const;
 
 public:
 	// SVG の中身を読み、次の取得時に新しい画像を作れる状態へする。
@@ -98,8 +105,12 @@ public:
 	// 焼く画素数を決め、次の取得時に新しい画像を作れる状態へする。
 	void set_size(const godot::Vector2 &s);
 	godot::Vector2 get_size() const { return _size; }
-	// 現在の入力と画素数に対応する画像を返す。
-	godot::Ref<godot::Texture2D> get_texture();
+	// SVGが場面内で占める基準サイズを返す。
+	godot::Vector2 draw_size() const;
+	// 指定した画面密度で画像を作り直す必要があるかを返す。
+	bool needs(double density) const;
+	// 現在の入力と画面密度に対応する画像を返す。
+	godot::Ref<godot::Texture2D> get_texture(double density = 1.0);
 };
 
 // SVG を画面へ置くノード。
@@ -110,32 +121,48 @@ class SVG2D : public godot::Node2D {
 
 private:
 	SVGTexture _svg;
+	bool _adaptive = true;
+
+	// ローカル座標からViewport座標への拡大率を返す。
+	double _density() const;
 
 protected:
 	static void _bind_methods();
 
 public:
+	SVG2D();
 	void _draw() override;
+	void _process(double delta) override;
 	// SVG の中身を入れる。入れると次に描くときに焼き直す。
 	void set_src(const godot::String &s);
 	godot::String get_src() const { return _svg.get_src(); }
 	// 出す大きさ。0 なら札に書いてある大きさをそのまま使う。
 	void set_size(const godot::Vector2 &s);
 	godot::Vector2 get_size() const { return _svg.get_size(); }
+	// 画面上の大きさに合わせた自動解像度を切り替える。
+	void set_adaptive(bool enabled);
+	bool is_adaptive() const { return _adaptive; }
 	// ノードが貼る画像を返す。Sprite2D など別の描き手でも使える。
 	godot::Ref<godot::Texture2D> get_texture();
 };
 
 // SVG を3D空間の板へ置くノード。
-// 責務: SVGを画像にし、Sprite3Dの面へ貼ること。
-// 設計思想: 画像の細かさは size、空間内の大きさは継承した pixel_size で分けて扱う。
-class SVG3D : public godot::Sprite3D {
-	GDCLASS(SVG3D, godot::Sprite3D)
+// 責務: SVGを画像にし、画面上の占有画素数に合う細かさで3Dの面へ貼ること。
+// 設計思想: 利用者の変形と内部画像の縮尺を分け、解像度を変えても空間内の大きさを保つ。
+class SVG3D : public godot::Node3D {
+	GDCLASS(SVG3D, godot::Node3D)
 
 private:
 	SVGTexture _svg;
+	godot::Sprite3D *_sprite = nullptr;
+	double _pixel_size = 0.01;
+	bool _adaptive = true;
 	bool _queued = false;
 
+	// 画像を貼る内部ノードを必要になった時点で作る。
+	void _ensure_sprite();
+	// 現在のCamera3Dから画面上の拡大率を返す。
+	double _density() const;
 	// まとまった設定変更のあと、入力に対応する画像を3Dの板へ反映する。
 	void _queue_refresh();
 	void _refresh();
@@ -145,12 +172,21 @@ protected:
 
 public:
 	SVG3D();
+	void _process(double delta) override;
 	// SVG の中身を入れ、3Dの板を描き直す。
 	void set_src(const godot::String &s);
 	godot::String get_src() const { return _svg.get_src(); }
 	// 焼く画素数を決め、3Dの板を描き直す。
 	void set_size(const godot::Vector2 &s);
 	godot::Vector2 get_size() const { return _svg.get_size(); }
+	// SVGの1画素を3D空間で何単位にするかを決める。
+	void set_pixel_size(double size);
+	double get_pixel_size() const { return _pixel_size; }
+	// 画面上の大きさに合わせた自動解像度を切り替える。
+	void set_adaptive(bool enabled);
+	bool is_adaptive() const { return _adaptive; }
+	// 内部の3D板が使っている画像を返す。
+	godot::Ref<godot::Texture2D> get_texture() const;
 };
 
 } // namespace svg2d
