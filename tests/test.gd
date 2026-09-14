@@ -55,6 +55,30 @@ func image_max_delta(a: Image, b: Image) -> int:
 		found = max(found, absi(aa[i] - bb[i]))
 	return found
 
+# 指定領域にある不透明度の重心と、重心からの二乗平均半径を返す。
+# 形全体の移動と、輪郭だけが暴れる変形を分けて検査するために使う。
+func alpha_stats(image: Image, region: Rect2i) -> Vector3:
+	var data := image.get_data()
+	var width := image.get_width()
+	var weight := 0.0
+	var sx := 0.0
+	var sy := 0.0
+	for y in range(region.position.y, region.end.y):
+		for x in range(region.position.x, region.end.x):
+			var alpha := float(data[(y * width + x) * 4 + 3])
+			weight += alpha
+			sx += x * alpha
+			sy += y * alpha
+	if weight <= 0.0:
+		return Vector3.ZERO
+	var center := Vector2(sx / weight, sy / weight)
+	var moment := 0.0
+	for y in range(region.position.y, region.end.y):
+		for x in range(region.position.x, region.end.x):
+			var alpha := float(data[(y * width + x) * 4 + 3])
+			moment += Vector2(x, y).distance_squared_to(center) * alpha
+	return Vector3(center.x, center.y, sqrt(moment / weight))
+
 # 直接その寸法で画像化し、表示先と同じ掛け合わせ済み透明色へそろえる。
 func expected_at(w: int, h: int) -> Image:
 	var node: Node2D = ClassDB.instantiate("SVG2D")
@@ -78,6 +102,7 @@ func check_docs(name: String) -> void:
 	check(xml.contains('<member name="src"'), "%sのsrc説明がないよ" % name)
 	check(xml.contains('<member name="adaptive"'), "%sのadaptive説明がないよ" % name)
 	check(xml.contains('<member name="jitter_amount"'), "%sのjitter_amount説明がないよ" % name)
+	check(xml.contains('<member name="animation_enabled"'), "%sのanimation_enabled説明がないよ" % name)
 	check(xml.contains('<member name="animation_interval"'), "%sのanimation_interval説明がないよ" % name)
 	check(xml.contains('<member name="flip_h"'), "%sのflip_h説明がないよ" % name)
 	check(xml.contains('<member name="offset"'), "%sのoffset説明がないよ" % name)
@@ -286,13 +311,36 @@ func check_large_profile() -> void:
 func check_jitter_animation() -> void:
 	var markup := '<svg width="64" height="48" viewBox="0 0 64 48"><path d="M5 39 L13 8 L31 32 L48 6 L59 40 Z" fill="#111" stroke="#f34" stroke-width="3"/></svg>'
 	var svg: Node2D = ClassDB.instantiate("SVG2D")
-	check(is_equal_approx(svg.get("jitter_amount"), 0.0025), "既定のぶれ量が0.0025でないよ")
+	check(is_equal_approx(svg.get("jitter_amount"), 0.0008), "既定のぶれ量が0.0008でないよ")
+	check(not svg.get("animation_enabled"), "アニメーションが既定でOFFでないよ")
 	check(svg.get("animation_interval") == 10, "既定のアニメ間隔が10フレームでないよ")
+	var jitter_hint := ""
+	for info in svg.get_property_list():
+		if info.name == &"jitter_amount":
+			jitter_hint = info.hint_string
+	check(jitter_hint == "0,0.3,0.0001", "Inspectorのjitter_amount範囲が0〜0.3でないよ: %s" % jitter_hint)
 	svg.set("src", markup)
 	svg.set("adaptive", false)
 	svg.set("jitter_amount", 0.03)
 	root.add_child(svg)
-	var held: RID = svg.call("get_texture").get_rid()
+	await process_frame # Nodeの仮想_process自動有効化後、自身で不要な監視を止める。
+	check(not svg.is_processing(), "Animation OFF・adaptive OFFなのに処理を続けているよ")
+	var plain: Texture2D = svg.call("get_texture")
+	var plain_rid := plain.get_rid()
+	var plain_hash := hash(plain.get_image().get_data())
+	for i in 12:
+		await process_frame
+		check(svg.call("get_texture").get_rid() == plain_rid, "Animation OFFなのに画像が切り替わるよ")
+	check(hash(svg.call("get_texture").get_image().get_data()) == plain_hash,
+		"Animation OFFなのにパスへぶれが掛かるよ")
+	svg.set("jitter_amount", 0.9)
+	check(is_equal_approx(svg.get("jitter_amount"), 0.3), "jitter_amountが最大0.3で制限されないよ")
+	svg.set("jitter_amount", 0.03)
+	svg.set("animation_enabled", true)
+	check(svg.is_processing(), "Animation ONなのに処理が始まらないよ")
+	var held_texture: Texture2D = svg.call("get_texture")
+	var held: RID = held_texture.get_rid()
+	check(hash(held_texture.get_image().get_data()) != plain_hash, "Animation ONでもパスがぶれないよ")
 	for i in 9:
 		await process_frame
 		check(svg.call("get_texture").get_rid() == held, "既定10フレームより前にパターンが変わるよ")
@@ -318,6 +366,7 @@ func check_jitter_animation() -> void:
 	again.set("src", markup)
 	again.set("adaptive", false)
 	again.set("jitter_amount", 0.03)
+	again.set("animation_enabled", true)
 	var again_hash: int = hash(again.call("get_texture").get_image().get_data())
 	check(again_hash == hashes[0], "固定seed 1の揺れが再生成時に変わるよ")
 	again.free()
@@ -326,6 +375,7 @@ func check_jitter_animation() -> void:
 	large.set("src", markup.replace('width="64" height="48"', 'width="128" height="96"'))
 	large.set("adaptive", false)
 	large.set("jitter_amount", 0.03)
+	large.set("animation_enabled", true)
 	var small_rect: Rect2i = svg.call("get_texture").get_image().get_used_rect()
 	var large_rect: Rect2i = large.call("get_texture").get_image().get_used_rect()
 	check(Vector2(large_rect.position).distance_to(Vector2(small_rect.position) * 2.0) <= 3.0,
@@ -333,6 +383,52 @@ func check_jitter_animation() -> void:
 	check(Vector2(large_rect.size).distance_to(Vector2(small_rect.size) * 2.0) <= 3.0,
 		"画像を2倍にしたときぶれ量が寸法比で保たれないよ")
 	large.free()
+	# 単色円も輪郭変形だけでなく重心が動くこと、穴あきリングは指定量以上に
+	# 外周と内周がばらばらにならないことを実際の4枚の画像から測る。
+	var motion: Node2D = ClassDB.instantiate("SVG2D")
+	motion.set("src", '<svg width="1024" height="768" viewBox="0 0 64 48"><circle cx="16" cy="24" r="8" fill="red"/><path d="M48 15 A9 9 0 1 1 47.99 15 Z M48 19 A5 5 0 1 0 47.99 19 Z" fill="blue" fill-rule="evenodd"/></svg>')
+	motion.set("adaptive", false)
+	motion.set("animation_enabled", true)
+	motion.set("animation_interval", 1)
+	root.add_child(motion)
+	var circle_stats: Array[Vector3] = []
+	var ring_stats: Array[Vector3] = []
+	for i in 4:
+		var image: Image = motion.call("get_texture").get_image()
+		circle_stats.push_back(alpha_stats(image, Rect2i(0, 0, 512, 768)))
+		ring_stats.push_back(alpha_stats(image, Rect2i(512, 0, 512, 768)))
+		await process_frame
+	var circle_motion := 0.0
+	var ring_motion := 0.0
+	var ring_min_radius := INF
+	var ring_max_radius := 0.0
+	for i in 4:
+		for j in range(i + 1, 4):
+			circle_motion = max(circle_motion, Vector2(circle_stats[i].x, circle_stats[i].y).distance_to(Vector2(circle_stats[j].x, circle_stats[j].y)))
+			ring_motion = max(ring_motion, Vector2(ring_stats[i].x, ring_stats[i].y).distance_to(Vector2(ring_stats[j].x, ring_stats[j].y)))
+		ring_min_radius = min(ring_min_radius, ring_stats[i].z)
+		ring_max_radius = max(ring_max_radius, ring_stats[i].z)
+	check(circle_motion > 0.15, "単色円の重心が4パターンで動いていないよ: %.3f px" % circle_motion)
+	check(ring_motion <= 2.0, "穴あきリングが既定ぶれ量以上に動きすぎるよ: %.3f px" % ring_motion)
+	check(ring_max_radius - ring_min_radius <= 0.75,
+		"穴あきリングの外周と内周が別々に暴れているよ: %.3f px" % (ring_max_radius - ring_min_radius))
+	print("SVG shape motion: circle %.3f px, ring %.3f px, ring radius delta %.3f px" % [circle_motion, ring_motion, ring_max_radius - ring_min_radius])
+	motion.free()
+	svg.set("animation_enabled", false)
+	check(not svg.is_processing(), "AnimationをOFFに戻しても処理を続けているよ")
+	var flag3: Node3D = ClassDB.instantiate("SVG3D")
+	check(not flag3.get("animation_enabled") and is_equal_approx(flag3.get("jitter_amount"), 0.0008),
+		"SVG3DのAnimationまたはjitter_amount既定値が違うよ")
+	flag3.set("src", markup)
+	flag3.set("adaptive", false)
+	root.add_child(flag3)
+	await process_frame
+	check(not flag3.is_processing(), "SVG3DのAnimation OFF・adaptive OFFで処理を続けているよ")
+	flag3.set("animation_enabled", true)
+	check(flag3.is_processing(), "SVG3DのAnimation ONで処理が始まらないよ")
+	flag3.set("animation_enabled", false)
+	check(not flag3.is_processing(), "SVG3DのAnimation OFFで処理が止まらないよ")
+	flag3.free()
 	print("SVG jitter cache: 4 unique patterns, pattern 5 reused pattern 1 RID")
 	svg.free()
 

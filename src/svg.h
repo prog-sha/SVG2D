@@ -103,7 +103,8 @@ private:
 	godot::String _src;
 	std::unique_ptr<SVG> _doc;
 	std::array<Frame, 4> _frames;
-	double _jitter_amount = 0.0025;
+	double _jitter_amount = 0.0008;
+	bool _jitter_enabled = false;
 
 	// 画面密度を実際に必要な整数画素数へ丸める。
 	godot::Vector2 _target(const godot::Vector2 &density) const;
@@ -121,6 +122,8 @@ public:
 			int pattern = 0, bool mipmaps = false);
 	void set_jitter_amount(double amount);
 	double get_jitter_amount() const { return _jitter_amount; }
+	void set_jitter_enabled(bool enabled);
+	bool is_jitter_enabled() const { return _jitter_enabled; }
 };
 
 // SVG を画面へ置くノード。
@@ -138,6 +141,7 @@ private:
 	int _animation_interval = 10;
 	int _animation_tick = 0;
 	int _animation_pattern = 0;
+	bool _animation_enabled = false;
 
 	// ローカル座標からViewport座標への拡大率を返す。
 	godot::Vector2 _density() const;
@@ -161,6 +165,8 @@ public:
 	double get_jitter_amount() const { return _svg.get_jitter_amount(); }
 	void set_animation_interval(int frames);
 	int get_animation_interval() const { return _animation_interval; }
+	void set_animation_enabled(bool enabled);
+	bool is_animation_enabled() const { return _animation_enabled; }
 	void set_flip_h(bool enabled);
 	bool is_flipped_h() const { return _flip_h; }
 	void set_flip_v(bool enabled);
@@ -192,6 +198,7 @@ private:
 	int _animation_interval = 10;
 	int _animation_tick = 0;
 	int _animation_pattern = 0;
+	bool _animation_enabled = false;
 	bool _editor_density_active = false;
 	godot::Vector2 _editor_density = godot::Vector2(1.5, 1.5);
 
@@ -225,6 +232,8 @@ public:
 	double get_jitter_amount() const { return _svg.get_jitter_amount(); }
 	void set_animation_interval(int frames);
 	int get_animation_interval() const { return _animation_interval; }
+	void set_animation_enabled(bool enabled);
+	bool is_animation_enabled() const { return _animation_enabled; }
 	void set_flip_h(bool enabled);
 	bool is_flipped_h() const { return _flip_h; }
 	void set_flip_v(bool enabled);

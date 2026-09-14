@@ -586,11 +586,19 @@ static Path jitter_path(const Path &path, const Ctx &c) {
 	Path out = path;
 	Vector2 amount((float)(c.jitter_span.x * c.jitter),
 			(float)(c.jitter_span.y * c.jitter));
+	// 形全体の移動を主体にする。穴を含む複数subpathにも同じ移動を掛けることで、
+	// ドーナツの外周と内周が別方向へ暴れないようにする。
+	Rect2 box = path_box(path);
+	Vector2 center = box.position + box.size * 0.5f;
+	Vector2 shift(amount.x * 0.75f * jitter_unit(c.jitter_seed, 0, 0, 0, center),
+			amount.y * 0.75f * jitter_unit(c.jitter_seed, 0, 0, 1, center));
 	for (size_t si = 0; si < out.size(); si++) {
 		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
 			const Vector2 original = out[si].p[pi];
-			out[si].p[pi].x += amount.x * jitter_unit(c.jitter_seed, si, pi, 0, original);
-			out[si].p[pi].y += amount.y * jitter_unit(c.jitter_seed, si, pi, 1, original);
+			out[si].p[pi].x += shift.x + amount.x * 0.25f *
+					jitter_unit(c.jitter_seed, si, pi, 0, original);
+			out[si].p[pi].y += shift.y + amount.y * 0.25f *
+					jitter_unit(c.jitter_seed, si, pi, 1, original);
 		}
 	}
 	return out;
@@ -1422,10 +1430,28 @@ bool SVGTexture::needs(const Vector2 &density, int pattern, bool mipmaps) const 
 }
 
 void SVGTexture::set_jitter_amount(double amount) {
-	double value = std::isfinite(amount) ? std::clamp(amount, 0.0, 1.0) : 0.0025;
+	double value = std::isfinite(amount) ? std::clamp(amount, 0.0, 0.3) : 0.0008;
 	if (_jitter_amount == value) return;
 	_jitter_amount = value;
-	for (Frame &frame : _frames) frame.dirty = true;
+	if (!_jitter_enabled) return;
+	_frames[0].dirty = true;
+	if (value <= 0.0) {
+		for (size_t i = 1; i < _frames.size(); i++) _frames[i] = Frame();
+	} else {
+		for (Frame &frame : _frames) frame.dirty = true;
+	}
+}
+
+void SVGTexture::set_jitter_enabled(bool enabled) {
+	if (_jitter_enabled == enabled) return;
+	_jitter_enabled = enabled;
+	_frames[0].dirty = true;
+	if (enabled && _jitter_amount > 0.0) {
+		for (Frame &frame : _frames) frame.dirty = true;
+	} else {
+		// OFFでは通常画像1枚だけに戻し、アニメ用3枚のGPUメモリーを解放する。
+		for (size_t i = 1; i < _frames.size(); i++) _frames[i] = Frame();
+	}
 }
 
 // いまの画面密度で焼く。固定seed 1〜4の各画像は別々に控え、5枚目を作らない。
@@ -1440,7 +1466,8 @@ Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool
 	if (!frame.dirty && frame.texture.is_valid() && frame.baked == target &&
 			frame.mipmaps == mipmaps)
 		return frame.texture;
-	Ref<Image> img = _doc->render((int)target.x, (int)target.y, _jitter_amount,
+	Ref<Image> img = _doc->render((int)target.x, (int)target.y,
+			_jitter_enabled ? _jitter_amount : 0.0,
 			((pattern % 4 + 4) % 4) + 1);
 	if (img.is_null()) {
 		frame.texture.unref();
@@ -1483,6 +1510,10 @@ void SVG2D::set_adaptive(bool enabled) {
 }
 
 void SVG2D::_process(double) {
+	if (!_adaptive && (!_animation_enabled || _svg.get_jitter_amount() <= 0.0)) {
+		set_process(false);
+		return;
+	}
 	if (!is_visible_in_tree()) return;
 	if (_advance_animation() || _svg.needs(_density(), _animation_pattern)) queue_redraw();
 }
@@ -1504,11 +1535,11 @@ Ref<Texture2D> SVG2D::get_texture() {
 }
 
 void SVG2D::_update_processing() {
-	set_process(_adaptive || _svg.get_jitter_amount() > 0.0);
+	set_process(_adaptive || (_animation_enabled && _svg.get_jitter_amount() > 0.0));
 }
 
 bool SVG2D::_advance_animation() {
-	if (_svg.get_jitter_amount() <= 0.0) return false;
+	if (!_animation_enabled || _svg.get_jitter_amount() <= 0.0) return false;
 	if (++_animation_tick < _animation_interval) return false;
 	_animation_tick = 0;
 	_animation_pattern = (_animation_pattern + 1) % 4;
@@ -1528,6 +1559,16 @@ void SVG2D::set_animation_interval(int frames) {
 	if (_animation_interval == value) return;
 	_animation_interval = value;
 	_animation_tick = 0;
+}
+
+void SVG2D::set_animation_enabled(bool enabled) {
+	if (_animation_enabled == enabled) return;
+	_animation_enabled = enabled;
+	_svg.set_jitter_enabled(enabled);
+	_animation_tick = 0;
+	_animation_pattern = 0;
+	_update_processing();
+	queue_redraw();
 }
 
 void SVG2D::set_flip_h(bool enabled) {
@@ -1559,6 +1600,8 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_jitter_amount"), &SVG2D::get_jitter_amount);
 	ClassDB::bind_method(D_METHOD("set_animation_interval", "frames"), &SVG2D::set_animation_interval);
 	ClassDB::bind_method(D_METHOD("get_animation_interval"), &SVG2D::get_animation_interval);
+	ClassDB::bind_method(D_METHOD("set_animation_enabled", "enabled"), &SVG2D::set_animation_enabled);
+	ClassDB::bind_method(D_METHOD("is_animation_enabled"), &SVG2D::is_animation_enabled);
 	ClassDB::bind_method(D_METHOD("set_flip_h", "enabled"), &SVG2D::set_flip_h);
 	ClassDB::bind_method(D_METHOD("is_flipped_h"), &SVG2D::is_flipped_h);
 	ClassDB::bind_method(D_METHOD("set_flip_v", "enabled"), &SVG2D::set_flip_v);
@@ -1568,8 +1611,10 @@ void SVG2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_GROUP("Animation", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "animation_enabled"),
+			"set_animation_enabled", "is_animation_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "jitter_amount", PROPERTY_HINT_RANGE,
-			"0,0.1,0.0001,or_greater"), "set_jitter_amount", "get_jitter_amount");
+			"0,0.3,0.0001"), "set_jitter_amount", "get_jitter_amount");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "animation_interval", PROPERTY_HINT_RANGE,
 			"1,120,1,or_greater"), "set_animation_interval", "get_animation_interval");
 	ADD_GROUP("Appearance", "");
@@ -1679,11 +1724,11 @@ void SVG3D::set_adaptive(bool enabled) {
 }
 
 void SVG3D::_update_processing() {
-	set_process(_adaptive || _svg.get_jitter_amount() > 0.0);
+	set_process(_adaptive || (_animation_enabled && _svg.get_jitter_amount() > 0.0));
 }
 
 bool SVG3D::_advance_animation() {
-	if (_svg.get_jitter_amount() <= 0.0) return false;
+	if (!_animation_enabled || _svg.get_jitter_amount() <= 0.0) return false;
 	if (++_animation_tick < _animation_interval) return false;
 	_animation_tick = 0;
 	_animation_pattern = (_animation_pattern + 1) % 4;
@@ -1703,6 +1748,16 @@ void SVG3D::set_animation_interval(int frames) {
 	if (_animation_interval == value) return;
 	_animation_interval = value;
 	_animation_tick = 0;
+}
+
+void SVG3D::set_animation_enabled(bool enabled) {
+	if (_animation_enabled == enabled) return;
+	_animation_enabled = enabled;
+	_svg.set_jitter_enabled(enabled);
+	_animation_tick = 0;
+	_animation_pattern = 0;
+	_update_processing();
+	_queue_refresh();
 }
 
 void SVG3D::set_flip_h(bool enabled) {
@@ -1743,6 +1798,10 @@ Ref<Texture2D> SVG3D::get_texture() const {
 }
 
 void SVG3D::_process(double) {
+	if (!_adaptive && (!_animation_enabled || _svg.get_jitter_amount() <= 0.0)) {
+		set_process(false);
+		return;
+	}
 	if (is_visible_in_tree() && (_advance_animation() ||
 			_svg.needs(_density(), _animation_pattern, true))) _queue_refresh();
 }
@@ -1759,6 +1818,8 @@ void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_jitter_amount"), &SVG3D::get_jitter_amount);
 	ClassDB::bind_method(D_METHOD("set_animation_interval", "frames"), &SVG3D::set_animation_interval);
 	ClassDB::bind_method(D_METHOD("get_animation_interval"), &SVG3D::get_animation_interval);
+	ClassDB::bind_method(D_METHOD("set_animation_enabled", "enabled"), &SVG3D::set_animation_enabled);
+	ClassDB::bind_method(D_METHOD("is_animation_enabled"), &SVG3D::is_animation_enabled);
 	ClassDB::bind_method(D_METHOD("set_flip_h", "enabled"), &SVG3D::set_flip_h);
 	ClassDB::bind_method(D_METHOD("is_flipped_h"), &SVG3D::is_flipped_h);
 	ClassDB::bind_method(D_METHOD("set_flip_v", "enabled"), &SVG3D::set_flip_v);
@@ -1771,8 +1832,10 @@ void SVG3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_GROUP("Animation", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "animation_enabled"),
+			"set_animation_enabled", "is_animation_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "jitter_amount", PROPERTY_HINT_RANGE,
-			"0,0.1,0.0001,or_greater"), "set_jitter_amount", "get_jitter_amount");
+			"0,0.3,0.0001"), "set_jitter_amount", "get_jitter_amount");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "animation_interval", PROPERTY_HINT_RANGE,
 			"1,120,1,or_greater"), "set_animation_interval", "get_animation_interval");
 	ADD_GROUP("Appearance", "");
