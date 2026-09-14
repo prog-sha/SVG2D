@@ -563,6 +563,24 @@ static size_t path_bytes(const Path &p) {
 // うごメモの線のような「沸き」を、毎回同じ4枚だけ作る。
 // 時刻やOSの乱数は使わず、seed 1〜4と図形内座標だけから値を決めるため、再読込しても
 // 同じ絵になり、焼いた4枚をそのまま循環利用できる。
+static uint32_t jitter_hash(uint32_t value) {
+	value ^= value >> 16;
+	value *= 0x7feb352du;
+	value ^= value >> 15;
+	value *= 0x846ca68bu;
+	return value ^ (value >> 16);
+}
+
+static float jitter_unit(int seed, size_t sub, size_t point, int axis, const Vector2 &position) {
+	uint32_t key = (uint32_t)seed;
+	key ^= (uint32_t)(sub + 1) * 0x9e3779b9u;
+	key ^= (uint32_t)(point + 1) * 0x85ebca6bu;
+	key ^= (uint32_t)(axis + 1) * 0xc2b2ae35u;
+	key ^= (uint32_t)std::llround((double)position.x * 1024.0) * 0x27d4eb2du;
+	key ^= (uint32_t)std::llround((double)position.y * 1024.0) * 0x165667b1u;
+	return (float)((double)(jitter_hash(key) & 0x00ffffffu) / 8388607.5 - 1.0);
+}
+
 // 閉じた輪郭は面積重心、開いた線は頂点平均を返す。
 static Vector2 sub_center(const Sub &sub) {
 	if (sub.closed && sub.p.size() >= 3) {
@@ -588,34 +606,35 @@ static Path jitter_path(const Path &path, const Ctx &c) {
 	Path out = path;
 	Vector2 amount((float)(c.jitter_span.x * c.jitter),
 			(float)(c.jitter_span.y * c.jitter));
-	// 全体移動は加えず、中心を固定した輪郭変形だけを作る。座標反転に対して変位も
-	// 反転する奇関数なので、円やドーナツのような点対称図形は重心が動かない。
-	Rect2 box = path_box(path);
-	Vector2 center = box.position + box.size * 0.5f;
-	double bw = std::max((double)box.size.x, 1e-6);
-	double bh = std::max((double)box.size.y, 1e-6);
-	double phase = (double)(c.jitter_seed - 1) * Math::TAU * 0.25;
+	// 全体移動も補間も加えず、輪郭の各点をseed 1〜4の固定乱数で直接ずらす。
 	for (size_t si = 0; si < out.size(); si++) {
 		Vector2 fixed_center = sub_center(out[si]);
 		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
 			const Vector2 &original = out[si].p[pi];
-			// 中心から外向きの低周波波形で輪郭を膨張・収縮させる。4周波と6周波は
-			// どちらも偶数なので、反対側の点は必ず逆向きに同量動き、中心は動かない。
-			double x = ((double)original.x - center.x) / bw;
-			double y = ((double)original.y - center.y) / bh;
-			Vector2 radial((float)x, (float)y);
-			if (radial.length_squared() <= 1e-12f) continue;
-			radial.normalize();
-			double angle = std::atan2(y, x);
-			float wave = (float)(0.72 * std::sin(angle * 4.0 + phase) +
-					0.28 * std::sin(angle * 6.0 - phase));
-			out[si].p[pi].x += amount.x * 0.40f * wave * radial.x;
-			out[si].p[pi].y += amount.y * 0.40f * wave * radial.y;
+			Vector2 random(jitter_unit(c.jitter_seed, si, pi, 0, original),
+					jitter_unit(c.jitter_seed, si, pi, 1, original));
+			if (random.length_squared() > 1.0f) random.normalize();
+			out[si].p[pi].x += amount.x * 0.38f * random.x;
+			out[si].p[pi].y += amount.y * 0.38f * random.y;
 		}
 		// 輪郭変形で生じた面積重心のずれを戻す。これはアニメ用の移動ではなく、
 		// 元の位置を保つための補正で、外周と穴の各subpathへ別々に適用する。
 		Vector2 correction = fixed_center - sub_center(out[si]);
 		for (Vector2 &point : out[si].p) point += correction;
+		// 重心補正を含めた最大変位を測り、4枚間の差がJITTERを越えないよう
+		// 基準形からの各変位を同じ比率で縮める。
+		float longest = 0.0f;
+		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
+			Vector2 delta = out[si].p[pi] - path[si].p[pi];
+			Vector2 ratio(amount.x > 0.0f ? delta.x / amount.x : 0.0f,
+					amount.y > 0.0f ? delta.y / amount.y : 0.0f);
+			longest = std::max(longest, ratio.length());
+		}
+		if (longest > 0.49f) {
+			float scale = 0.49f / longest;
+			for (size_t pi = 0; pi < out[si].p.size(); pi++)
+				out[si].p[pi] = path[si].p[pi] + (out[si].p[pi] - path[si].p[pi]) * scale;
+		}
 	}
 	return out;
 }
