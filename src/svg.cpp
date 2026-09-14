@@ -561,24 +561,26 @@ static size_t path_bytes(const Path &p) {
 }
 
 // うごメモの線のような「沸き」を、毎回同じ4枚だけ作る。
-// 時刻やOSの乱数は使わず、seed 1〜4と点番号だけから値を決めるため、再読込しても
+// 時刻やOSの乱数は使わず、seed 1〜4と図形内座標だけから値を決めるため、再読込しても
 // 同じ絵になり、焼いた4枚をそのまま循環利用できる。
-static uint32_t jitter_hash(uint32_t value) {
-	value ^= value >> 16;
-	value *= 0x7feb352du;
-	value ^= value >> 15;
-	value *= 0x846ca68bu;
-	return value ^ (value >> 16);
-}
-
-static float jitter_unit(int seed, size_t sub, size_t point, int axis, const Vector2 &position) {
-	uint32_t key = (uint32_t)seed;
-	key ^= (uint32_t)(sub + 1) * 0x9e3779b9u;
-	key ^= (uint32_t)(point + 1) * 0x85ebca6bu;
-	key ^= (uint32_t)(axis + 1) * 0xc2b2ae35u;
-	key ^= (uint32_t)std::llround((double)position.x * 1024.0) * 0x27d4eb2du;
-	key ^= (uint32_t)std::llround((double)position.y * 1024.0) * 0x165667b1u;
-	return (float)((double)(jitter_hash(key) & 0x00ffffffu) / 8388607.5 - 1.0);
+// 閉じた輪郭は面積重心、開いた線は頂点平均を返す。
+static Vector2 sub_center(const Sub &sub) {
+	if (sub.closed && sub.p.size() >= 3) {
+		double twice_area = 0.0, sx = 0.0, sy = 0.0;
+		for (size_t i = 0; i < sub.p.size(); i++) {
+			const Vector2 &a = sub.p[i];
+			const Vector2 &b = sub.p[(i + 1) % sub.p.size()];
+			double cross = (double)a.x * b.y - (double)b.x * a.y;
+			twice_area += cross;
+			sx += ((double)a.x + b.x) * cross;
+			sy += ((double)a.y + b.y) * cross;
+		}
+		if (std::abs(twice_area) > 1e-9)
+			return Vector2((float)(sx / (3.0 * twice_area)), (float)(sy / (3.0 * twice_area)));
+	}
+	Vector2 center;
+	for (const Vector2 &point : sub.p) center += point;
+	return sub.p.empty() ? center : center / (float)sub.p.size();
 }
 
 static Path jitter_path(const Path &path, const Ctx &c) {
@@ -586,30 +588,34 @@ static Path jitter_path(const Path &path, const Ctx &c) {
 	Path out = path;
 	Vector2 amount((float)(c.jitter_span.x * c.jitter),
 			(float)(c.jitter_span.y * c.jitter));
-	// 形全体の移動を主体にする。中心を乱数へ直接混ぜると、4 seedの最小・最大の
-	// 偏りが形ごとに変わり、特定のドーナツだけフレーム間で約2倍動くことがある。
-	// 一定半径の4点を形ごとに位相だけ変えて巡回し、すべての形の振幅をそろえる。
+	// 全体移動は加えず、中心を固定した輪郭変形だけを作る。座標反転に対して変位も
+	// 反転する奇関数なので、円やドーナツのような点対称図形は重心が動かない。
 	Rect2 box = path_box(path);
 	Vector2 center = box.position + box.size * 0.5f;
-	uint32_t center_key = (uint32_t)std::llround((double)center.x * 1024.0) * 0x27d4eb2du;
-	center_key ^= (uint32_t)std::llround((double)center.y * 1024.0) * 0x165667b1u;
-	static const Vector2 steps[4] = {
-		Vector2(-1, 0), Vector2(0, -1), Vector2(1, 0), Vector2(0, 1)
-	};
-	int phase = (int)(jitter_hash(center_key) & 3u);
-	Vector2 step = steps[(size_t)((c.jitter_seed - 1 + phase) & 3)];
-	// 基準移動の直径0.88 + 輪郭変形の最大差0.10 = 0.98。
-	// したがって4枚のどの2枚を比べてもJITTER指定量を越えない。
-	Vector2 shift(amount.x * 0.44f * step.x, amount.y * 0.44f * step.y);
+	double bw = std::max((double)box.size.x, 1e-6);
+	double bh = std::max((double)box.size.y, 1e-6);
+	double phase = (double)(c.jitter_seed - 1) * Math::TAU * 0.25;
 	for (size_t si = 0; si < out.size(); si++) {
+		Vector2 fixed_center = sub_center(out[si]);
 		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
-			const Vector2 original = out[si].p[pi];
-			Vector2 local(jitter_unit(c.jitter_seed, si, pi, 0, original),
-					jitter_unit(c.jitter_seed, si, pi, 1, original));
-			if (local.length_squared() > 1.0f) local = local.normalized();
-			out[si].p[pi].x += shift.x + amount.x * 0.05f * local.x;
-			out[si].p[pi].y += shift.y + amount.y * 0.05f * local.y;
+			const Vector2 &original = out[si].p[pi];
+			// 中心から外向きの低周波波形で輪郭を膨張・収縮させる。4周波と6周波は
+			// どちらも偶数なので、反対側の点は必ず逆向きに同量動き、中心は動かない。
+			double x = ((double)original.x - center.x) / bw;
+			double y = ((double)original.y - center.y) / bh;
+			Vector2 radial((float)x, (float)y);
+			if (radial.length_squared() <= 1e-12f) continue;
+			radial.normalize();
+			double angle = std::atan2(y, x);
+			float wave = (float)(0.72 * std::sin(angle * 4.0 + phase) +
+					0.28 * std::sin(angle * 6.0 - phase));
+			out[si].p[pi].x += amount.x * 0.40f * wave * radial.x;
+			out[si].p[pi].y += amount.y * 0.40f * wave * radial.y;
 		}
+		// 輪郭変形で生じた面積重心のずれを戻す。これはアニメ用の移動ではなく、
+		// 元の位置を保つための補正で、外周と穴の各subpathへ別々に適用する。
+		Vector2 correction = fixed_center - sub_center(out[si]);
+		for (Vector2 &point : out[si].p) point += correction;
 	}
 	return out;
 }

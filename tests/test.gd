@@ -393,10 +393,14 @@ func check_jitter_animation() -> void:
 	root.add_child(motion)
 	var circle_stats: Array[Vector3] = []
 	var ring_stats: Array[Vector3] = []
+	var circle_shape_hashes: Dictionary = {}
+	var ring_shape_hashes: Dictionary = {}
 	for i in 4:
 		var image: Image = motion.call("get_texture").get_image()
 		circle_stats.push_back(alpha_stats(image, Rect2i(0, 0, 512, 768)))
 		ring_stats.push_back(alpha_stats(image, Rect2i(512, 0, 512, 768)))
+		circle_shape_hashes[hash(image.get_region(Rect2i(0, 0, 512, 768)).get_data())] = true
+		ring_shape_hashes[hash(image.get_region(Rect2i(512, 0, 512, 768)).get_data())] = true
 		await process_frame
 	var circle_motion := 0.0
 	var ring_motion := 0.0
@@ -408,12 +412,10 @@ func check_jitter_animation() -> void:
 			ring_motion = max(ring_motion, Vector2(ring_stats[i].x, ring_stats[i].y).distance_to(Vector2(ring_stats[j].x, ring_stats[j].y)))
 		ring_min_radius = min(ring_min_radius, ring_stats[i].z)
 		ring_max_radius = max(ring_max_radius, ring_stats[i].z)
-	var requested_motion := 1024.0 * 0.0008
-	check(circle_motion > 0.15, "単色円の重心が4パターンで動いていないよ: %.3f px" % circle_motion)
-	check(circle_motion <= requested_motion + 0.03,
-		"単色円がJITTER指定量以上に動いているよ: %.3f > %.3f px" % [circle_motion, requested_motion])
-	check(ring_motion <= requested_motion + 0.03,
-		"穴あきリングがJITTER指定量以上に動いているよ: %.3f > %.3f px" % [ring_motion, requested_motion])
+	check(circle_motion <= 0.08, "単色円が輪郭変形ではなく移動しているよ: %.3f px" % circle_motion)
+	check(ring_motion <= 0.08, "穴あきリングが輪郭変形ではなく移動しているよ: %.3f px" % ring_motion)
+	check(circle_shape_hashes.size() == 4, "単色円の輪郭が4パターンに変形していないよ")
+	check(ring_shape_hashes.size() == 4, "穴あきリングの輪郭が4パターンに変形していないよ")
 	check(ring_max_radius - ring_min_radius <= 0.75,
 		"穴あきリングの外周と内周が別々に暴れているよ: %.3f px" % (ring_max_radius - ring_min_radius))
 	print("SVG shape motion: circle %.3f px, ring %.3f px, ring radius delta %.3f px" % [circle_motion, ring_motion, ring_max_radius - ring_min_radius])

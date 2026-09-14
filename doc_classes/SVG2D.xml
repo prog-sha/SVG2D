@@ -39,7 +39,7 @@
 			Mirrors the SVG vertically inside its natural rectangle.
 		</member>
 		<member name="jitter_amount" type="float" setter="set_jitter_amount" getter="get_jitter_amount" default="0.0008">
-			Maximum peak-to-peak path movement across the four cached frames, as a ratio of the SVG document dimensions. The shape moves as a whole while a smaller part of the amount deforms its outline. Used when [member animation_enabled] is enabled.
+			Maximum peak-to-peak outline deformation across the four cached frames, as a ratio of the SVG document dimensions. No whole-shape translation is added. Used when [member animation_enabled] is enabled.
 		</member>
 		<member name="offset" type="Vector2" setter="set_offset" getter="get_offset" default="Vector2(0, 0)">
 			Moves the rendered SVG in its local coordinate system without changing its raster resolution.

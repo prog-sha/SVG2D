@@ -31,7 +31,7 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
-アニメーションは初めはOFFだよ。`animation_enabled` をONにすると、`jitter_amount`（既定0.0008、最大0.3）を絵の縦横に対するぶれ率として使うよ。seed 1〜4で固定した4枚だけを作り、`animation_interval`（既定10フレーム）ごとに順番に切り替えるよ。OFFに戻すとアニメ用3枚のキャッシュも解放するよ。
+アニメーションは初めはOFFだよ。`animation_enabled` をONにすると、形全体は移動させず、`jitter_amount`（既定0.0008、最大0.3）を絵の縦横に対する輪郭の最大変形率として使うよ。seed 1〜4で固定した4枚だけを作り、`animation_interval`（既定10フレーム）ごとに順番に切り替えるよ。OFFに戻すとアニメ用3枚のキャッシュも解放するよ。
 
 2D・3Dとも `flip_h`、`flip_v`、`offset` を使えるよ。色と透明度は `modulate` で変えよう（2DではCanvasItem共通のVisibility欄、3DではAppearance欄）。
 
