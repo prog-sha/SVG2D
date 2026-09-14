@@ -33,7 +33,7 @@ add_child(picture)
 
 Animation is disabled by default. Enable `animation_enabled` to deform path outlines without translating the whole shape. `jitter_amount` is the maximum peak-to-peak deformation as a ratio of the document dimensions (0.0008 by default, capped at 0.3). Four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default). Disabling animation releases its three extra cached textures. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).
 
-The `adaptive` property is enabled by default. It follows 2D editor zoom and display scale with at least 1.5x supersampling, as well as runtime cameras and the 3D editor camera. Disable it to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.
+The `adaptive` property is enabled by default. It follows 2D editor zoom and display scale with at least 1.5x supersampling, as well as runtime cameras and the 3D editor camera. `SVG3D` applies the larger projected local-axis density to both texture axes, preserving the SVG aspect ratio while rotated. Disable adaptive rendering to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.
 
 Adaptive textures are limited to 4096 pixels on either axis to keep one RGBA texture within 64 MiB. Very large on-screen SVGs therefore use the highest available resolution.
 

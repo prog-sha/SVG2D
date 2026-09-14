@@ -1773,7 +1773,11 @@ Vector2 SVG3D::_density_for_camera(Camera3D *camera) const {
 	double h = std::max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]));
 	if (editor && (!std::isfinite(w) || !std::isfinite(h) || (w < 1.0 && h < 1.0)))
 		return _editor_fallback_density();
-	return Vector2((float)(w * 1.5 / size.x), (float)(h * 1.5 / size.y));
+	// X/Yを別密度で焼くと、SVGのpreserveAspectRatioが非等方な画像内へ余白を作る。
+	// その画像全体をSprite3Dが自然寸法へ戻すため、中身だけが回転方向と直交して
+	// つぶれてしまう。必要密度の大きい軸へそろえ、文書の縦横比と1.5倍品質を保つ。
+	double density = std::max(w / size.x, h / size.y) * 1.5;
+	return Vector2((float)density, (float)density);
 }
 
 void SVG3D::_refresh() {

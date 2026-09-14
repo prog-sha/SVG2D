@@ -220,7 +220,8 @@ func check_perspective_3d() -> void:
 	var screen := points.map(func(point: Vector3) -> Vector2: return camera.unproject_position(point))
 	var w: float = max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]))
 	var h: float = max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]))
-	var expected := Vector2(ceili(w * 1.5 - 0.000001), ceili(h * 1.5 - 0.000001))
+	var density: float = max(w / W, h / H) * 1.5
+	var expected := Vector2(ceili(W * density - 0.000001), ceili(H * density - 0.000001))
 	var texture: Texture2D = svg.call("get_texture")
 	check(texture.get_size() == expected, "透視投影の近い辺に解像度が合っていないよ")
 	# 正面向きで奥行きを保った左右移動は投影寸法が変わらないため、同じ画像を使い回す。
@@ -240,6 +241,41 @@ func check_perspective_3d() -> void:
 	await process_frame
 	await process_frame
 	check(svg.call("get_texture").get_size() == Vector2(ceili(W * 1.5), ceili(H * 1.5)), "カメラ背面のSVG3Dが基準1.5倍解像度になっていないよ")
+	view.free()
+
+# 非等方な投影寸法をそのままSVGの出力縦横へ渡すとpreserveAspectRatioの余白が
+# Sprite3D上で伸縮され、中身だけが回転軸と直交する方向へつぶれることを防ぐ。
+func check_rotation_3d() -> void:
+	var view := SubViewport.new()
+	view.size = Vector2i(800, 600)
+	root.add_child(view)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = 10.0
+	camera.position = Vector3(0, 0, 10)
+	view.add_child(camera)
+	camera.current = true
+	var svg: Node3D = ClassDB.instantiate("SVG3D")
+	svg.set("src", '<svg width="64" height="32" viewBox="0 0 64 32"><rect width="64" height="32" fill="white"/></svg>')
+	svg.set("jitter_amount", 0.0)
+	svg.set("pixel_size", 0.1)
+	view.add_child(svg)
+	for rotation in [
+		Vector3.ZERO,
+		Vector3(deg_to_rad(60.0), 0, 0),
+		Vector3(0, deg_to_rad(60.0), 0),
+		Vector3(0, 0, deg_to_rad(90.0)),
+	]:
+		svg.rotation = rotation
+		await process_frame
+		await process_frame
+		var texture: Texture2D = svg.call("get_texture")
+		check(texture.get_size() == Vector2(576, 288),
+			"SVG3D回転時にテクスチャの縦横比が変わったよ: rotation=%s size=%s" % [rotation, texture.get_size()])
+		var used := texture.get_image().get_used_rect()
+		check(used.position.x <= 1 and used.position.y <= 1
+			and used.end.x >= texture.get_width() - 1 and used.end.y >= texture.get_height() - 1,
+			"SVG3D回転時にpreserveAspectRatioの余白で中身がつぶれているよ: rotation=%s used=%s" % [rotation, used])
 	view.free()
 
 # 整数画素への追従、使い回し、上限、固定解像度を共通の画像管理で確かめる。
@@ -561,6 +597,7 @@ func _run() -> void:
 	await check_zoom_2d()
 	await check_zoom_3d()
 	await check_perspective_3d()
+	await check_rotation_3d()
 	await check_jitter_animation()
 	await check_appearance()
 	check_large_profile()
