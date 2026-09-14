@@ -678,6 +678,62 @@ func check_ropes() -> void:
 	print("Rope simulation backend: %s" % rope_backend)
 	print("SVG rope PBD: 2D %.3f px/link, 3D %.4f units/link" % [max_link2, max_link3])
 
+func check_svg_animate() -> void:
+	check(ClassDB.class_exists("SVGAnimate2D"), "SVGAnimate2Dが登録されていないよ")
+	check(ClassDB.class_exists("SVGAnimate3D"), "SVGAnimate3Dが登録されていないよ")
+	if not ClassDB.class_exists("SVGAnimate2D") or not ClassDB.class_exists("SVGAnimate3D"):
+		return
+	var source := "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='48'>" \
+		+ "<path fill='#f34' d='M 8 12 C 16 2 32 2 40 12 A 8 8 0 0 1 52 28 Z'/>" \
+		+ "<path fill='none' stroke='#fff' d='m 4 36 q 8 -10 16 0 t 16 0'/></svg>"
+	var node: Node2D = ClassDB.instantiate("SVGAnimate2D")
+	node.name = "Editable"
+	node.set("src", source)
+	check(node.call("get_path_count") == 2 and node.call("get_point_count", 0) == 3
+		and node.call("get_point_count", 1) == 3,
+		"SVGAnimate2Dが既存pathの接点を抽出できないよ")
+	check(node.get("paths/path_0/point_1") == Vector2(40, 12),
+		"接点番号の動的プロパティを取得できないよ")
+	var original_in: Vector2 = node.call("get_in_handle", 0, 1)
+	node.set("paths/path_0/point_1", Vector2(44, 18))
+	check(node.call("get_path_point", 0, 1) == Vector2(44, 18)
+		and node.call("get_in_handle", 0, 1) == original_in + Vector2(4, 6),
+		"接点移動でBezierハンドルが相対位置を保たないよ")
+	node.call("set_in_handle", 0, 1, Vector2(35, 4))
+	check(node.call("get_in_handle", 0, 1) == Vector2(35, 4)
+		and node.call("get_path_count") == 2 and node.call("get_point_count", 0) == 3,
+		"カーブ編集でpathトポロジーが変わったよ")
+	check(node.get("src") == source, "接点編集でsrc素材参照を書き換えたよ")
+	var texture: Texture2D = node.call("get_texture")
+	check(texture != null and texture.get_image().get_used_rect().has_area(),
+		"編集したSVGAnimate2Dを再描画できないよ")
+	root.add_child(node)
+	var player := AnimationPlayer.new()
+	node.add_child(player)
+	var library := AnimationLibrary.new()
+	var animation := Animation.new()
+	var track := animation.add_track(Animation.TYPE_VALUE)
+	animation.track_set_path(track, NodePath(".:paths/path_0/point_1"))
+	animation.track_insert_key(track, 0.0, Vector2(44, 18))
+	animation.track_insert_key(track, 1.0, Vector2(48, 20))
+	library.add_animation("path_edit", animation)
+	player.add_animation_library("", library)
+	player.play("path_edit")
+	player.seek(1.0, true)
+	check(node.call("get_path_point", 0, 1) == Vector2(48, 20),
+		"AnimationPlayerから接点番号プロパティをキーフレーム編集できないよ")
+	node.free()
+	var node3: Node3D = ClassDB.instantiate("SVGAnimate3D")
+	node3.set("src", source)
+	node3.set("paths/path_0/point_2", Vector2(54, 30))
+	root.add_child(node3)
+	await process_frame
+	check(node3.call("get_path_point", 0, 2) == Vector2(54, 30)
+		and node3.call("get_texture") != null,
+		"SVGAnimate3Dの接点編集または再描画が動かないよ")
+	node3.free()
+	print("SVG animate paths: numbered points and AnimationPlayer track passed")
+
 # 場面の準備が終わった次のコマから試験を始める。
 func _initialize() -> void:
 	DisplayServer.window_set_position(Vector2i(10000, 10000))
@@ -737,6 +793,7 @@ func _run() -> void:
 	await check_jitter_animation()
 	await check_appearance()
 	await check_ropes()
+	await check_svg_animate()
 	check_large_profile()
 	var config := ConfigFile.new()
 	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfgを読めなかったよ")

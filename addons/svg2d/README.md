@@ -31,6 +31,8 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
+Use `SVGAnimate2D` or `SVGAnimate3D` when existing SVG paths must be animated. Selecting the node shows numbered anchors and cubic handles directly in the 2D/3D editor. Drag an anchor or handle; hold Shift to constrain a 2D drag. `V`, `I`, and `O` select anchor, incoming-handle, and outgoing-handle modes, while Tab and Shift+Tab cycle point numbers. The Inspector exposes each anchor as `paths/path_N/point_N`, so Godot's key button and AnimationPlayer value tracks work normally. Editing never adds or removes paths, points, or segments; arcs remain arcs and straight segments remain straight.
+
 `SpriteRope2D` and `SpriteRope3D` accept any standard `Texture2D`, including PNG, WebP, and Godot-imported SVG resources. `SVGRope2D` and `SVGRope3D` are separate SVG-source variants with the `src` picker and supersampled SVG rendering. Both use a PBD rope pinned at the node origin; rows from top to bottom follow the particle chain. Enable `line_mode` for a plain rope configured by `line_width` and `line_color`. `max_length` set to zero derives the length from the texture or SVG height.
 
 Verlet integration uses NEON on ARM64 or SSE2 on x86_64. The ordered distance-constraint solver remains scalar because each link depends on the preceding correction. Unsupported CPUs, double-precision builds, and builds made with `SVG2D_SCALAR=yes` automatically use the equivalent scalar integration path.

@@ -3,6 +3,7 @@
 // 設計思想: 登録処理を描画本体から分け、拡張の入口を短く保つ。
 #include "svg.h"
 #include "rope.h"
+#include "animate.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -16,6 +17,8 @@ static void initialize_svg2d(ModuleInitializationLevel level) {
 	if (level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
 	GDREGISTER_CLASS(svg2d::SVG2D);
 	GDREGISTER_CLASS(svg2d::SVG3D);
+	GDREGISTER_CLASS(svg2d::SVGAnimate2D);
+	GDREGISTER_CLASS(svg2d::SVGAnimate3D);
 	GDREGISTER_CLASS(svg2d::SpriteRope2D);
 	GDREGISTER_CLASS(svg2d::SpriteRope3D);
 	GDREGISTER_CLASS(svg2d::SVGRope2D);

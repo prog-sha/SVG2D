@@ -160,8 +160,8 @@ public:
 	void _draw() override;
 	void _process(double delta) override;
 	// SVG の中身を入れる。入れると次に描くときに焼き直す。
-	void set_src(const godot::String &s);
-	godot::String get_src() const { return _svg.get_src(); }
+	virtual void set_src(const godot::String &s);
+	virtual godot::String get_src() const { return _svg.get_src(); }
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
@@ -228,8 +228,8 @@ public:
 	SVG3D();
 	void _process(double delta) override;
 	// SVG の中身を入れ、3Dの板を描き直す。
-	void set_src(const godot::String &s);
-	godot::String get_src() const { return _svg.get_src(); }
+	virtual void set_src(const godot::String &s);
+	virtual godot::String get_src() const { return _svg.get_src(); }
 	// SVGの1画素を3D空間で何単位にするかを決める。
 	void set_pixel_size(double size);
 	double get_pixel_size() const { return _pixel_size; }

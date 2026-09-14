@@ -15,7 +15,14 @@ var drag_start_3d := Vector3.ZERO
 var drag_plane_point := Vector3.ZERO
 var drag_plane_normal := Vector3.FORWARD
 var drag_hit_3d := Vector3.ZERO
+var path_node: Node
+var path_index := 0
+var point_index := 0
+var path_part := "point" # point / in / out。パス数と接点数は変更しない。
+var path_drag_before := Vector2.ZERO
+var path_dragging := false
 const EDITOR_OVERSAMPLE := 1.5
+const PATH_HANDLE_RADIUS := 7.0
 
 func _enter_tree() -> void:
 	svg_inspector = SVGInspector.new()
@@ -131,11 +138,97 @@ func _forward_canvas_draw_over_viewport(viewport_control: Control) -> void:
 			transform * rect.position,
 		])
 		viewport_control.draw_polyline(points, Color("#5ba7ff"), 2.0, true)
+		if selected.is_class("SVGAnimate2D"):
+			draw_path_controls_2d(viewport_control, selected)
+
+func path_screen_2d(node: Node2D, point: Vector2) -> Vector2:
+	return screen_transform(node) * (point + Vector2(node.get("offset")))
+
+func draw_path_controls_2d(control: Control, node: Node2D) -> void:
+	var count := int(node.call("get_path_count"))
+	if count == 0:
+		return
+	path_index = clampi(path_index, 0, count - 1)
+	var points: PackedVector2Array = node.call("get_path_points", path_index)
+	if points.is_empty():
+		return
+	point_index = clampi(point_index, 0, points.size() - 1)
+	for i in points.size():
+		var screen := path_screen_2d(node, points[i])
+		control.draw_circle(screen, 5.0 if i == point_index else 3.5,
+			Color("#ffb52e") if i == point_index else Color("#ffffff"))
+		control.draw_string(ThemeDB.fallback_font, screen + Vector2(7, -7), "%d:%d" % [path_index, i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+	var anchor := path_screen_2d(node, points[point_index])
+	for part in ["in", "out"]:
+		var handle: Vector2 = node.call("get_%s_handle" % part, path_index, point_index)
+		if handle.is_equal_approx(points[point_index]):
+			continue
+		var screen := path_screen_2d(node, handle)
+		control.draw_line(anchor, screen, Color("#62d7ff"), 1.5, true)
+		control.draw_circle(screen, 4.0, Color("#62d7ff"))
+
+func pick_path_control_2d(node: Node2D, screen_point: Vector2) -> Dictionary:
+	var best := PATH_HANDLE_RADIUS
+	var hit := {}
+	for p in int(node.call("get_path_count")):
+		for i in int(node.call("get_point_count", p)):
+			var anchor: Vector2 = node.call("get_path_point", p, i)
+			for part in ["point", "in", "out"]:
+				var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
+				if part != "point" and value.is_equal_approx(anchor):
+					continue
+				var distance := path_screen_2d(node, value).distance_to(screen_point)
+				if distance <= best:
+					best = distance
+					hit = {"path": p, "point": i, "part": part, "value": value}
+	return hit
+
+func set_path_control(node: Node, value: Vector2) -> void:
+	if path_part == "point":
+		node.call("set_path_point", path_index, point_index, value)
+	else:
+		node.call("set_%s_handle" % path_part, path_index, point_index, value)
+
+func finish_path_drag() -> void:
+	if not path_dragging or path_node == null:
+		return
+	var node := path_node
+	var finish: Vector2 = node.call("get_path_point" if path_part == "point" else "get_%s_handle" % path_part,
+		path_index, point_index)
+	path_dragging = false
+	if finish != path_drag_before:
+		set_path_control(node, path_drag_before)
+		var undo := EditorInterface.get_editor_undo_redo()
+		undo.create_action("Edit SVG Path Point")
+		var method := "set_path_point" if path_part == "point" else "set_%s_handle" % path_part
+		undo.add_do_method(node, method, path_index, point_index, finish)
+		undo.add_undo_method(node, method, path_index, point_index, path_drag_before)
+		undo.commit_action()
+	update_overlays()
 
 # 絵の内側をつかめるようにし、移動をUndo/Redoへ記録する。
 func _forward_canvas_gui_input(event: InputEvent) -> bool:
+	var selected := EditorInterface.get_selection().get_selected_nodes()
+	var animate := selected[0] as Node2D if selected.size() == 1 and selected[0].is_class("SVGAnimate2D") else null
+	if event is InputEventKey and event.pressed and not event.echo and animate:
+		if event.keycode == KEY_V: path_part = "point"
+		elif event.keycode == KEY_I: path_part = "in"
+		elif event.keycode == KEY_O: path_part = "out"
+		elif event.keycode == KEY_TAB:
+			var n := int(animate.call("get_point_count", path_index))
+			if n > 0: point_index = wrapi(point_index + (-1 if event.shift_pressed else 1), 0, n)
+		else: return false
+		update_overlays()
+		return true
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
+			if animate:
+				var control := pick_path_control_2d(animate, event.position)
+				if not control.is_empty():
+					path_node = animate; path_index = control.path; point_index = control.point
+					path_part = control.part; path_drag_before = control.value; path_dragging = true
+					update_overlays(); return true
 			var picked := pick_svg2d(event.position)
 			if picked == null:
 				return false
@@ -146,9 +239,19 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 			drag_offset = screen_to_parent(picked, event.position) - picked.position
 			update_overlays()
 			return true
+		if path_dragging:
+			finish_path_drag(); return true
 		if drag_node:
 			finish_drag()
 			return true
+	if event is InputEventMouseMotion and path_dragging and path_node is Node2D \
+			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+		var edit_node := path_node as Node2D
+		var local: Vector2 = screen_transform(edit_node).affine_inverse() * event.position - Vector2(edit_node.get("offset"))
+		if event.shift_pressed:
+			var delta: Vector2 = local - path_drag_before
+			local = path_drag_before + (Vector2(delta.x, 0) if absf(delta.x) >= absf(delta.y) else Vector2(0, delta.y))
+		set_path_control(path_node, local); update_overlays(); return true
 	if event is InputEventMouseMotion and drag_node and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		drag_node.position = screen_to_parent(drag_node, event.position) - drag_offset
 		update_overlays()
@@ -229,8 +332,28 @@ func intersect_drag_plane(camera: Camera3D, screen_point: Vector2) -> Variant:
 	return origin + direction * distance if distance >= 0.0 else null
 
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
+	var selected := EditorInterface.get_selection().get_selected_nodes()
+	var animate := selected[0] as Node3D if selected.size() == 1 and selected[0].is_class("SVGAnimate3D") else null
+	if event is InputEventKey and event.pressed and not event.echo and animate:
+		if event.keycode == KEY_V: path_part = "point"
+		elif event.keycode == KEY_I: path_part = "in"
+		elif event.keycode == KEY_O: path_part = "out"
+		elif event.keycode == KEY_TAB:
+			var n := int(animate.call("get_point_count", path_index))
+			if n > 0: point_index = wrapi(point_index + (-1 if event.shift_pressed else 1), 0, n)
+		else: return EditorPlugin.AFTER_GUI_INPUT_PASS
+		update_overlays()
+		return EditorPlugin.AFTER_GUI_INPUT_STOP
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
+			if animate:
+				var control := pick_path_control_3d(animate, camera, event.position)
+				if not control.is_empty():
+					path_node = animate; path_index = control.path; point_index = control.point
+					path_part = control.part; path_drag_before = control.value; path_dragging = true
+					drag_plane_point = animate.global_position
+					drag_plane_normal = animate.global_transform.basis.z.normalized()
+					return EditorPlugin.AFTER_GUI_INPUT_STOP
 			var picked := pick_svg3d(camera, event.position)
 			if picked.is_empty():
 				return EditorPlugin.AFTER_GUI_INPUT_PASS
@@ -242,9 +365,17 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			EditorInterface.get_selection().clear()
 			EditorInterface.get_selection().add_node(drag_node_3d)
 			return EditorPlugin.AFTER_GUI_INPUT_STOP
+		if path_dragging:
+			finish_path_drag(); return EditorPlugin.AFTER_GUI_INPUT_STOP
 		if drag_node_3d:
 			finish_drag_3d()
 			return EditorPlugin.AFTER_GUI_INPUT_STOP
+	if event is InputEventMouseMotion and path_dragging and path_node is Node3D \
+			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+		var hit := intersect_drag_plane(camera, event.position)
+		if hit != null:
+			set_path_control(path_node, svg_point_from_world_3d(path_node, hit)); update_overlays()
+		return EditorPlugin.AFTER_GUI_INPUT_STOP
 	if event is InputEventMouseMotion and drag_node_3d and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		var hit := intersect_drag_plane(camera, event.position)
 		if hit != null:
@@ -252,6 +383,58 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			drag_hit_3d = hit
 		return EditorPlugin.AFTER_GUI_INPUT_STOP
 	return EditorPlugin.AFTER_GUI_INPUT_PASS
+
+func svg_world_3d(node: Node3D, point: Vector2) -> Vector3:
+	var size: Vector2 = node.call("get_svg_size")
+	var offset := Vector2(node.get("offset"))
+	var pixel := float(node.get("pixel_size"))
+	return node.to_global(Vector3((point.x + offset.x - size.x * 0.5) * pixel,
+		-(point.y + offset.y - size.y * 0.5) * pixel, 0))
+
+func svg_point_from_world_3d(node: Node3D, world: Vector3) -> Vector2:
+	var local := node.to_local(world)
+	var size: Vector2 = node.call("get_svg_size")
+	var pixel := float(node.get("pixel_size"))
+	return Vector2(local.x / pixel + size.x * 0.5, -local.y / pixel + size.y * 0.5) - Vector2(node.get("offset"))
+
+func pick_path_control_3d(node: Node3D, camera: Camera3D, screen_point: Vector2) -> Dictionary:
+	var best := PATH_HANDLE_RADIUS
+	var hit := {}
+	for p in int(node.call("get_path_count")):
+		for i in int(node.call("get_point_count", p)):
+			var anchor: Vector2 = node.call("get_path_point", p, i)
+			for part in ["point", "in", "out"]:
+				var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
+				if part != "point" and value.is_equal_approx(anchor): continue
+				var distance := camera.unproject_position(svg_world_3d(node, value)).distance_to(screen_point)
+				if distance <= best:
+					best = distance; hit = {"path": p, "point": i, "part": part, "value": value}
+	return hit
+
+func _forward_3d_draw_over_viewport(control: Control) -> void:
+	var camera := EditorInterface.get_editor_viewport_3d(0).get_camera_3d()
+	if camera == null: return
+	for selected in EditorInterface.get_selection().get_selected_nodes():
+		if not selected.is_class("SVGAnimate3D"): continue
+		var paths := int(selected.call("get_path_count"))
+		if paths == 0: continue
+		path_index = clampi(path_index, 0, paths - 1)
+		var points: PackedVector2Array = selected.call("get_path_points", path_index)
+		if points.is_empty(): continue
+		point_index = clampi(point_index, 0, points.size() - 1)
+		for i in points.size():
+			var screen := camera.unproject_position(svg_world_3d(selected, points[i]))
+			control.draw_circle(screen, 5.0 if i == point_index else 3.5,
+				Color("#ffb52e") if i == point_index else Color.WHITE)
+			control.draw_string(ThemeDB.fallback_font, screen + Vector2(7, -7), "%d:%d" % [path_index, i],
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+		var anchor := camera.unproject_position(svg_world_3d(selected, points[point_index]))
+		for part in ["in", "out"]:
+			var handle: Vector2 = selected.call("get_%s_handle" % part, path_index, point_index)
+			if handle.is_equal_approx(points[point_index]): continue
+			var screen := camera.unproject_position(svg_world_3d(selected, handle))
+			control.draw_line(anchor, screen, Color("#62d7ff"), 1.5, true)
+			control.draw_circle(screen, 4.0, Color("#62d7ff"))
 
 func finish_drag_3d() -> void:
 	var moved := drag_node_3d

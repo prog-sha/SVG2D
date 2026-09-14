@@ -123,6 +123,40 @@ func run_checks() -> void:
 		release.position = motion.position
 		svg_plugin.call("_forward_canvas_gui_input", release)
 		check(moved_to != Vector2.ZERO and node.position == moved_to, "SVGノードを絵の内側からドラッグ移動できないよ")
+		# SVGAnimateの実エディター入力経路で、接点とBezierハンドルを選択・移動する。
+		var animate: Node2D = ClassDB.instantiate("SVGAnimate2D")
+		animate.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>" \
+			+ "<path d='M10 20 C20 5 50 5 60 20 L80 70 Z' fill='#fff'/></svg>")
+		scene_root.add_child(animate)
+		animate.owner = scene_root
+		EditorInterface.get_selection().clear()
+		EditorInterface.get_selection().add_node(animate)
+		var anchor_screen: Vector2 = svg_plugin.call("path_screen_2d", animate, Vector2(60, 20))
+		var path_hit: Dictionary = svg_plugin.call("pick_path_control_2d", animate, anchor_screen)
+		check(path_hit.path == 0 and path_hit.point == 1 and path_hit.part == "point",
+			"2Dパスツールが接点番号を選択できないよ")
+		var path_press := InputEventMouseButton.new()
+		path_press.button_index = MOUSE_BUTTON_LEFT
+		path_press.pressed = true
+		path_press.position = anchor_screen
+		check(svg_plugin.call("_forward_canvas_gui_input", path_press),
+			"2Dパス接点のドラッグを開始できないよ")
+		var path_motion := InputEventMouseMotion.new()
+		path_motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		path_motion.position = anchor_screen + Vector2(12, 8)
+		var expected_path_point: Vector2 = svg_plugin.call("screen_transform", animate).affine_inverse() * path_motion.position
+		svg_plugin.call("_forward_canvas_gui_input", path_motion)
+		var path_release := InputEventMouseButton.new()
+		path_release.button_index = MOUSE_BUTTON_LEFT
+		path_release.position = path_motion.position
+		svg_plugin.call("_forward_canvas_gui_input", path_release)
+		check(animate.call("get_path_point", 0, 1).distance_to(expected_path_point) < 0.01
+			and animate.call("get_point_count", 0) == 3,
+			"接点ドラッグが座標を更新しないかトポロジーを変えたよ")
+		var out_handle: Vector2 = animate.call("get_out_handle", 0, 0)
+		check(not out_handle.is_equal_approx(Vector2(10, 20)),
+			"CコマンドのBezierハンドルを保持していないよ")
+		animate.free()
 
 	# 3D編集カメラはシーンのCamera3Dではない。プラグインがその投影寸法を渡し、
 	# エディター表示も自然寸法へ落ちず1.5倍解像度になることを画面操作なしで確かめる。
@@ -206,6 +240,37 @@ func run_checks() -> void:
 		svg_plugin.call("_forward_3d_gui_input", test_camera, release3)
 		check(moved3 != Vector3.ZERO and node3.position == moved3,
 			"SVG3Dを不透明画素からドラッグ移動できないよ")
+		var animate3: Node3D = ClassDB.instantiate("SVGAnimate3D")
+		animate3.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>" \
+			+ "<path d='M20 20 C30 5 60 5 70 20 L80 80 Z' fill='#fff'/></svg>")
+		scene_root.add_child(animate3)
+		animate3.owner = scene_root
+		EditorInterface.get_selection().clear()
+		EditorInterface.get_selection().add_node(animate3)
+		var point_world: Vector3 = svg_plugin.call("svg_world_3d", animate3, Vector2(70, 20))
+		var point_screen := test_camera.unproject_position(point_world)
+		var path_hit3: Dictionary = svg_plugin.call("pick_path_control_3d", animate3, test_camera, point_screen)
+		check(path_hit3.path == 0 and path_hit3.point == 1,
+			"3Dパスツールが接点番号を選択できないよ")
+		var path_press3 := InputEventMouseButton.new()
+		path_press3.button_index = MOUSE_BUTTON_LEFT
+		path_press3.pressed = true
+		path_press3.position = point_screen
+		check(svg_plugin.call("_forward_3d_gui_input", test_camera, path_press3)
+			== EditorPlugin.AFTER_GUI_INPUT_STOP, "3Dパス接点のドラッグを開始できないよ")
+		var path_motion3 := InputEventMouseMotion.new()
+		path_motion3.button_mask = MOUSE_BUTTON_MASK_LEFT
+		path_motion3.position = point_screen + Vector2(15, 10)
+		svg_plugin.call("_forward_3d_gui_input", test_camera, path_motion3)
+		var moved_path3: Vector2 = animate3.call("get_path_point", 0, 1)
+		var path_release3 := InputEventMouseButton.new()
+		path_release3.button_index = MOUSE_BUTTON_LEFT
+		path_release3.position = path_motion3.position
+		svg_plugin.call("_forward_3d_gui_input", test_camera, path_release3)
+		check(not moved_path3.is_equal_approx(Vector2(70, 20))
+			and animate3.call("get_point_count", 0) == 3,
+			"3D接点ドラッグが座標を更新しないかトポロジーを変えたよ")
+		animate3.free()
 
 	# InspectorのRect / ShapeがSprite3D等と同じ標準のStaticBody + Collision子ノードを作る。
 	# Shapeは穴を無視し、離れた2つの塗りを2つの外周として残す。
