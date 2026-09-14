@@ -4,7 +4,7 @@
 		Renders SVG markup in a 2D scene.
 	</brief_description>
 	<description>
-		SVG2D rasterizes SVG markup at the resolution it occupies in the viewport. It updates at resolution boundaries and reuses the generated texture while the drawing area remains in the same resolution level.
+		SVG2D rasterizes SVG markup at the integer pixel dimensions it occupies in the viewport. It reuses the generated texture while those dimensions stay unchanged.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -18,7 +18,7 @@
 	</methods>
 	<members>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
-			If [code]true[/code], redraws the SVG at a higher texture resolution when it grows in the viewport. The current power-of-two level is reused to avoid redrawing during every frame of a zoom. Each texture axis is limited to 4096 pixels.
+			If [code]true[/code], redraws the SVG when its integer pixel dimensions in the viewport change. The current texture is reused while those dimensions stay unchanged. Each texture axis is limited to 4096 pixels.
 		</member>
 		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">
 			The complete SVG markup to render. Load an SVG file as text and assign its contents here.

@@ -1333,7 +1333,6 @@ void SVGTexture::set_src(const String &s) {
 	_src = s;
 	_doc = std::make_unique<SVG>();
 	if (!_doc->parse(s)) _doc.reset();
-	_level = 0.0;
 	_dirty = true;
 }
 
@@ -1341,40 +1340,30 @@ Vector2 SVGTexture::draw_size() const {
 	return _doc == nullptr ? Vector2() : _doc->doc_size();
 }
 
-// 必要値を2倍刻みに切り上げ、拡大中の画像化回数を対数回へ抑える。
-Vector2 SVGTexture::_target(double density, double &level) const {
+// 画面で見える大きさへ直接合わせ、補間によるぼやけを避ける。
+Vector2 SVGTexture::_target(const Vector2 &density) const {
 	Vector2 base = draw_size();
-	if (_doc == nullptr || base.x <= 0.0f || base.y <= 0.0f) {
-		level = 0.0;
-		return Vector2();
-	}
-	double cap = std::min(MAX_TEX / base.x, MAX_TEX / base.y);
-	double need = std::max(1.0, std::isfinite(density) ? density : 1.0);
-	level = std::min(1.0, cap);
-	while (level < need && level < cap) level = std::min(level * 2.0, cap);
-	// 段階を下げる境界に20%の余裕を持たせ、拡大率の小さな揺れによる描き直しを防ぐ。
-	if (_level > level && need * 2.5 > _level) level = _level;
-	return Vector2((float)std::max(1.0, std::ceil(base.x * level)),
-			(float)std::max(1.0, std::ceil(base.y * level)));
+	if (_doc == nullptr || base.x <= 0.0f || base.y <= 0.0f) return Vector2();
+	double x = std::isfinite(density.x) ? std::max((double)density.x, 1.0 / MAX_TEX) : 1.0;
+	double y = std::isfinite(density.y) ? std::max((double)density.y, 1.0 / MAX_TEX) : 1.0;
+	return Vector2((float)std::min(MAX_TEX, std::max(1.0, std::ceil(base.x * x - 1e-6))),
+			(float)std::min(MAX_TEX, std::max(1.0, std::ceil(base.y * y - 1e-6))));
 }
 
-bool SVGTexture::needs(double density) const {
-	double level;
-	Vector2 target = _target(density, level);
+bool SVGTexture::needs(const Vector2 &density) const {
+	Vector2 target = _target(density);
 	return _dirty || target != _baked;
 }
 
 // いまの画面密度で焼く。段階が変わっていなければ、前に焼いたものを使い回す。
-Ref<Texture2D> SVGTexture::get_texture(double density) {
+Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density) {
 	if (_doc == nullptr) {
 		_tex.unref();
 		_baked = Vector2();
-		_level = 0.0;
 		_dirty = false;
 		return _tex;
 	}
-	double level;
-	Vector2 target = _target(density, level);
+	Vector2 target = _target(density);
 	if (!_dirty && _tex.is_valid() && _baked == target) return _tex;
 	Ref<Image> img = _doc->render((int)target.x, (int)target.y);
 	if (img.is_null()) {
@@ -1387,7 +1376,6 @@ Ref<Texture2D> SVGTexture::get_texture(double density) {
 		_tex = ImageTexture::create_from_image(img);
 	}
 	_baked = target;
-	_level = level;
 	_dirty = false;
 	return _tex;
 }
@@ -1396,10 +1384,10 @@ SVG2D::SVG2D() {
 	set_process(true);
 }
 
-double SVG2D::_density() const {
-	if (!_adaptive || !is_inside_tree()) return 1.0;
+Vector2 SVG2D::_density() const {
+	if (!_adaptive || !is_inside_tree()) return Vector2(1, 1);
 	Transform2D t = get_global_transform_with_canvas();
-	return std::max((double)t[0].length(), (double)t[1].length());
+	return Vector2(t[0].length(), t[1].length());
 }
 
 void SVG2D::set_src(const String &s) {
@@ -1453,22 +1441,32 @@ void SVG3D::_ensure_sprite() {
 	add_child(_sprite, false, Node::INTERNAL_MODE_BACK);
 }
 
-double SVG3D::_density() const {
-	if (!_adaptive || !is_inside_tree()) return 1.0;
+Vector2 SVG3D::_density() const {
+	if (!_adaptive || !is_inside_tree()) return Vector2(1, 1);
 	Viewport *view = get_viewport();
 	Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
 	Vector2 size = _svg.draw_size();
-	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return 1.0;
+	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return Vector2(1, 1);
 	Transform3D t = get_global_transform();
-	Vector3 at = t.get_origin();
-	if (camera->is_position_behind(at)) return 1.0;
 	double hw = size.x * _pixel_size * 0.5;
 	double hh = size.y * _pixel_size * 0.5;
-	double w = camera->unproject_position(t.xform(Vector3((float)hw, 0, 0))).distance_to(
-			camera->unproject_position(t.xform(Vector3((float)-hw, 0, 0))));
-	double h = camera->unproject_position(t.xform(Vector3(0, (float)hh, 0))).distance_to(
-			camera->unproject_position(t.xform(Vector3(0, (float)-hh, 0))));
-	return std::max(w / size.x, h / size.y);
+	Vector3 world[4] = {
+		t.xform(Vector3((float)-hw, (float)-hh, 0)),
+		t.xform(Vector3((float)hw, (float)-hh, 0)),
+		t.xform(Vector3((float)-hw, (float)hh, 0)),
+		t.xform(Vector3((float)hw, (float)hh, 0)),
+	};
+	// 透視投影でカメラをまたぐ板は上限画素で保護する。
+	int behind = 0;
+	for (const Vector3 &p : world) behind += camera->is_position_behind(p) ? 1 : 0;
+	if (behind == 4) return Vector2(1, 1);
+	if (behind > 0) return Vector2((float)(MAX_TEX / size.x), (float)(MAX_TEX / size.y));
+	Vector2 screen[4];
+	for (int i = 0; i < 4; i++) screen[i] = camera->unproject_position(world[i]);
+	// 斜めの板は近い辺ほど大きく見えるため、対向する辺の長い方を使う。
+	double w = std::max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]));
+	double h = std::max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]));
+	return Vector2((float)(w / size.x), (float)(h / size.y));
 }
 
 void SVG3D::_refresh() {

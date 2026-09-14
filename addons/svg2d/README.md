@@ -2,7 +2,7 @@
 
 **English** | [日本語](README.ja.md)
 
-SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. By default, it monitors the viewport drawing area and rebuilds the texture at a suitable resolution when needed. It reuses the current power-of-two resolution level between changes, keeping zoomed SVGs sharp without rasterizing every frame.
+SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. By default, it monitors the viewport drawing area and rebuilds the texture at its integer pixel dimensions. It reuses the cached texture while those dimensions stay unchanged, keeping zoomed SVGs sharp without rasterizing every frame.
 
 ## Compatibility
 

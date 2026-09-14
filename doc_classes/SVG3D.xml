@@ -4,7 +4,7 @@
 		Renders SVG markup on a sprite in a 3D scene.
 	</brief_description>
 	<description>
-		SVG3D rasterizes SVG markup onto an internal 3D plane. It monitors the active camera and updates at resolution boundaries while keeping its size in 3D space unchanged.
+		SVG3D rasterizes SVG markup onto an internal 3D plane. It monitors the active camera and updates when its integer pixel dimensions change while keeping its size in 3D space unchanged.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -18,7 +18,7 @@
 	</methods>
 	<members>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
-			If [code]true[/code], redraws the SVG at a higher texture resolution when it occupies more pixels through the active camera. The current power-of-two level is reused, and each texture axis is limited to 4096 pixels.
+			If [code]true[/code], redraws the SVG when its integer pixel dimensions through the active camera change. The current texture is reused while those dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
 		</member>
 		<member name="pixel_size" type="float" setter="set_pixel_size" getter="get_pixel_size" default="0.01">
 			The size of one SVG unit in 3D space. Adaptive texture changes do not change this visible size.

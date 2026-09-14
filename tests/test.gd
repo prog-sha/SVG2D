@@ -8,7 +8,8 @@ const H := 48 # 試験SVGの自然な縦幅
 const LIMIT_US := 5_000 # 256×192以下の画像化に許す時間
 const FRAME_US := 16_667 # 1024×1024の画像化に許す1コマの時間
 const CACHE_US := 5.0 # 画像を使い回す1回に許す時間
-const SCALES := [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0]
+const RMSE_LIMIT := 5.0 # 直接画像化した比較元との許容平均誤差
+const SCALES := [0.5, 0.75, 1.0, 1.0625, 1.125, 1.1875, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0]
 
 var failed := false
 var digest := HashingContext.new()
@@ -105,9 +106,9 @@ func check_zoom_2d() -> void:
 		var error := image_rmse(expected, actual)
 		max_error = max(max_error, error)
 		print("SVG2D scale %.2f texture %s RMSE %.3f raster %d us" % [scale, texture.get_size(), error, elapsed])
-		if error >= 8.0:
+		if error >= RMSE_LIMIT:
 			actual.save_png("res://tmp/svg2d_%.2f.png" % scale)
-		check(error < 8.0, "SVG2D scale %.2f RMSEが%.3fだよ" % [scale, error])
+		check(error < RMSE_LIMIT, "SVG2D scale %.2f RMSEが%.3fだよ" % [scale, error])
 		if is_equal_approx(scale, 1.0):
 			check(texture.get_size() == Vector2(W, H), "SVG2Dが等倍の画素数にならないよ")
 			var dot := image_max_delta(expected, actual)
@@ -152,9 +153,9 @@ func check_zoom_3d() -> void:
 		var error := image_rmse(expected, actual)
 		max_error = max(max_error, error)
 		print("SVG3D camera %.2f texture %s RMSE %.3f" % [scale, texture.get_size(), error])
-		if error >= 8.0:
+		if error >= RMSE_LIMIT:
 			actual.save_png("res://tmp/svg3d_%.2f.png" % scale)
-		check(error < 8.0, "SVG3D camera %.2f RMSEが%.3fだよ" % [scale, error])
+		check(error < RMSE_LIMIT, "SVG3D camera %.2f RMSEが%.3fだよ" % [scale, error])
 		if is_equal_approx(scale, 1.0):
 			check(texture.get_size() == Vector2(W, H), "SVG3Dが等倍の画素数にならないよ")
 			var dot := image_max_delta(expected, actual)
@@ -163,8 +164,64 @@ func check_zoom_3d() -> void:
 	print("SVG3D profile max RMSE %.3f" % max_error)
 	view.free()
 
-# 解像度段階、境界の余裕、上限、固定解像度を共通の画像管理で確かめる。
+# 斜めの3D板でも、透視投影により大きく見える近い辺の画素数を使うか確かめる。
+func check_perspective_3d() -> void:
+	var view := SubViewport.new()
+	view.size = Vector2i(800, 600)
+	root.add_child(view)
+	var camera := Camera3D.new()
+	camera.position = Vector3(0, 0, 10)
+	view.add_child(camera)
+	camera.current = true
+	var svg: Node3D = ClassDB.instantiate("SVG3D")
+	svg.set("src", sample())
+	svg.set("pixel_size", 0.1)
+	svg.rotation.y = deg_to_rad(50)
+	view.add_child(svg)
+	await process_frame
+	await process_frame
+	var hw := W * 0.1 * 0.5
+	var hh := H * 0.1 * 0.5
+	var points := [
+		svg.global_transform * Vector3(-hw, -hh, 0),
+		svg.global_transform * Vector3(hw, -hh, 0),
+		svg.global_transform * Vector3(-hw, hh, 0),
+		svg.global_transform * Vector3(hw, hh, 0),
+	]
+	var screen := points.map(func(point: Vector3) -> Vector2: return camera.unproject_position(point))
+	var w: float = max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]))
+	var h: float = max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]))
+	var expected := Vector2(ceili(w - 0.000001), ceili(h - 0.000001))
+	check(svg.call("get_texture").get_size() == expected, "透視投影の近い辺に解像度が合っていないよ")
+	# カメラの後ろに移動した板が不要な最大画像を作らないか確かめる。
+	svg.position = Vector3(0, 0, 20)
+	await process_frame
+	await process_frame
+	check(svg.call("get_texture").get_size() == Vector2(W, H), "カメラ背面のSVG3Dが最大解像度になっているよ")
+	view.free()
+
+# 整数画素への追従、使い回し、上限、固定解像度を共通の画像管理で確かめる。
 func check_cache() -> void:
+	# 等倍付近は必要な整数画素数とし、2倍画像へ飛ばないことを確かめる。
+	var fine: Node2D = ClassDB.instantiate("SVG2D")
+	fine.set("src", sample())
+	root.add_child(fine)
+	fine.scale = Vector2(1.01, 1.01)
+	await process_frame
+	var near: Texture2D = fine.call("get_texture")
+	check(near.get_size() == Vector2(65, 49), "1.01倍の整数画素数が違うよ")
+	var stable := near.get_rid()
+	fine.scale = Vector2(1.011, 1.011)
+	await process_frame
+	check(fine.call("get_texture").get_rid() == stable, "整数画素数が同じなのに再生成しているよ")
+	fine.scale = Vector2(0.99, 0.99)
+	await process_frame
+	check(fine.call("get_texture").get_rid() != stable, "整数画素数が変わっても再生成しないよ")
+	fine.scale = Vector2(2.0, 0.5)
+	await process_frame
+	check(fine.call("get_texture").get_size() == Vector2(128, 24), "縦横別の描画領域に合っていないよ")
+	fine.free()
+
 	var svg: Node2D = ClassDB.instantiate("SVG2D")
 	svg.set("src", sample())
 	svg.scale = Vector2(4, 4)
@@ -178,11 +235,15 @@ func check_cache() -> void:
 	var upper: Texture2D = svg.call("get_texture")
 	svg.scale = Vector2(3.99, 3.99)
 	await process_frame
-	check(svg.call("get_texture").get_rid() == upper.get_rid(), "境界の揺れで描き直しているよ")
+	var lower: Texture2D = svg.call("get_texture")
+	check(lower.get_rid() != upper.get_rid(), "整数画素数が変わっても再生成しないよ")
+	svg.scale = Vector2(3.991, 3.991)
+	await process_frame
+	check(svg.call("get_texture").get_rid() == lower.get_rid(), "整数画素数が同じなのに再生成しているよ")
 	svg.set("src", '<svg width="4096" height="1"><rect width="4096" height="1"/></svg>')
 	svg.scale = Vector2(2, 2)
 	await process_frame
-	check(svg.call("get_texture").get_size() == Vector2(4096, 1), "解像度上限が違うよ")
+	check(svg.call("get_texture").get_size() == Vector2(4096, 2), "解像度上限が違うよ")
 	svg.set("src", sample())
 	svg.set("adaptive", false)
 	check(not svg.is_processing(), "固定解像度でも監視を続けているよ")
@@ -238,12 +299,13 @@ func _run() -> void:
 		check(texture3 != null, "%sを3D画像化できないよ" % path)
 		if texture != null and texture3 != null:
 			var error := image_rmse(texture.get_image(), texture3.get_image())
-			check(error < 8.0, "%sの2D・3D RMSEが%.3fだよ" % [path, error])
+			check(error < RMSE_LIMIT, "%sの2D・3D RMSEが%.3fだよ" % [path, error])
 		node.free()
 		node3.free()
 	await check_cache()
 	await check_zoom_2d()
 	await check_zoom_3d()
+	await check_perspective_3d()
 	check_large_profile()
 	var config := ConfigFile.new()
 	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfgを読めなかったよ")

@@ -91,11 +91,10 @@ private:
 	std::unique_ptr<SVG> _doc;
 	godot::Ref<godot::ImageTexture> _tex;
 	godot::Vector2 _baked = godot::Vector2(0, 0);
-	double _level = 0.0;
 	bool _dirty = true;
 
-	// 画面密度を更新回数の少ない解像度段階へ丸める。
-	godot::Vector2 _target(double density, double &level) const;
+	// 画面密度を実際に必要な整数画素数へ丸める。
+	godot::Vector2 _target(const godot::Vector2 &density) const;
 
 public:
 	// SVG の中身を読み、次の取得時に新しい画像を作れる状態へする。
@@ -104,9 +103,9 @@ public:
 	// SVGが場面内で占める基準サイズを返す。
 	godot::Vector2 draw_size() const;
 	// 指定した画面密度で画像を作り直す必要があるかを返す。
-	bool needs(double density) const;
+	bool needs(const godot::Vector2 &density) const;
 	// 現在の入力と画面密度に対応する画像を返す。
-	godot::Ref<godot::Texture2D> get_texture(double density = 1.0);
+	godot::Ref<godot::Texture2D> get_texture(const godot::Vector2 &density = godot::Vector2(1, 1));
 };
 
 // SVG を画面へ置くノード。
@@ -120,7 +119,7 @@ private:
 	bool _adaptive = true;
 
 	// ローカル座標からViewport座標への拡大率を返す。
-	double _density() const;
+	godot::Vector2 _density() const;
 
 protected:
 	static void _bind_methods();
@@ -155,7 +154,7 @@ private:
 	// 画像を貼る内部ノードを必要になった時点で作る。
 	void _ensure_sprite();
 	// 現在のCamera3Dから画面上の拡大率を返す。
-	double _density() const;
+	godot::Vector2 _density() const;
 	// まとまった設定変更のあと、入力に対応する画像を3Dの板へ反映する。
 	void _queue_refresh();
 	void _refresh();
