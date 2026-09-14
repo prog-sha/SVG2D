@@ -3,9 +3,11 @@
 *.import
 .DS_Store
 .sconsign.dblite
+tmp/
 addons/svg2d/bin/*/
 src/*.os
 src/*.o
 src/*.obj
+src/gen/
 godot-cpp/bin/
 godot-cpp/gen/

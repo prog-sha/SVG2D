@@ -1,7 +1,7 @@
 // SVG の絵を読んで描く係。
 //
 // 責務: SVG の中身を読み取り、決められた大きさの絵にすること。
-// どこに置くかも、いつ描き直すかも知らない（それは SVG2D の受け持ち）。
+// どこに置くかも、いつ描き直すかも知らない（それは SVG2D と SVG3D の受け持ち）。
 //
 // 設計思想: 覆い（どの程度塗られているか）を面積として数えてから色を乗せる。
 // Chromium も同じ考え方で描いているので、同じ SVG からほぼ同じ絵が出る。
@@ -23,6 +23,7 @@
 
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/node2d.hpp>
+#include <godot_cpp/classes/sprite3d.hpp>
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2.hpp>
@@ -79,12 +80,10 @@ public:
 	int cache_bytes() const;
 };
 
-// SVG を画面へ置くノード。
-// 責務: 読み取った絵を、いまの大きさで焼いて貼ること。
-// 大きさが変わった場合に焼き直す。毎フレーム焼くと、置いてある間も重くなる。
-class SVG2D : public godot::Node2D {
-	GDCLASS(SVG2D, godot::Node2D)
-
+// SVG の文字列と焼いた画像を2D・3Dノードで共有する係。
+// 責務: 入力を読み、指定した画素数の画像を必要なときに作ること。
+// 設計思想: 表示先を持たず、2Dと3Dで同じ画像を使えるようにする。
+class SVGTexture {
 private:
 	godot::String _src;
 	godot::Vector2 _size = godot::Vector2(0, 0);
@@ -92,7 +91,25 @@ private:
 	godot::Ref<godot::Texture2D> _tex;
 	godot::Vector2 _baked = godot::Vector2(0, 0);
 
-	void _bake();
+public:
+	// SVG の中身を読み、次の取得時に新しい画像を作れる状態へする。
+	void set_src(const godot::String &s);
+	godot::String get_src() const { return _src; }
+	// 焼く画素数を決め、次の取得時に新しい画像を作れる状態へする。
+	void set_size(const godot::Vector2 &s);
+	godot::Vector2 get_size() const { return _size; }
+	// 現在の入力と画素数に対応する画像を返す。
+	godot::Ref<godot::Texture2D> get_texture();
+};
+
+// SVG を画面へ置くノード。
+// 責務: 読み取った絵を、いまの大きさで焼いて貼ること。
+// 大きさが変わった場合に焼き直す。毎フレーム焼くと、置いてある間も重くなる。
+class SVG2D : public godot::Node2D {
+	GDCLASS(SVG2D, godot::Node2D)
+
+private:
+	SVGTexture _svg;
 
 protected:
 	static void _bind_methods();
@@ -101,12 +118,39 @@ public:
 	void _draw() override;
 	// SVG の中身を入れる。入れると次に描くときに焼き直す。
 	void set_src(const godot::String &s);
-	godot::String get_src() const { return _src; }
+	godot::String get_src() const { return _svg.get_src(); }
 	// 出す大きさ。0 なら札に書いてある大きさをそのまま使う。
 	void set_size(const godot::Vector2 &s);
-	godot::Vector2 get_size() const { return _size; }
+	godot::Vector2 get_size() const { return _svg.get_size(); }
 	// ノードが貼る画像を返す。Sprite2D など別の描き手でも使える。
 	godot::Ref<godot::Texture2D> get_texture();
+};
+
+// SVG を3D空間の板へ置くノード。
+// 責務: SVGを画像にし、Sprite3Dの面へ貼ること。
+// 設計思想: 画像の細かさは size、空間内の大きさは継承した pixel_size で分けて扱う。
+class SVG3D : public godot::Sprite3D {
+	GDCLASS(SVG3D, godot::Sprite3D)
+
+private:
+	SVGTexture _svg;
+	bool _queued = false;
+
+	// まとまった設定変更のあと、入力に対応する画像を3Dの板へ反映する。
+	void _queue_refresh();
+	void _refresh();
+
+protected:
+	static void _bind_methods();
+
+public:
+	SVG3D();
+	// SVG の中身を入れ、3Dの板を描き直す。
+	void set_src(const godot::String &s);
+	godot::String get_src() const { return _svg.get_src(); }
+	// 焼く画素数を決め、3Dの板を描き直す。
+	void set_size(const godot::Vector2 &s);
+	godot::Vector2 get_size() const { return _svg.get_size(); }
 };
 
 } // namespace svg2d

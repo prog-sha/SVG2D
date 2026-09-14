@@ -2,7 +2,7 @@
 
 **English** | [日本語](README.ja.md)
 
-SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D scenes. It rasterizes an SVG only when its requested size changes, then reuses the resulting texture.
+SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. It rasterizes an SVG only when its requested size changes, then reuses the resulting texture.
 
 ## Compatibility
 
@@ -20,7 +20,7 @@ The packaged add-on includes precompiled debug and release binaries for Windows 
 
 ## Usage
 
-Add an `SVG2D` node to a scene, then set its `src` property to SVG markup. Set `size` to control the rendered dimensions; leave it at zero to use the SVG document size.
+Add an `SVG2D` node to a 2D scene or an `SVG3D` node to a 3D scene, then set its `src` property to SVG markup. Set `size` to control the rasterized dimensions; leave it at zero to use the SVG document size. On `SVG3D`, use the inherited `pixel_size` property to control the size in 3D space.
 
 ```gdscript
 var picture := SVG2D.new()
@@ -28,6 +28,8 @@ picture.src = FileAccess.get_file_as_string("res://picture.svg")
 picture.size = Vector2(320, 240)
 add_child(picture)
 ```
+
+The Inspector tooltips describe `src` and `size` on both nodes.
 
 ## SVG support
 

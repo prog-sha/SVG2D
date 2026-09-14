@@ -2,7 +2,7 @@
 
 [English](README.md) | **日本語**
 
-SVG2D は、SVG を Godot の 2D シーンに表示するための軽量な GDExtension アドオンだよ。指定した大きさが変わったときに SVG を画像へ変換し、作った画像を使い回すよ。
+SVG2D は、SVG を Godot の 2D・3D シーンに表示するための軽量な GDExtension アドオンだよ。2Dでは `SVG2D`、3Dでは `SVG3D` ノードを使おう。どちらも指定した大きさが変わったときに SVG を画像へ変換し、作った画像を使い回すよ。
 
 配布済みのアドオンは Godot 4.7 以降、Windows x86_64、macOS Universal に対応しているよ。導入方法、使い方、対応している SVG 機能は [`addons/svg2d/README.ja.md`](addons/svg2d/README.ja.md) を見てね。
 

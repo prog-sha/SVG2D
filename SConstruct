@@ -9,7 +9,12 @@ env = SConscript("godot-cpp/SConstruct", {"env": base, "api_version": "4.7"})
 env.Append(CPPPATH=["src/"])
 
 sources = Glob("src/*.cpp")  # 拡張の入口と SVG 描画本体
+if env["target"] in ["editor", "template_debug"]:
+    docs = env.GodotCPPDocData("src/gen/doc_data.gen.cpp", source=Glob("doc_classes/*.xml"))  # 説明文
+    sources.append(docs)
 suffix = env["suffix"].replace(".dev", "").replace(".universal", "")  # 配布時の安定した名前
+if env["platform"] == "windows":
+    env["SHLIBPREFIX"] = ""  # .gdextensionが参照するWindows名にはlibを付けない
 name = "{}svg2d{}{}".format(env.subst("$SHLIBPREFIX"), suffix, env.subst("$SHLIBSUFFIX"))  # 読み込み名
 library = env.SharedLibrary("addons/svg2d/bin/{}/{}".format(env["platform"], name), source=sources)
 

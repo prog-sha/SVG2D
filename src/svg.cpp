@@ -13,6 +13,7 @@
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/xml_parser.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
@@ -1277,37 +1278,46 @@ Ref<Image> SVG::render(int w, int h) const {
 	return Image::create_from_data(w, h, false, Image::FORMAT_RGBA8, buf);
 }
 
-// --- 画面へ置くノード ---
+// --- 画像を2D・3Dへ置くノード ---
 
-void SVG2D::set_src(const String &s) {
+void SVGTexture::set_src(const String &s) {
 	_src = s;
 	_doc = std::make_unique<SVG>();
 	if (!_doc->parse(s)) _doc.reset();
 	_baked = Vector2(0, 0);
+}
+
+void SVGTexture::set_size(const Vector2 &s) {
+	_size = s;
+	_baked = Vector2(0, 0);
+}
+
+// いまの大きさで焼く。大きさが変わっていなければ、前に焼いたものを使い回す。
+Ref<Texture2D> SVGTexture::get_texture() {
+	if (_doc == nullptr) {
+		_tex.unref();
+		return _tex;
+	}
+	Vector2 want = (_size.x > 0.0f && _size.y > 0.0f) ? _size : _doc->doc_size();
+	if (_tex.is_valid() && _baked == want) return _tex;
+	Ref<Image> img = _doc->render((int)std::round(want.x), (int)std::round(want.y));
+	if (img.is_null()) {
+		_tex.unref();
+		return _tex;
+	}
+	_tex = ImageTexture::create_from_image(img);
+	_baked = want;
+	return _tex;
+}
+
+void SVG2D::set_src(const String &s) {
+	_svg.set_src(s);
 	queue_redraw();
 }
 
 void SVG2D::set_size(const Vector2 &s) {
-	_size = s;
-	_baked = Vector2(0, 0);
+	_svg.set_size(s);
 	queue_redraw();
-}
-
-// いまの大きさで焼く。大きさが変わっていなければ、前に焼いたものを使い回す。
-void SVG2D::_bake() {
-	if (_doc == nullptr) {
-		_tex.unref();
-		return;
-	}
-	Vector2 want = (_size.x > 0.0f && _size.y > 0.0f) ? _size : _doc->doc_size();
-	if (_tex.is_valid() && _baked == want) return;
-	Ref<Image> img = _doc->render((int)std::round(want.x), (int)std::round(want.y));
-	if (img.is_null()) {
-		_tex.unref();
-		return;
-	}
-	_tex = ImageTexture::create_from_image(img);
-	_baked = want;
 }
 
 void SVG2D::_draw() {
@@ -1317,8 +1327,7 @@ void SVG2D::_draw() {
 
 // いまの設定で焼いた画像を、ほかの 2D 描画でも使える形で返す。
 Ref<Texture2D> SVG2D::get_texture() {
-	_bake();
-	return _tex;
+	return _svg.get_texture();
 }
 
 void SVG2D::_bind_methods() {
@@ -1327,6 +1336,42 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG2D::set_size);
 	ClassDB::bind_method(D_METHOD("get_size"), &SVG2D::get_size);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
+			"set_src", "get_src");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");
+}
+
+SVG3D::SVG3D() {
+	// SVG の色を照明から切り離し、2Dで焼いた色をそのまま見せる。
+	set_draw_flag(SpriteBase3D::FLAG_SHADED, false);
+}
+
+void SVG3D::_refresh() {
+	_queued = false;
+	Sprite3D::set_texture(_svg.get_texture());
+}
+
+void SVG3D::_queue_refresh() {
+	if (_queued) return;
+	_queued = true;
+	callable_mp(this, &SVG3D::_refresh).call_deferred();
+}
+
+void SVG3D::set_src(const String &s) {
+	_svg.set_src(s);
+	_queue_refresh();
+}
+
+void SVG3D::set_size(const Vector2 &s) {
+	_svg.set_size(s);
+	_queue_refresh();
+}
+
+void SVG3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_src", "text"), &SVG3D::set_src);
+	ClassDB::bind_method(D_METHOD("get_src"), &SVG3D::get_src);
+	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG3D::set_size);
+	ClassDB::bind_method(D_METHOD("get_size"), &SVG3D::get_size);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
 			"set_src", "get_src");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SVG3D" inherits="Sprite3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Renders SVG markup on a sprite in a 3D scene.
+	</brief_description>
+	<description>
+		SVG3D rasterizes SVG markup into the inherited [member Sprite3D.texture]. Use [member SpriteBase3D.pixel_size] to control its size in 3D space.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+	</methods>
+	<members>
+		<member name="size" type="Vector2" setter="set_size" getter="get_size" default="Vector2(0, 0)">
+			The rasterized image size in pixels. Set both components above zero to override the SVG document size. [code]Vector2.ZERO[/code] uses the document size. Change [member SpriteBase3D.pixel_size] to scale the sprite in 3D space.
+		</member>
+		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">
+			The complete SVG markup to render on the 3D sprite. Load an SVG file as text and assign its contents here.
+		</member>
+	</members>
+	<signals>
+	</signals>
+	<constants>
+	</constants>
+</class>
