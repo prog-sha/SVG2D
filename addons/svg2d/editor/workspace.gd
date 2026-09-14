@@ -6,6 +6,19 @@ extends Control
 
 const Document = preload("document.gd") # SVG/XML文書モデル
 const Canvas = preload("canvas.gd") # 中央の作図面
+const UiStyle = preload("skin.gd") # 編集画面で共有する色と部品の見た目
+
+const TOOLS := {
+	"select": ["↖", "Move", "V"],
+	"node": ["◈", "Node", "N"],
+	"pen": ["✒", "Pen", "P"],
+	"pencil": ["╱", "Pencil", "B"],
+	"rect": ["□", "Rectangle", "R"],
+	"ellipse": ["○", "Ellipse", "E"],
+	"line": ["╲", "Line", "L"],
+	"text": ["T", "Art Text", "T"],
+	"hand": ["✥", "View", "H"],
+} # 左の道具列に出す記号、名称、キー
 
 var plugin: EditorPlugin # Godotエディターとの接点
 var document: RefCounted # 編集中のSVG
@@ -15,11 +28,16 @@ var layers: Tree # パーツとグループの階層
 var source: CodeEdit # SVG文字列の直接編集
 var status: Label # 現在の操作と表示倍率
 var title_label: Label # ファイル名と未保存状態
+var tool_title: Label # Context Toolbarに出す道具名
+var selection_label: Label # 下端に出す選択数
+var history_list: ItemList # 操作を行き来する履歴Studio
 var open_dialog: FileDialog # SVGを開く選択画面
 var save_dialog: FileDialog # SVGを保存する選択画面
 var fields := {} # 選択要素の属性入力
 var fill_color: ColorPickerButton # 塗り色の入力
 var stroke_color: ColorPickerButton # 線色の入力
+var width_field: LineEdit # Context Toolbarの線幅入力
+var tool_buttons := {} # 選択状態を塗り分ける道具ボタン
 var selected: Array[int] = [] # キャンバスと階層で共有する選択
 var history: Array[String] = [] # 操作後のSVGスナップショット
 var history_names: Array[String] = [] # 状態に移る操作名
@@ -35,53 +53,79 @@ func setup(owner_plugin: EditorPlugin) -> void:
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	focus_mode = Control.FOCUS_ALL
+	var root_panel := PanelContainer.new()
+	root_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	UiStyle.panel(root_panel, UiStyle.BAR)
+	add_child(root_panel)
 	var column := VBoxContainer.new()
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(column)
+	column.add_theme_constant_override("separation", 1)
+	root_panel.add_child(column)
 	column.add_child(_build_toolbar())
-	var body := HSplitContainer.new()
+	column.add_child(_build_context())
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 1)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(body)
 	body.add_child(_build_tools())
+	var split := HSplitContainer.new()
+	split.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	split.split_offset = -310
+	body.add_child(split)
 	canvas = Canvas.new()
-	canvas.custom_minimum_size = Vector2(480, 320)
+	canvas.custom_minimum_size = Vector2(300, 240)
 	canvas.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(canvas)
-	body.add_child(_build_studio())
-	status = Label.new()
-	status.text = "Ready"
-	status.add_theme_constant_override("outline_size", 4)
-	column.add_child(status)
+	split.add_child(canvas)
+	split.add_child(_build_studio())
+	column.add_child(_build_status())
 	canvas.selection_requested.connect(_select)
 	canvas.create_requested.connect(_create)
 	canvas.move_requested.connect(_move)
 	canvas.scale_requested.connect(_scale)
 	canvas.node_move_requested.connect(_move_node)
-	canvas.status_changed.connect(func(text: String) -> void: status.text = text)
+	canvas.status_changed.connect(_canvas_status)
 	_build_dialogs()
 	_new_document()
+	_select_tool("select")
 
 # 上部の文書操作とコンテキス操作を作る。
 func _build_toolbar() -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.y = 48
+	UiStyle.panel(panel, UiStyle.BAR)
+	var margin := MarginContainer.new()
+	for side in ["margin_left", "margin_right"]:
+		margin.add_theme_constant_override(side, 8)
+	panel.add_child(margin)
 	var bar := HBoxContainer.new()
-	bar.custom_minimum_size.y = 40
-	_add_button(bar, "New", _new_document, "Ctrl+N")
-	_add_button(bar, "Open", func() -> void: open_dialog.popup_centered_ratio(0.65), "Ctrl+O")
-	_add_button(bar, "Save", _save, "Ctrl+S")
-	_add_button(bar, "Save As", func() -> void: save_dialog.popup_centered_ratio(0.65), "Ctrl+Shift+S")
+	bar.add_theme_constant_override("separation", 4)
+	margin.add_child(bar)
+	var brand := Label.new()
+	brand.text = "SVG  DESIGNER"
+	brand.add_theme_color_override("font_color", UiStyle.ACCENT)
+	brand.add_theme_font_size_override("font_size", 15)
+	brand.custom_minimum_size.x = 126
+	bar.add_child(brand)
+	_add_button(bar, "＋ New", _new_document, "New document · Ctrl+N")
+	_add_button(bar, "Open", func() -> void: open_dialog.popup_centered_ratio(0.65), "Open SVG · Ctrl+O")
+	_add_button(bar, "Save", _save, "Save SVG · Ctrl+S", true)
 	bar.add_child(VSeparator.new())
-	_add_button(bar, "Undo", _undo, "Ctrl+Z")
-	_add_button(bar, "Redo", _redo, "Ctrl+Y")
-	_add_button(bar, "Duplicate", _duplicate, "Ctrl+D")
-	_add_button(bar, "Delete", _delete, "Delete")
+	_add_button(bar, "↶", _undo, "Undo · Ctrl+Z")
+	_add_button(bar, "↷", _redo, "Redo · Ctrl+Y")
+	_add_button(bar, "Duplicate", _duplicate, "Duplicate · Ctrl+D")
+	_add_button(bar, "Delete", _delete, "Delete selection")
 	bar.add_child(VSeparator.new())
-	_add_button(bar, "Group", _group, "Ctrl+G")
-	_add_button(bar, "Ungroup", _ungroup, "Ctrl+Shift+G")
+	_add_button(bar, "Group", _group, "Group · Ctrl+G")
+	_add_button(bar, "Ungroup", _ungroup, "Ungroup · Ctrl+Shift+G")
 	var arrange := MenuButton.new()
 	arrange.text = "Arrange"
+	UiStyle.button(arrange)
 	var menu := arrange.get_popup()
-	for label in ["Move Back", "Move Front", "Align Left", "Align Right", "Align Top", "Align Bottom", "Center Horizontally", "Center Vertically", "Distribute Horizontally", "Distribute Vertically", "Rotate Left", "Rotate Right", "Flip Horizontally", "Flip Vertically"]:
+	var actions := ["Move Back", "Move Front", "Align Left", "Align Right", "Align Top",
+		"Align Bottom", "Center Horizontally", "Center Vertically", "Distribute Horizontally",
+		"Distribute Vertically", "Rotate Left", "Rotate Right", "Flip Horizontally", "Flip Vertically"]
+	for label in actions:
 		menu.add_item(label)
 	menu.id_pressed.connect(_arrange)
 	bar.add_child(arrange)
@@ -90,96 +134,268 @@ func _build_toolbar() -> Control:
 	bar.add_child(spacer)
 	title_label = Label.new()
 	title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	title_label.custom_minimum_size.x = 180
+	title_label.custom_minimum_size.x = 120
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	title_label.add_theme_color_override("font_color", UiStyle.MUTED)
 	bar.add_child(title_label)
-	_add_button(bar, "Fit", func() -> void: canvas.fit_document(), "F")
-	_add_button(bar, "100%", func() -> void: canvas.actual_size(), "1")
-	return bar
+	return panel
 
-# 左端の道具選択パネルを作る。
-func _build_tools() -> Control:
-	var panel := VBoxContainer.new()
-	panel.custom_minimum_size.x = 92
-	var tools := {
-		"select": "Move (V)",
-		"node": "Node (N)",
-		"pen": "Pen (P)",
-		"pencil": "Pencil (B)",
-		"rect": "Rectangle (R)",
-		"ellipse": "Ellipse (E)",
-		"line": "Line (L)",
-		"text": "Text (T)",
-		"hand": "View (H)",
-	}
-	for key in tools:
-		var button := Button.new()
-		button.text = tools[key]
-		button.tooltip_text = tools[key]
-		button.pressed.connect(func() -> void: canvas.set_tool(key))
-		panel.add_child(button)
-	panel.add_child(HSeparator.new())
+# 道具に応じて頻繁に触る値を共通操作とは別の帯へ置く。
+func _build_context() -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.y = 42
+	UiStyle.panel(panel, UiStyle.PANEL)
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 7)
+	panel.add_child(bar)
+	tool_title = Label.new()
+	tool_title.text = "MOVE"
+	tool_title.add_theme_color_override("font_color", UiStyle.TEXT)
+	tool_title.add_theme_font_size_override("font_size", 13)
+	tool_title.custom_minimum_size.x = 100
+	tool_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bar.add_child(tool_title)
+	bar.add_child(VSeparator.new())
+	bar.add_child(_small_label("Fill"))
+	fill_color = ColorPickerButton.new()
+	fill_color.custom_minimum_size = Vector2(46, 28)
+	fill_color.color = Color("4c8dff")
+	fill_color.color_changed.connect(_context_color.bind("fill"))
+	bar.add_child(fill_color)
+	bar.add_child(_small_label("Stroke"))
+	stroke_color = ColorPickerButton.new()
+	stroke_color.custom_minimum_size = Vector2(46, 28)
+	stroke_color.color_changed.connect(_context_color.bind("stroke"))
+	bar.add_child(stroke_color)
+	bar.add_child(_small_label("Width"))
+	width_field = LineEdit.new()
+	width_field.custom_minimum_size = Vector2(64, 28)
+	width_field.placeholder_text = "2"
+	UiStyle.input(width_field)
+	width_field.text_submitted.connect(func(value: String) -> void:
+		canvas.stroke_width = maxf(value.to_float(), 0.0)
+		if fields.has("stroke-width"):
+			fields["stroke-width"].text = value
+			_apply_field("stroke-width"))
+	bar.add_child(width_field)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.add_child(spacer)
 	var grid_toggle := CheckButton.new()
 	grid_toggle.text = "Grid"
-	grid_toggle.button_pressed = true
+	grid_toggle.button_pressed = false
 	grid_toggle.toggled.connect(func(on: bool) -> void: canvas.grid = on; canvas.queue_redraw())
-	panel.add_child(grid_toggle)
+	bar.add_child(grid_toggle)
 	var snap_toggle := CheckButton.new()
 	snap_toggle.text = "Snap"
 	snap_toggle.button_pressed = true
 	snap_toggle.toggled.connect(func(on: bool) -> void: canvas.snap = on)
-	panel.add_child(snap_toggle)
+	bar.add_child(snap_toggle)
+	_add_button(bar, "Fit", func() -> void: canvas.fit_document(), "Fit document · F")
+	_add_button(bar, "100%", func() -> void: canvas.actual_size(), "Actual size · 1")
 	return panel
+
+# 左端の道具選択パネルを作る。
+func _build_tools() -> Control:
+	var shell := PanelContainer.new()
+	shell.custom_minimum_size.x = 54
+	UiStyle.panel(shell, UiStyle.PANEL)
+	var panel := VBoxContainer.new()
+	panel.add_theme_constant_override("separation", 2)
+	shell.add_child(panel)
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 5
+	panel.add_child(gap)
+	for key in TOOLS:
+		var button := Button.new()
+		button.text = TOOLS[key][0]
+		button.tooltip_text = "%s · %s" % [TOOLS[key][1], TOOLS[key][2]]
+		button.custom_minimum_size = Vector2(48, 36)
+		button.pressed.connect(_select_tool.bind(key))
+		UiStyle.button(button)
+		button.add_theme_font_size_override("font_size", 18)
+		tool_buttons[key] = button
+		panel.add_child(button)
+	return shell
 
 # 右端のパーツ階層、見た目、SVGコードを作る。
 func _build_studio() -> Control:
+	var shell := PanelContainer.new()
+	shell.custom_minimum_size.x = 310
+	UiStyle.panel(shell, UiStyle.PANEL)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 6)
+	shell.add_child(column)
+	var head := Label.new()
+	head.text = "  STUDIO"
+	head.add_theme_color_override("font_color", UiStyle.MUTED)
+	head.add_theme_font_size_override("font_size", 11)
+	head.custom_minimum_size.y = 28
+	column.add_child(head)
 	var tabs := TabContainer.new()
-	tabs.custom_minimum_size.x = 320
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tabs.add_theme_color_override("font_selected_color", UiStyle.ACCENT)
+	column.add_child(tabs)
+	var layer_panel := VBoxContainer.new()
+	layer_panel.name = "Layers"
+	var layer_actions := HBoxContainer.new()
+	layer_actions.add_theme_constant_override("separation", 4)
+	_add_button(layer_actions, "＋", _new_layer_hint, "Add objects with a drawing tool")
+	_add_button(layer_actions, "Group", _group, "Group selection")
+	_add_button(layer_actions, "Ungroup", _ungroup, "Ungroup selection")
+	var layer_space := Control.new()
+	layer_space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	layer_actions.add_child(layer_space)
+	_add_button(layer_actions, "⌫", _delete, "Delete selection")
+	layer_panel.add_child(layer_actions)
 	layers = Tree.new()
-	layers.name = "Layers"
+	layers.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	layers.hide_root = true
 	layers.select_mode = Tree.SELECT_SINGLE
+	layers.add_theme_color_override("font_selected_color", UiStyle.TEXT)
+	layers.add_theme_stylebox_override("selected", UiStyle.box(UiStyle.ACCENT_D, 5))
+	layers.add_theme_stylebox_override("selected_focus", UiStyle.box(UiStyle.ACCENT, 5))
 	layers.item_selected.connect(_tree_selected)
-	tabs.add_child(layers)
-	var appearance := VBoxContainer.new()
-	appearance.name = "Appearance"
+	layer_panel.add_child(layers)
+	tabs.add_child(layer_panel)
+	var transform := VBoxContainer.new()
+	transform.name = "Transform"
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	transform.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 8)
+	scroll.add_child(content)
+	content.add_child(_section("GEOMETRY"))
 	var form := GridContainer.new()
 	form.columns = 2
-	for key in ["id", "x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "opacity", "transform", "font-family", "font-size", "text"]:
+	form.add_theme_constant_override("h_separation", 8)
+	form.add_theme_constant_override("v_separation", 6)
+	for key in ["x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "transform"]:
 		var label := Label.new()
-		label.text = key
+		label.text = key.to_upper()
+		label.add_theme_color_override("font_color", UiStyle.MUTED)
+		label.custom_minimum_size.x = 78
 		form.add_child(label)
 		var field := LineEdit.new()
-		field.placeholder_text = "mixed / unset"
+		field.placeholder_text = "—"
+		field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		UiStyle.input(field)
 		field.text_submitted.connect(func(_value: String) -> void: _apply_field(key))
 		field.focus_exited.connect(func() -> void: _apply_field(key))
 		fields[key] = field
 		form.add_child(field)
-	scroll.add_child(form)
-	appearance.add_child(scroll)
-	var colors := HBoxContainer.new()
-	colors.add_child(Label.new())
-	colors.get_child(0).text = "Fill"
-	fill_color = ColorPickerButton.new()
-	fill_color.color_changed.connect(func(color: Color) -> void: _apply_color("fill", color))
-	colors.add_child(fill_color)
-	colors.add_child(Label.new())
-	colors.get_child(2).text = "Stroke"
-	stroke_color = ColorPickerButton.new()
-	stroke_color.color_changed.connect(func(color: Color) -> void: _apply_color("stroke", color))
-	colors.add_child(stroke_color)
-	appearance.add_child(colors)
-	tabs.add_child(appearance)
+	content.add_child(form)
+	content.add_child(_section("APPEARANCE"))
+	var look := GridContainer.new()
+	look.columns = 2
+	look.add_theme_constant_override("h_separation", 8)
+	look.add_theme_constant_override("v_separation", 6)
+	var look_fields := ["id", "fill", "fill-opacity", "stroke", "stroke-width",
+		"stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "opacity",
+		"font-family", "font-size", "text"]
+	for key in look_fields:
+		var label := Label.new()
+		label.text = key.replace("stroke-", "").replace("fill-", "").capitalize()
+		label.add_theme_color_override("font_color", UiStyle.MUTED)
+		label.custom_minimum_size.x = 78
+		look.add_child(label)
+		var field := LineEdit.new()
+		field.placeholder_text = "—"
+		field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		UiStyle.input(field)
+		field.text_submitted.connect(func(_value: String) -> void: _apply_field(key))
+		field.focus_exited.connect(func() -> void: _apply_field(key))
+		fields[key] = field
+		look.add_child(field)
+	content.add_child(look)
+	tabs.add_child(transform)
+	var history_panel := VBoxContainer.new()
+	history_panel.name = "History"
+	history_list = ItemList.new()
+	history_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	history_list.add_theme_stylebox_override("selected", UiStyle.box(UiStyle.ACCENT_D, 5))
+	history_list.item_selected.connect(_history_selected)
+	history_panel.add_child(history_list)
+	tabs.add_child(history_panel)
 	var code := VBoxContainer.new()
 	code.name = "SVG"
 	source = CodeEdit.new()
 	source.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	source.wrap_mode = TextEdit.LINE_WRAPPING_NONE
+	source.add_theme_stylebox_override("normal", UiStyle.box(UiStyle.DARK, 5))
+	source.add_theme_color_override("font_color", UiStyle.TEXT)
 	code.add_child(source)
-	_add_button(code, "Apply SVG", _apply_source, "Ctrl+Enter")
+	_add_button(code, "Apply SVG source", _apply_source, "Apply source · Ctrl+Enter", true)
 	tabs.add_child(code)
-	return tabs
+	return shell
+
+# 下端へ現在の操作と選択数を出し、作図面を覆わず手がかりを残す。
+func _build_status() -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.y = 28
+	UiStyle.panel(panel, UiStyle.BAR)
+	var bar := HBoxContainer.new()
+	panel.add_child(bar)
+	status = Label.new()
+	status.text = "Drag to select or move · Shift adds to selection"
+	status.add_theme_color_override("font_color", UiStyle.MUTED)
+	status.add_theme_font_size_override("font_size", 12)
+	status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.add_child(status)
+	selection_label = Label.new()
+	selection_label.text = "No selection"
+	selection_label.add_theme_color_override("font_color", UiStyle.MUTED)
+	selection_label.add_theme_font_size_override("font_size", 12)
+	bar.add_child(selection_label)
+	return panel
+
+# SVGでは描いた要素が層になることをLayersから知らせる。
+func _new_layer_hint() -> void:
+	status.text = "Draw an object to add a layer"
+
+# Studio内の区切り見出しを同じ形で作る。
+func _section(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_color_override("font_color", UiStyle.ACCENT)
+	label.add_theme_font_size_override("font_size", 11)
+	label.custom_minimum_size.y = 26
+	return label
+
+# Context Toolbarに置く短い補助名を作る。
+func _small_label(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_color_override("font_color", UiStyle.MUTED)
+	label.add_theme_font_size_override("font_size", 12)
+	return label
+
+# 道具の状態をキャンバス、左列、Context Toolbarへまとめて反映する。
+func _select_tool(key: String) -> void:
+	if canvas == null or not TOOLS.has(key):
+		return
+	canvas.set_tool(key)
+	tool_title.text = str(TOOLS[key][1]).to_upper()
+	for name in tool_buttons:
+		UiStyle.button(tool_buttons[name], name == key)
+	status.text = _tool_hint(key)
+
+# 道具ごとの次の操作を下端へ示す。
+func _tool_hint(key: String) -> String:
+	match key:
+		"select": return "Drag to move · lower-right handle scales · Shift adds to selection"
+		"node": return "Select a straight path, then drag its nodes"
+		"pen": return "Click to place nodes · Enter or double-click finishes the path"
+		"pencil": return "Drag to draw a freehand path"
+		"rect", "ellipse", "line": return "Drag across the page to create a shape"
+		"text": return "Click the page to create artistic text"
+		_: return "Drag to pan · mouse wheel zooms around the pointer"
+
+# キャンバスの倍率通知を下端へ流す。
+func _canvas_status(text: String) -> void:
+	status.text = text if text.begins_with("Zoom") else _tool_hint(canvas.tool)
 
 # ファイルを開く・保存するダイアログを用意する。
 func _build_dialogs() -> void:
@@ -260,12 +476,12 @@ func _save_as(file_path: String) -> void:
 	status.text = "Saved %s" % target
 
 # 操作前後のSVGをひとつの履歴として記録する。
-func _commit(label: String, change: Callable) -> void:
+func _commit(label: String, change: Callable) -> Variant:
 	var before: String = document.to_svg()
-	change.call()
+	var result: Variant = change.call()
 	var after: String = document.to_svg()
 	if before == after:
-		return
+		return result
 	if history_at + 1 < history.size():
 		history.resize(history_at + 1)
 		history_names.resize(history_at + 1)
@@ -275,6 +491,7 @@ func _commit(label: String, change: Callable) -> void:
 	document.dirty = history_at != saved_at
 	_sync()
 	status.text = label
+	return result
 
 # 履歴を1つ前・後ろへ進め、SVG文書を復元する。
 func _undo() -> void:
@@ -296,6 +513,12 @@ func _restore_history(at: int) -> void:
 	selected.clear()
 	_sync()
 	status.text = history_names[at]
+
+# History Studioから選んだ時点へ戻る。
+func _history_selected(at: int) -> void:
+	if _syncing or at == history_at:
+		return
+	_restore_history(at)
 
 # 新しい文書の先頭状態を履歴に入れる。
 func _reset_history() -> void:
@@ -321,14 +544,14 @@ func _select(uid: int, additive: bool) -> void:
 
 # 新しい図形をSVG木の最上面に追加する。
 func _create(tag: String, attrs: Dictionary) -> void:
-	var made := {}
-	_commit("Create %s" % tag, func() -> void:
+	var made: Dictionary = _commit("Create %s" % tag, func() -> Dictionary:
 		var values := attrs.duplicate()
 		var text: String = values.get("text", "")
 		values.erase("text")
-		made = document.add(tag, values)
+		var node: Dictionary = document.add(tag, values)
 		if tag == "text":
-			document.set_text(made.uid, text)
+			document.set_text(node.uid, text)
+		return node
 	)
 	if not made.is_empty():
 		selected = [made.uid]
@@ -374,8 +597,7 @@ func _delete() -> void:
 func _group() -> void:
 	if selected.size() < 1:
 		return
-	var made := {}
-	_commit("Group selection", func() -> void: made = document.group(selected))
+	var made: Dictionary = _commit("Group selection", func() -> Dictionary: return document.group(selected))
 	if not made.is_empty():
 		selected = [made.uid]
 		_sync_selection()
@@ -383,8 +605,7 @@ func _group() -> void:
 func _ungroup() -> void:
 	if selected.size() != 1:
 		return
-	var next: Array[int] = []
-	_commit("Ungroup selection", func() -> void: next = document.ungroup(selected[0]))
+	var next: Array[int] = _commit("Ungroup selection", func() -> Array[int]: return document.ungroup(selected[0]))
 	selected = next
 	_sync_selection()
 
@@ -502,6 +723,12 @@ func _apply_color(key: String, color: Color) -> void:
 			document.set_attr(uid, key, "#" + value)
 	)
 
+# Context Toolbarの色を新規図形と選択要素の両方へ反映する。
+func _context_color(color: Color, key: String) -> void:
+	if canvas != null:
+		canvas.set(key, color)
+	_apply_color(key, color)
+
 # コードパネルのSVGを解析し、正しいとき文書全体を置き換える。
 func _apply_source() -> void:
 	var probe: RefCounted = Document.new()
@@ -521,6 +748,7 @@ func _sync(update_target := true) -> void:
 	_rebuild_layers()
 	source.text = document.to_svg()
 	_sync_fields()
+	_sync_history()
 	_sync_title()
 	if update_target and is_instance_valid(target_node):
 		target_node.call("set_src", document.to_svg())
@@ -533,6 +761,7 @@ func _sync_selection(select_tree := true) -> void:
 	_sync_fields()
 	if select_tree and not selected.is_empty():
 		_select_tree_uid(layers.get_root(), selected[0])
+	selection_label.text = "No selection" if selected.is_empty() else "%d selected" % selected.size()
 	_syncing = false
 
 # SVGの木からパーツ・グループツリーを作り直す。
@@ -556,7 +785,8 @@ func _add_layer_items(node: Dictionary, parent: TreeItem) -> void:
 func _select_tree_uid(item: TreeItem, uid: int) -> bool:
 	if item == null:
 		return false
-	if int(item.get_metadata(0)) == uid:
+	var meta: Variant = item.get_metadata(0)
+	if meta != null and int(meta) == uid:
 		item.select(0)
 		layers.scroll_to_item(item)
 		return true
@@ -581,6 +811,21 @@ func _sync_fields() -> void:
 		fields[key].text = _node_text(node) if key == "text" else str(node.attrs.get(key, ""))
 	fill_color.color = Color.from_string(node.attrs.get("fill", "#000000"), Color.BLACK)
 	stroke_color.color = Color.from_string(node.attrs.get("stroke", "#000000"), Color.BLACK)
+	width_field.text = str(node.attrs.get("stroke-width", ""))
+	if not width_field.text.is_empty():
+		canvas.stroke_width = maxf(width_field.text.to_float(), 0.0)
+
+# 操作履歴を古い順に並べ、現在位置を緑の選択面で示す。
+func _sync_history() -> void:
+	if history_list == null:
+		return
+	history_list.clear()
+	for label in history_names:
+		history_list.add_item(label)
+	if history_at >= 0:
+		history_list.select(history_at)
+		history_list.ensure_current_is_visible()
+	selection_label.text = "No selection" if selected.is_empty() else "%d selected" % selected.size()
 
 # タイトルにファイル名と未保存印を表示する。
 func _sync_title() -> void:
@@ -603,11 +848,12 @@ func _node_text(node: Dictionary) -> String:
 	return out
 
 # ツールバーの共通ボタンを作る。
-func _add_button(parent: Control, text: String, action: Callable, tooltip := "") -> Button:
+func _add_button(parent: Control, text: String, action: Callable, tooltip := "", primary := false) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.tooltip_text = tooltip
 	button.pressed.connect(action)
+	UiStyle.button(button, primary)
 	parent.add_child(button)
 	return button
 
@@ -640,15 +886,15 @@ func _shortcut_input(event: InputEvent) -> void:
 		return
 	match event.keycode:
 		KEY_DELETE, KEY_BACKSPACE: _delete()
-		KEY_V: canvas.set_tool("select")
-		KEY_N: canvas.set_tool("node")
-		KEY_P: canvas.set_tool("pen")
-		KEY_B: canvas.set_tool("pencil")
-		KEY_R: canvas.set_tool("rect")
-		KEY_E: canvas.set_tool("ellipse")
-		KEY_L: canvas.set_tool("line")
-		KEY_T: canvas.set_tool("text")
-		KEY_H: canvas.set_tool("hand")
+		KEY_V: _select_tool("select")
+		KEY_N: _select_tool("node")
+		KEY_P: _select_tool("pen")
+		KEY_B: _select_tool("pencil")
+		KEY_R: _select_tool("rect")
+		KEY_E: _select_tool("ellipse")
+		KEY_L: _select_tool("line")
+		KEY_T: _select_tool("text")
+		KEY_H: _select_tool("hand")
 		KEY_F: canvas.fit_document()
 		KEY_1: canvas.actual_size()
 		_: return

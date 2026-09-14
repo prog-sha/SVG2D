@@ -35,10 +35,10 @@ add_child(picture)
 
 Choose **SVG** in Godot's main editor toolbar. Open an existing `.svg`, or create a new document. The workspace follows a familiar vector-editor layout:
 
-- Pick Move, Node, Pen, Pencil, Rectangle, Ellipse, Line, Text, or View from the left tool panel.
-- Draw and select on the center canvas. Drag a selection to move it, drag its lower-right handle to scale it, and use Node on straight paths and polygons to move their points.
-- Arrange parts and groups in Layers. Use the top toolbar for history, duplication, deletion, grouping, stacking, alignment, zoom, and saving.
-- Edit IDs, geometry, fill, stroke, opacity, transforms, and text in Appearance. Use the SVG tab when direct markup editing is more convenient.
+- Pick Move, Node, Pen, Pencil, Rectangle, Ellipse, Line, Text, or View from the compact left tool panel. The active tool is shown in green.
+- Draw and select on the center document view. Rulers, optional grid, a floating white page, and green selection handles keep document space distinct from the surrounding workspace.
+- Use the upper context toolbar for fill, stroke, width, snapping, and zoom. It stays separate from file and object commands.
+- Arrange parts and groups in Layers. Edit geometry and appearance in Transform, move through named operations in History, or use SVG for direct markup editing.
 - Select an `SVG2D` or `SVG3D` scene node to edit its `src` in the same workspace.
 
 Unknown SVG elements and attributes remain in the document when it is opened and saved. Complex Bézier curves, boolean path operations, text shaping, gradients, masks, filters, and symbols can be preserved and edited in the SVG source panel; their dedicated visual tools are not yet provided.

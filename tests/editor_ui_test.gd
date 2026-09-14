@@ -21,11 +21,18 @@ func _capture() -> void:
 	await process_frame
 	await process_frame
 	workspace.call("_create", "rect", {"x": "100", "y": "100", "width": "240", "height": "160", "fill": "#4c8dff"})
+	workspace.call("_select", 0, false)
+	workspace.call("_context_color", Color("f7476e"), "fill")
+	workspace.call("_create", "ellipse", {"cx": "470", "cy": "180", "rx": "90", "ry": "90", "fill": "#f7476e"})
 	await process_frame
 	var tree_root: TreeItem = workspace.layers.get_root()
-	var ok := workspace.canvas != null and workspace.source != null and tree_root != null and tree_root.get_child_count() == 1
+	var ok := workspace.canvas != null and workspace.source != null and tree_root != null and tree_root.get_child_count() == 2
+	ok = ok and workspace.tool_buttons.size() == 9 and workspace.history_list != null
+	ok = ok and workspace.canvas.size.x >= 300 and workspace.selection_label.is_visible_in_tree()
+	ok = ok and workspace.canvas.fill == Color("f7476e") and workspace.selected.size() == 1
 	var image := root.get_texture().get_image()
-	var error := image.save_png("res://tmp/editor-ui.png")
+	var output := "res://tmp/editor-ui-%d.png" % DisplayServer.window_get_size().x
+	var error := image.save_png(output)
 	if not ok or error != OK:
 		push_error("SVG編集画面を描画できないよ")
 		quit(1)

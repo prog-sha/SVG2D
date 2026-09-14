@@ -4,6 +4,8 @@
 @tool
 extends Control
 
+const UiStyle = preload("skin.gd") # 編集画面で共有する作業台と選択色
+
 signal selection_requested(uid: int, additive: bool)
 signal create_requested(tag: String, attrs: Dictionary)
 signal move_requested(uids: Array[int], delta: Vector2)
@@ -14,15 +16,19 @@ signal status_changed(text: String)
 const MIN_ZOOM := 0.05 # 全体を見渡せる最小倍率
 const MAX_ZOOM := 64.0 # ノードを詳しく見られる最大倍率
 const HANDLE := 5.0 # 選択ハンドルの画面上の半径
+const RULER := 22.0 # 文書座標を読む上端と左端の幅
 
 var document: RefCounted # 編集中のSVG文書
 var selected: Array[int] = [] # 選択中の要素番号
 var tool := "select" # 現在の操作ツール
 var zoom := 1.0 # 文書座標から画面への表示倍率
 var pan := Vector2.ZERO # 画面中心からの表示ずらし
-var grid := true # キャンバス上の格子表示
+var grid := false # キャンバス上の格子表示
 var snap := true # 作図座標を格子へ合わせるか
 var grid_size := 10.0 # SVG座標での格子間隔
+var fill := Color("4c8dff") # 新しい塗り図形に使う色
+var stroke := Color("202020") # 新しい線と自由線に使う色
+var stroke_width := 2.0 # 新しい線に使うSVG文書上の太さ
 var _renderer: Node2D # 既存GDExtensionでSVGを画像化する係
 var _texture: Texture2D # 現在のSVG表示画像
 var _dragging := false # 画面操作中か
@@ -50,8 +56,8 @@ func _ready() -> void:
 func set_document(value: RefCounted) -> void:
 	document = value
 	selected.clear()
-	fit_document()
 	refresh()
+	fit_document.call_deferred()
 
 # 文書の変更をGDExtensionの表示へ反映する。
 func refresh() -> void:
@@ -96,15 +102,17 @@ func actual_size() -> void:
 
 # キャンバス、SVG、選択ハンドルの順に描く。
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color("202228"))
+	draw_rect(Rect2(Vector2.ZERO, size), UiStyle.CANVAS)
 	if document == null:
 		return
 	var page := _page_rect()
-	_draw_grid(page)
-	draw_rect(page, Color.WHITE)
+	draw_rect(Rect2(page.position + Vector2(8, 9), page.size), Color(0, 0, 0, 0.28))
+	draw_rect(page.grow(1), Color(0, 0, 0, 0.18))
+	draw_rect(page, UiStyle.PAPER)
 	if _texture:
 		draw_texture_rect(_texture, page, false)
-	draw_rect(page, Color("687080"), false, 1.0)
+	_draw_grid(page)
+	draw_rect(page, UiStyle.BORDER, false, 1.0)
 	for uid in selected:
 		var bounds: Rect2 = document.bounds(uid)
 		if not bounds.has_area():
@@ -114,24 +122,25 @@ func _draw() -> void:
 			shown.size += _preview
 		else:
 			shown.position += _preview
-		draw_rect(shown, Color("61a8ff"), false, 1.5)
+		draw_rect(shown, UiStyle.ACCENT, false, 1.7)
 		for point in [shown.position, shown.end, Vector2(shown.end.x, shown.position.y), Vector2(shown.position.x, shown.end.y)]:
-			draw_rect(Rect2(point - Vector2.ONE * HANDLE, Vector2.ONE * HANDLE * 2.0), Color.WHITE)
-			draw_rect(Rect2(point - Vector2.ONE * HANDLE, Vector2.ONE * HANDLE * 2.0), Color("2878d0"), false, 1.0)
+			draw_rect(Rect2(point - Vector2.ONE * HANDLE, Vector2.ONE * HANDLE * 2.0), UiStyle.PAPER)
+			draw_rect(Rect2(point - Vector2.ONE * HANDLE, Vector2.ONE * HANDLE * 2.0), UiStyle.ACCENT_D, false, 1.0)
 		if tool == "node" and selected.size() == 1:
 			for point in document.edit_points(uid):
 				var at := to_screen(point)
-				draw_circle(at, HANDLE, Color.WHITE)
-				draw_circle(at, HANDLE, Color("ef7f32"), false, 1.5)
+				draw_circle(at, HANDLE, UiStyle.PAPER)
+				draw_circle(at, HANDLE, UiStyle.ACCENT, false, 1.5)
 	if _dragging and tool in ["rect", "ellipse", "line"]:
 		var from := to_screen(_start)
 		var to := get_local_mouse_position()
-		draw_rect(Rect2(from, to - from).abs(), Color("61a8ff"), false, 1.5)
+		draw_rect(Rect2(from, to - from).abs(), UiStyle.ACCENT, false, 1.5)
 	if _points.size() > 1:
 		var shown := PackedVector2Array()
 		for point in _points:
 			shown.append(to_screen(point))
-		draw_polyline(shown, Color("61a8ff"), 1.5)
+		draw_polyline(shown, UiStyle.ACCENT, 1.5)
+	_draw_rulers(page)
 
 # マウスとキーの操作を現在のツールへ渡す。
 func _gui_input(event: InputEvent) -> void:
@@ -190,7 +199,8 @@ func _mouse_button(event: InputEventMouseButton) -> void:
 		elif tool == "pencil":
 			_points = PackedVector2Array([point])
 		elif tool == "text":
-			create_requested.emit("text", {"x": _number(point.x), "y": _number(point.y), "fill": "#202020", "font-size": "24", "text": "Text"})
+			create_requested.emit("text", {"x": _number(point.x), "y": _number(point.y),
+				"fill": _color(fill), "font-size": "24", "text": "Text"})
 			_dragging = false
 	else:
 		if _mode == "node" and _dragging and selected.size() == 1:
@@ -208,7 +218,9 @@ func _mouse_button(event: InputEventMouseButton) -> void:
 		elif tool in ["rect", "ellipse", "line"] and _dragging:
 			_create_shape(tool, _start, point)
 		elif tool == "pencil" and _points.size() > 1:
-			create_requested.emit("path", {"d": _path_data(_points), "fill": "none", "stroke": "#202020", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round"})
+			create_requested.emit("path", {"d": _path_data(_points), "fill": "none",
+				"stroke": _color(stroke), "stroke-width": _number(stroke_width),
+				"stroke-linecap": "round", "stroke-linejoin": "round"})
 			_points.clear()
 		_dragging = false
 		_mode = ""
@@ -237,16 +249,23 @@ func _mouse_motion(event: InputEventMouseMotion) -> void:
 func _create_shape(kind: String, a: Vector2, b: Vector2) -> void:
 	var rect := Rect2(a, b - a).abs()
 	if kind == "rect" and rect.size.length() > 0:
-		create_requested.emit("rect", {"x": _number(rect.position.x), "y": _number(rect.position.y), "width": _number(rect.size.x), "height": _number(rect.size.y), "rx": "0", "fill": "#4c8dff"})
+		create_requested.emit("rect", {"x": _number(rect.position.x),
+			"y": _number(rect.position.y), "width": _number(rect.size.x),
+			"height": _number(rect.size.y), "rx": "0", "fill": _color(fill)})
 	elif kind == "ellipse" and rect.size.length() > 0:
-		create_requested.emit("ellipse", {"cx": _number(rect.get_center().x), "cy": _number(rect.get_center().y), "rx": _number(rect.size.x * 0.5), "ry": _number(rect.size.y * 0.5), "fill": "#4c8dff"})
+		create_requested.emit("ellipse", {"cx": _number(rect.get_center().x),
+			"cy": _number(rect.get_center().y), "rx": _number(rect.size.x * 0.5),
+			"ry": _number(rect.size.y * 0.5), "fill": _color(fill)})
 	elif kind == "line" and a != b:
-		create_requested.emit("line", {"x1": _number(a.x), "y1": _number(a.y), "x2": _number(b.x), "y2": _number(b.y), "stroke": "#202020", "stroke-width": "2"})
+		create_requested.emit("line", {"x1": _number(a.x), "y1": _number(a.y),
+			"x2": _number(b.x), "y2": _number(b.y), "stroke": _color(stroke),
+			"stroke-width": _number(stroke_width)})
 
 # ペンで置いた点を開いたパスにする。
 func _finish_pen() -> void:
 	if _points.size() > 1:
-		create_requested.emit("path", {"d": _path_data(_points), "fill": "none", "stroke": "#202020", "stroke-width": "2"})
+		create_requested.emit("path", {"d": _path_data(_points), "fill": "none",
+			"stroke": _color(stroke), "stroke-width": _number(stroke_width)})
 	_points.clear()
 	queue_redraw()
 
@@ -314,7 +333,7 @@ func _draw_grid(page: Rect2) -> void:
 	if not grid or grid_size * zoom < 6.0:
 		return
 	var step := grid_size * zoom
-	var color := Color(0.18, 0.2, 0.24, 0.65)
+	var color := Color(0.22, 0.23, 0.25, 0.16)
 	var x := page.position.x
 	while x <= page.end.x:
 		draw_line(Vector2(x, page.position.y), Vector2(x, page.end.y), color)
@@ -323,6 +342,36 @@ func _draw_grid(page: Rect2) -> void:
 	while y <= page.end.y:
 		draw_line(Vector2(page.position.x, y), Vector2(page.end.x, y), color)
 		y += step
+
+# 作業台の上端と左端へ、倍率に応じた文書座標の目盛りを描く。
+func _draw_rulers(page: Rect2) -> void:
+	draw_rect(Rect2(0, 0, size.x, RULER), UiStyle.PANEL)
+	draw_rect(Rect2(0, 0, RULER, size.y), UiStyle.PANEL)
+	draw_line(Vector2(0, RULER), Vector2(size.x, RULER), UiStyle.BORDER)
+	draw_line(Vector2(RULER, 0), Vector2(RULER, size.y), UiStyle.BORDER)
+	var step := grid_size
+	while step * zoom < 54.0:
+		step *= 2.0
+	var x := page.position.x
+	var value: float = document.document_rect().position.x
+	while x <= size.x:
+		if x >= RULER:
+			draw_line(Vector2(x, RULER - 7), Vector2(x, RULER), UiStyle.MUTED)
+			draw_string(ThemeDB.fallback_font, Vector2(x + 3, 13), _tick(value),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UiStyle.MUTED)
+		x += step * zoom
+		value += step
+	var y := page.position.y
+	value = document.document_rect().position.y
+	while y <= size.y:
+		if y >= RULER:
+			draw_line(Vector2(RULER - 7, y), Vector2(RULER, y), UiStyle.MUTED)
+		y += step * zoom
+		value += step
+
+# 目盛り値を短い文字にする。
+func _tick(value: float) -> String:
+	return str(roundi(value)) if is_equal_approx(value, roundf(value)) else str(snappedf(value, 0.1))
 
 # 点列をSVGのM/Lパス文字列にする。
 func _path_data(points: PackedVector2Array) -> String:
@@ -334,3 +383,7 @@ func _path_data(points: PackedVector2Array) -> String:
 # SVG属性向けの短い数値にする。
 func _number(value: float) -> String:
 	return str(snappedf(value, 0.001))
+
+# ColorをSVGの16進色へする。
+func _color(value: Color) -> String:
+	return "#" + value.to_html(value.a < 1.0)
