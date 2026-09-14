@@ -136,6 +136,8 @@ public:
 	bool is_adaptive() const { return _adaptive; }
 	// ノードが貼る画像を返す。Sprite2D など別の描き手でも使える。
 	godot::Ref<godot::Texture2D> get_texture();
+	// SVG文書の自然寸法。エディターの選択面にも使う。
+	godot::Vector2 get_svg_size() const { return _svg.draw_size(); }
 };
 
 // SVG を3D空間の板へ置くノード。

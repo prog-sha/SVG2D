@@ -31,3 +31,20 @@ if printf '%s\n' "$result" | grep -q '^ERROR:'; then
   echo "Godotがエラーを出したよ"
   exit 1
 fi
+
+# 配布用addonsを空のプロジェクトへ入れ、プラグイン有効状態の実エディターで確かめる。
+editor_root=$(mktemp -d)
+trap 'rm -rf "$editor_root"' EXIT HUP INT TERM
+cp tests/editor_project.godot "$editor_root/project.godot"
+cp -R addons "$editor_root/addons"
+mkdir "$editor_root/tests"
+cp tests/editor_inspector_test.gd "$editor_root/tests/editor_inspector_test.gd"
+cp tests/editor_test_plugin.cfg "$editor_root/tests/editor_test_plugin.cfg"
+cp -R tests/svg "$editor_root/tests/svg"
+editor_result=$("$godot" --headless --editor --path "$editor_root" --quit-after 600 2>&1)
+printf '%s\n' "$editor_result"
+printf '%s\n' "$editor_result" | grep -q "SVG Inspectorの試験に通ったよ"
+if printf '%s\n' "$editor_result" | grep -q '^ERROR:'; then
+  echo "Godotエディターがエラーを出したよ"
+  exit 1
+fi

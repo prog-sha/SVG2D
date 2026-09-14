@@ -20,7 +20,7 @@ The packaged add-on includes precompiled debug and release binaries for Windows 
 
 ## Usage
 
-Add an `SVG2D` node to a 2D scene or an `SVG3D` node to a 3D scene. Use **Open SVG…** on `src` in the Inspector to choose a `.svg` asset and preview both the artwork and its dimensions. The SVG document width and height define its natural dimensions. Transform `SVG2D` or adjust the camera to change its on-screen dimensions. On `SVG3D`, use `pixel_size` to control its dimensions in 3D space.
+Add an `SVG2D` node to a 2D scene or an `SVG3D` node to a 3D scene. Use **Open SVG…** on `src` in the Inspector to choose a `.svg` asset and preview both the artwork and its dimensions. The SVG document width and height define its natural dimensions, and you can drag anywhere inside the artwork to move it in the 2D editor. Transform `SVG2D` or adjust the camera to change its on-screen dimensions. On `SVG3D`, use `pixel_size` to control its dimensions in 3D space.
 
 ```gdscript
 var picture := SVG2D.new()

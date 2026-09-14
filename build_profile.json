@@ -12,6 +12,7 @@
 		"RefCounted",
 		"Sprite3D",
 		"Texture2D",
+		"ResourceUID",
 		"Viewport",
 		"XMLParser"
 	]

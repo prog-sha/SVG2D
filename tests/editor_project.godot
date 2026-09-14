@@ -1,0 +1,14 @@
+; 配布用addonsを一時プロジェクトへコピーし、実エディターとして読み込む試験設定。
+config_version=5
+
+[application]
+
+config/name="SVG2D Editor Test"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/svg2d/plugin.cfg", "res://tests/editor_test_plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"

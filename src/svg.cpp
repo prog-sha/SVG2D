@@ -13,6 +13,7 @@
 #include <godot_cpp/classes/camera3d.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/resource_uid.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/classes/xml_parser.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -1334,6 +1335,7 @@ void SVGTexture::set_src(const String &s) {
 	_src = s;
 	String text = s;
 	String path = s.strip_edges();
+	if (path.begins_with("uid://")) path = ResourceUID::ensure_path(path);
 	// Inspector では SVG を素材として選ぶ。従来どおり SVG 本文を直接渡す API も
 	// 壊さないため、Godot のファイルパスだけを読み替える。
 	if ((path.begins_with("res://") || path.begins_with("user://")) &&
@@ -1442,6 +1444,7 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG2D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG2D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
+	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVG2D::get_svg_size);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
