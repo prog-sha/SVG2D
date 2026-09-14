@@ -28,8 +28,10 @@
 #include <godot_cpp/classes/sprite3d.hpp>
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 
+#include <array>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -75,7 +77,7 @@ public:
 	// 札に書いてある大きさ。width/height が無ければ viewBox の広さ。
 	godot::Vector2 doc_size() const;
 	// 決められた大きさの絵にする。読めていなければ空の絵。
-	godot::Ref<godot::Image> render(int w, int h) const;
+	godot::Ref<godot::Image> render(int w, int h, double jitter = 0.0, int seed = 1) const;
 	// 控えを空ける。使っていない絵を抱えたままにしたくないときに呼ぶ。
 	void clear_cache();
 	// 控えが抱えている量。ためしと、どの程度効いているかを見るのに使う。
@@ -87,11 +89,17 @@ public:
 // 設計思想: 表示先を持たず、2Dと3Dで同じ画像を使えるようにする。
 class SVGTexture {
 private:
+	struct Frame {
+		godot::Ref<godot::ImageTexture> texture;
+		godot::Vector2 baked = godot::Vector2(0, 0);
+		bool dirty = true;
+		bool mipmaps = false;
+	};
+
 	godot::String _src;
 	std::unique_ptr<SVG> _doc;
-	godot::Ref<godot::ImageTexture> _tex;
-	godot::Vector2 _baked = godot::Vector2(0, 0);
-	bool _dirty = true;
+	std::array<Frame, 4> _frames;
+	double _jitter_amount = 0.0025;
 
 	// 画面密度を実際に必要な整数画素数へ丸める。
 	godot::Vector2 _target(const godot::Vector2 &density) const;
@@ -103,9 +111,12 @@ public:
 	// SVGが場面内で占める基準サイズを返す。
 	godot::Vector2 draw_size() const;
 	// 指定した画面密度で画像を作り直す必要があるかを返す。
-	bool needs(const godot::Vector2 &density) const;
+	bool needs(const godot::Vector2 &density, int pattern = 0, bool mipmaps = false) const;
 	// 現在の入力と画面密度に対応する画像を返す。
-	godot::Ref<godot::Texture2D> get_texture(const godot::Vector2 &density = godot::Vector2(1, 1));
+	godot::Ref<godot::Texture2D> get_texture(const godot::Vector2 &density = godot::Vector2(1, 1),
+			int pattern = 0, bool mipmaps = false);
+	void set_jitter_amount(double amount);
+	double get_jitter_amount() const { return _jitter_amount; }
 };
 
 // SVG を画面へ置くノード。
@@ -117,9 +128,17 @@ class SVG2D : public godot::Node2D {
 private:
 	SVGTexture _svg;
 	bool _adaptive = true;
+	bool _flip_h = false;
+	bool _flip_v = false;
+	godot::Vector2 _offset;
+	int _animation_interval = 10;
+	int _animation_tick = 0;
+	int _animation_pattern = 0;
 
 	// ローカル座標からViewport座標への拡大率を返す。
 	godot::Vector2 _density() const;
+	void _update_processing();
+	bool _advance_animation();
 
 protected:
 	static void _bind_methods();
@@ -134,6 +153,16 @@ public:
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
+	void set_jitter_amount(double amount);
+	double get_jitter_amount() const { return _svg.get_jitter_amount(); }
+	void set_animation_interval(int frames);
+	int get_animation_interval() const { return _animation_interval; }
+	void set_flip_h(bool enabled);
+	bool is_flipped_h() const { return _flip_h; }
+	void set_flip_v(bool enabled);
+	bool is_flipped_v() const { return _flip_v; }
+	void set_offset(const godot::Vector2 &offset);
+	godot::Vector2 get_offset() const { return _offset; }
 	// ノードが貼る画像を返す。Sprite2D など別の描き手でも使える。
 	godot::Ref<godot::Texture2D> get_texture();
 	// SVG文書の自然寸法。エディターの選択面にも使う。
@@ -152,6 +181,13 @@ private:
 	double _pixel_size = 0.01;
 	bool _adaptive = true;
 	bool _queued = false;
+	bool _flip_h = false;
+	bool _flip_v = false;
+	godot::Vector2 _offset;
+	godot::Color _modulate = godot::Color(1, 1, 1, 1);
+	int _animation_interval = 10;
+	int _animation_tick = 0;
+	int _animation_pattern = 0;
 
 	// 画像を貼る内部ノードを必要になった時点で作る。
 	void _ensure_sprite();
@@ -160,6 +196,8 @@ private:
 	// まとまった設定変更のあと、入力に対応する画像を3Dの板へ反映する。
 	void _queue_refresh();
 	void _refresh();
+	void _update_processing();
+	bool _advance_animation();
 
 protected:
 	static void _bind_methods();
@@ -176,6 +214,18 @@ public:
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
+	void set_jitter_amount(double amount);
+	double get_jitter_amount() const { return _svg.get_jitter_amount(); }
+	void set_animation_interval(int frames);
+	int get_animation_interval() const { return _animation_interval; }
+	void set_flip_h(bool enabled);
+	bool is_flipped_h() const { return _flip_h; }
+	void set_flip_v(bool enabled);
+	bool is_flipped_v() const { return _flip_v; }
+	void set_offset(const godot::Vector2 &offset);
+	godot::Vector2 get_offset() const { return _offset; }
+	void set_modulate(const godot::Color &color);
+	godot::Color get_modulate() const { return _modulate; }
 	// 内部の3D板が使っている画像を返す。
 	godot::Ref<godot::Texture2D> get_texture() const;
 };

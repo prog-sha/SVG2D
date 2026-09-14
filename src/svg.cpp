@@ -548,6 +548,9 @@ struct Ctx {
 	int lv = 0;                // いま使っている紙の深さ
 	int depth = 0;             // 入れ子の深さ。輪になった指し先で止まらなくなるのを防ぐ
 	int uses = 0;              // 使い回しをたどった深さ。輪になっていたらここで止まる
+	double jitter = 0.0;       // 文書寸法に対する揺れ量
+	int jitter_seed = 1;       // 1〜4だけを使う固定パターン
+	Vector2 jitter_span;       // SVG座標で見た文書の縦横
 };
 
 // 形が抱えている量。
@@ -555,6 +558,42 @@ static size_t path_bytes(const Path &p) {
 	size_t n = 0;
 	for (const Sub &s : p) n += s.p.size() * sizeof(Vector2) + sizeof(Sub);
 	return n;
+}
+
+// うごメモの線のような「沸き」を、毎回同じ4枚だけ作る。
+// 時刻やOSの乱数は使わず、seed 1〜4と点番号だけから値を決めるため、再読込しても
+// 同じ絵になり、焼いた4枚をそのまま循環利用できる。
+static uint32_t jitter_hash(uint32_t value) {
+	value ^= value >> 16;
+	value *= 0x7feb352du;
+	value ^= value >> 15;
+	value *= 0x846ca68bu;
+	return value ^ (value >> 16);
+}
+
+static float jitter_unit(int seed, size_t sub, size_t point, int axis, const Vector2 &position) {
+	uint32_t key = (uint32_t)seed;
+	key ^= (uint32_t)(sub + 1) * 0x9e3779b9u;
+	key ^= (uint32_t)(point + 1) * 0x85ebca6bu;
+	key ^= (uint32_t)(axis + 1) * 0xc2b2ae35u;
+	key ^= (uint32_t)std::llround((double)position.x * 1024.0) * 0x27d4eb2du;
+	key ^= (uint32_t)std::llround((double)position.y * 1024.0) * 0x165667b1u;
+	return (float)((double)(jitter_hash(key) & 0x00ffffffu) / 8388607.5 - 1.0);
+}
+
+static Path jitter_path(const Path &path, const Ctx &c) {
+	if (c.jitter <= 0.0) return path;
+	Path out = path;
+	Vector2 amount((float)(c.jitter_span.x * c.jitter),
+			(float)(c.jitter_span.y * c.jitter));
+	for (size_t si = 0; si < out.size(); si++) {
+		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
+			const Vector2 original = out[si].p[pi];
+			out[si].p[pi].x += amount.x * jitter_unit(c.jitter_seed, si, pi, 0, original);
+			out[si].p[pi].y += amount.y * jitter_unit(c.jitter_seed, si, pi, 1, original);
+		}
+	}
+	return out;
 }
 
 // id を指す書きかた（url(#name) や #name）から札を探す。
@@ -1098,12 +1137,13 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 		double tol = FLAT / sc;
 		// 組んだ形は控えから引く。同じ大きさで描き続けるかぎり、組むのは 1 度きり
 		const void *ep = &e;
-		const double look[] = { tol, st.vw, st.vh };
+		const double look[] = { tol, st.vw, st.vh, c.jitter, (double)c.jitter_seed,
+			c.jitter_span.x, c.jitter_span.y };
 		uint64_t key = mix(mix(SEED, &ep, sizeof(ep)), look, sizeof(look));
 		Built *b = c.store->geo.find(key);
 		if (b == nullptr) {
 			Built made;
-			made.fill = shape_of(e, tol, st);
+			made.fill = jitter_path(shape_of(e, tol, st), c);
 			made.box = path_box(made.fill);
 			size_t n = path_bytes(made.fill);
 			b = &c.store->geo.keep(key, std::move(made), n);
@@ -1126,7 +1166,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 				uint64_t rk = mix(mix(SEED, rlook, sizeof(rlook)), st.dash.data(),
 						st.dash.size() * sizeof(double));
 				if (!b->ringed || b->rkey != rk) {
-					Path fine = tight < tol * 0.9 ? shape_of(e, tight, st) : b->fill;
+					Path fine = tight < tol * 0.9 ? jitter_path(shape_of(e, tight, st), c) : b->fill;
 					Path src = st.dash.empty() ? fine : dashed(fine, st.dash, st.dash_off);
 					b->ring = outline(src, st.width, st.cap, st.join, st.miter, tol);
 					b->rbox = path_box(b->ring);
@@ -1240,7 +1280,7 @@ Vector2 SVG::doc_size() const {
 	return Vector2(300, 150);   // SVG の決まりの既定
 }
 
-Ref<Image> SVG::render(int w, int h) const {
+Ref<Image> SVG::render(int w, int h, double jitter, int seed) const {
 	Ref<Image> img;
 	if (w <= 0 || h <= 0 || _root == nullptr) return img;
 	_store->begin(w, h);
@@ -1250,6 +1290,8 @@ Ref<Image> SVG::render(int w, int h) const {
 	c.ids = &_ids;
 	c.root = _root.get();
 	c.store = _store.get();
+	c.jitter = std::clamp(jitter, 0.0, 1.0);
+	c.jitter_seed = std::clamp(seed, 1, 4);
 	State st;
 	st.vw = (double)w;
 	st.vh = (double)h;
@@ -1258,6 +1300,7 @@ Ref<Image> SVG::render(int w, int h) const {
 		st.vw = _view.size.x;
 		st.vh = _view.size.y;
 	}
+	c.jitter_span = Vector2((float)st.vw, (float)st.vh);
 	draw_elem(c, *_root, st);
 	// 掛け合わせ済みの色を、ふつうの色へ戻して絵にする。
 	// resize は 0 で埋めてくれるので、触っていない所はそのまま透けた色でよい。
@@ -1346,14 +1389,16 @@ void SVGTexture::set_src(const String &s) {
 	// XMLParser 自身が ERR_INVALID_DATA を出すため、ここで静かに止める。
 	if (text.strip_edges().is_empty()) {
 		_doc.reset();
-		_tex.unref();
-		_baked = Vector2();
-		_dirty = true;
+		for (Frame &frame : _frames) frame = Frame();
 		return;
 	}
 	_doc = std::make_unique<SVG>();
-	if (!_doc->parse(text)) _doc.reset();
-	_dirty = true;
+	if (!_doc->parse(text)) {
+		_doc.reset();
+		for (Frame &frame : _frames) frame = Frame();
+		return;
+	}
+	for (Frame &frame : _frames) frame.dirty = true;
 }
 
 Vector2 SVGTexture::draw_size() const {
@@ -1370,38 +1415,51 @@ Vector2 SVGTexture::_target(const Vector2 &density) const {
 			(float)std::min(MAX_TEX, std::max(1.0, std::ceil(base.y * y - 1e-6))));
 }
 
-bool SVGTexture::needs(const Vector2 &density) const {
+bool SVGTexture::needs(const Vector2 &density, int pattern, bool mipmaps) const {
 	Vector2 target = _target(density);
-	return _dirty || target != _baked;
+	const Frame &frame = _frames[(size_t)((pattern % 4 + 4) % 4)];
+	return frame.dirty || target != frame.baked || mipmaps != frame.mipmaps;
 }
 
-// いまの画面密度で焼く。段階が変わっていなければ、前に焼いたものを使い回す。
-Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density) {
+void SVGTexture::set_jitter_amount(double amount) {
+	double value = std::isfinite(amount) ? std::clamp(amount, 0.0, 1.0) : 0.0025;
+	if (_jitter_amount == value) return;
+	_jitter_amount = value;
+	for (Frame &frame : _frames) frame.dirty = true;
+}
+
+// いまの画面密度で焼く。固定seed 1〜4の各画像は別々に控え、5枚目を作らない。
+Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool mipmaps) {
+	Frame &frame = _frames[(size_t)((pattern % 4 + 4) % 4)];
 	if (_doc == nullptr) {
-		_tex.unref();
-		_baked = Vector2();
-		_dirty = false;
-		return _tex;
+		frame = Frame();
+		frame.dirty = false;
+		return frame.texture;
 	}
 	Vector2 target = _target(density);
-	if (!_dirty && _tex.is_valid() && _baked == target) return _tex;
-	Ref<Image> img = _doc->render((int)target.x, (int)target.y);
+	if (!frame.dirty && frame.texture.is_valid() && frame.baked == target &&
+			frame.mipmaps == mipmaps)
+		return frame.texture;
+	Ref<Image> img = _doc->render((int)target.x, (int)target.y, _jitter_amount,
+			((pattern % 4 + 4) % 4) + 1);
 	if (img.is_null()) {
-		_tex.unref();
-		return _tex;
+		frame.texture.unref();
+		return frame.texture;
 	}
-	if (_tex.is_valid() && _baked == target) {
-		_tex->update(img);
+	if (mipmaps) img->generate_mipmaps();
+	if (frame.texture.is_valid() && frame.baked == target && frame.mipmaps == mipmaps) {
+		frame.texture->update(img);
 	} else {
-		_tex = ImageTexture::create_from_image(img);
+		frame.texture = ImageTexture::create_from_image(img);
 	}
-	_baked = target;
-	_dirty = false;
-	return _tex;
+	frame.baked = target;
+	frame.mipmaps = mipmaps;
+	frame.dirty = false;
+	return frame.texture;
 }
 
 SVG2D::SVG2D() {
-	set_process(true);
+	_update_processing();
 }
 
 Vector2 SVG2D::_density() const {
@@ -1412,30 +1470,82 @@ Vector2 SVG2D::_density() const {
 
 void SVG2D::set_src(const String &s) {
 	_svg.set_src(s);
+	_animation_tick = 0;
+	_animation_pattern = 0;
 	queue_redraw();
 }
 
 void SVG2D::set_adaptive(bool enabled) {
 	if (_adaptive == enabled) return;
 	_adaptive = enabled;
-	set_process(enabled);
+	_update_processing();
 	queue_redraw();
 }
 
 void SVG2D::_process(double) {
-	if (is_visible_in_tree() && _svg.needs(_density())) queue_redraw();
+	if (!is_visible_in_tree()) return;
+	if (_advance_animation() || _svg.needs(_density(), _animation_pattern)) queue_redraw();
 }
 
 void SVG2D::_draw() {
 	Ref<Texture2D> tex = get_texture();
 	Vector2 size = _svg.draw_size();
-	if (tex.is_valid() && size.x > 0.0f && size.y > 0.0f)
-		draw_texture_rect(tex, Rect2(Vector2(), size), false);
+	if (tex.is_valid() && size.x > 0.0f && size.y > 0.0f) {
+		Vector2 center = _offset + size * 0.5f;
+		draw_set_transform(center, 0.0f,
+				Vector2(_flip_h ? -1.0f : 1.0f, _flip_v ? -1.0f : 1.0f));
+		draw_texture_rect(tex, Rect2(size * -0.5f, size), false);
+	}
 }
 
 // いまの設定で焼いた画像を、ほかの 2D 描画でも使える形で返す。
 Ref<Texture2D> SVG2D::get_texture() {
-	return _svg.get_texture(_density());
+	return _svg.get_texture(_density(), _animation_pattern);
+}
+
+void SVG2D::_update_processing() {
+	set_process(_adaptive || _svg.get_jitter_amount() > 0.0);
+}
+
+bool SVG2D::_advance_animation() {
+	if (_svg.get_jitter_amount() <= 0.0) return false;
+	if (++_animation_tick < _animation_interval) return false;
+	_animation_tick = 0;
+	_animation_pattern = (_animation_pattern + 1) % 4;
+	return true;
+}
+
+void SVG2D::set_jitter_amount(double amount) {
+	_svg.set_jitter_amount(amount);
+	_animation_tick = 0;
+	_animation_pattern = 0;
+	_update_processing();
+	queue_redraw();
+}
+
+void SVG2D::set_animation_interval(int frames) {
+	int value = std::max(1, frames);
+	if (_animation_interval == value) return;
+	_animation_interval = value;
+	_animation_tick = 0;
+}
+
+void SVG2D::set_flip_h(bool enabled) {
+	if (_flip_h == enabled) return;
+	_flip_h = enabled;
+	queue_redraw();
+}
+
+void SVG2D::set_flip_v(bool enabled) {
+	if (_flip_v == enabled) return;
+	_flip_v = enabled;
+	queue_redraw();
+}
+
+void SVG2D::set_offset(const Vector2 &offset) {
+	if (_offset == offset) return;
+	_offset = offset;
+	queue_redraw();
 }
 
 void SVG2D::_bind_methods() {
@@ -1445,13 +1555,33 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG2D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
 	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVG2D::get_svg_size);
+	ClassDB::bind_method(D_METHOD("set_jitter_amount", "amount"), &SVG2D::set_jitter_amount);
+	ClassDB::bind_method(D_METHOD("get_jitter_amount"), &SVG2D::get_jitter_amount);
+	ClassDB::bind_method(D_METHOD("set_animation_interval", "frames"), &SVG2D::set_animation_interval);
+	ClassDB::bind_method(D_METHOD("get_animation_interval"), &SVG2D::get_animation_interval);
+	ClassDB::bind_method(D_METHOD("set_flip_h", "enabled"), &SVG2D::set_flip_h);
+	ClassDB::bind_method(D_METHOD("is_flipped_h"), &SVG2D::is_flipped_h);
+	ClassDB::bind_method(D_METHOD("set_flip_v", "enabled"), &SVG2D::set_flip_v);
+	ClassDB::bind_method(D_METHOD("is_flipped_v"), &SVG2D::is_flipped_v);
+	ClassDB::bind_method(D_METHOD("set_offset", "offset"), &SVG2D::set_offset);
+	ClassDB::bind_method(D_METHOD("get_offset"), &SVG2D::get_offset);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
+	ADD_GROUP("Animation", "");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "jitter_amount", PROPERTY_HINT_RANGE,
+			"0,0.1,0.0001,or_greater"), "set_jitter_amount", "get_jitter_amount");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "animation_interval", PROPERTY_HINT_RANGE,
+			"1,120,1,or_greater"), "set_animation_interval", "get_animation_interval");
+	ADD_GROUP("Appearance", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "is_flipped_h");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "is_flipped_v");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "offset"), "set_offset", "get_offset");
+	ADD_GROUP("Rendering", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 }
 
 SVG3D::SVG3D() {
-	set_process(true);
+	_update_processing();
 }
 
 void SVG3D::_ensure_sprite() {
@@ -1459,15 +1589,18 @@ void SVG3D::_ensure_sprite() {
 	_sprite = memnew(Sprite3D);
 	_sprite->set_name("SVG");
 	_sprite->set_draw_flag(SpriteBase3D::FLAG_SHADED, false);
+	_sprite->set_flip_h(_flip_h);
+	_sprite->set_flip_v(_flip_v);
+	_sprite->set_modulate(_modulate);
 	add_child(_sprite, false, Node::INTERNAL_MODE_BACK);
 }
 
 Vector2 SVG3D::_density() const {
-	if (!_adaptive || !is_inside_tree()) return Vector2(1, 1);
+	if (!_adaptive || !is_inside_tree()) return Vector2(1.5f, 1.5f);
 	Viewport *view = get_viewport();
 	Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
 	Vector2 size = _svg.draw_size();
-	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return Vector2(1, 1);
+	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return Vector2(1.5f, 1.5f);
 	Transform3D t = get_global_transform();
 	double hw = size.x * _pixel_size * 0.5;
 	double hh = size.y * _pixel_size * 0.5;
@@ -1480,22 +1613,25 @@ Vector2 SVG3D::_density() const {
 	// 透視投影でカメラをまたぐ板は上限画素で保護する。
 	int behind = 0;
 	for (const Vector3 &p : world) behind += camera->is_position_behind(p) ? 1 : 0;
-	if (behind == 4) return Vector2(1, 1);
+	if (behind == 4) return Vector2(1.5f, 1.5f);
 	if (behind > 0) return Vector2((float)(MAX_TEX / size.x), (float)(MAX_TEX / size.y));
 	Vector2 screen[4];
 	for (int i = 0; i < 4; i++) screen[i] = camera->unproject_position(world[i]);
 	// 斜めの板は近い辺ほど大きく見えるため、対向する辺の長い方を使う。
 	double w = std::max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]));
 	double h = std::max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]));
-	return Vector2((float)(w / size.x), (float)(h / size.y));
+	return Vector2((float)(w * 1.5 / size.x), (float)(h * 1.5 / size.y));
 }
 
 void SVG3D::_refresh() {
 	_queued = false;
 	_ensure_sprite();
-	Ref<Texture2D> tex = _svg.get_texture(_density());
+	Ref<Texture2D> tex = _svg.get_texture(_density(), _animation_pattern, true);
 	_sprite->set_texture(tex);
 	_sprite->set_pixel_size((float)_pixel_size);
+	_sprite->set_flip_h(_flip_h);
+	_sprite->set_flip_v(_flip_v);
+	_sprite->set_modulate(_modulate);
 	// 焼いた画像の縦横を別々に縮め、切り上げや上限があっても空間内の大きさを保つ。
 	Vector2 base = _svg.draw_size();
 	Vector2 baked = tex.is_valid() ? tex->get_size() : Vector2();
@@ -1503,6 +1639,10 @@ void SVG3D::_refresh() {
 	if (base.x > 0.0f && base.y > 0.0f && baked.x > 0.0f && baked.y > 0.0f)
 		scale = Vector3(base.x / baked.x, base.y / baked.y, 1);
 	_sprite->set_scale(scale);
+	// offsetは焼いた画素数ではなくSVGの自然寸法で指定する。
+	Vector2 baked_offset(base.x > 0.0f ? _offset.x * baked.x / base.x : 0.0f,
+			base.y > 0.0f ? _offset.y * baked.y / base.y : 0.0f);
+	_sprite->set_offset(baked_offset);
 }
 
 void SVG3D::_queue_refresh() {
@@ -1513,6 +1653,8 @@ void SVG3D::_queue_refresh() {
 
 void SVG3D::set_src(const String &s) {
 	_svg.set_src(s);
+	_animation_tick = 0;
+	_animation_pattern = 0;
 	_queue_refresh();
 }
 
@@ -1526,7 +1668,58 @@ void SVG3D::set_pixel_size(double size) {
 void SVG3D::set_adaptive(bool enabled) {
 	if (_adaptive == enabled) return;
 	_adaptive = enabled;
-	set_process(enabled);
+	_update_processing();
+	_queue_refresh();
+}
+
+void SVG3D::_update_processing() {
+	set_process(_adaptive || _svg.get_jitter_amount() > 0.0);
+}
+
+bool SVG3D::_advance_animation() {
+	if (_svg.get_jitter_amount() <= 0.0) return false;
+	if (++_animation_tick < _animation_interval) return false;
+	_animation_tick = 0;
+	_animation_pattern = (_animation_pattern + 1) % 4;
+	return true;
+}
+
+void SVG3D::set_jitter_amount(double amount) {
+	_svg.set_jitter_amount(amount);
+	_animation_tick = 0;
+	_animation_pattern = 0;
+	_update_processing();
+	_queue_refresh();
+}
+
+void SVG3D::set_animation_interval(int frames) {
+	int value = std::max(1, frames);
+	if (_animation_interval == value) return;
+	_animation_interval = value;
+	_animation_tick = 0;
+}
+
+void SVG3D::set_flip_h(bool enabled) {
+	if (_flip_h == enabled) return;
+	_flip_h = enabled;
+	_queue_refresh();
+}
+
+void SVG3D::set_flip_v(bool enabled) {
+	if (_flip_v == enabled) return;
+	_flip_v = enabled;
+	_queue_refresh();
+}
+
+void SVG3D::set_offset(const Vector2 &offset) {
+	if (_offset == offset) return;
+	_offset = offset;
+	_queue_refresh();
+}
+
+void SVG3D::set_modulate(const Color &color) {
+	if (_modulate == color) return;
+	_modulate = color;
 	_queue_refresh();
 }
 
@@ -1535,7 +1728,8 @@ Ref<Texture2D> SVG3D::get_texture() const {
 }
 
 void SVG3D::_process(double) {
-	if (is_visible_in_tree() && _svg.needs(_density())) _queue_refresh();
+	if (is_visible_in_tree() && (_advance_animation() ||
+			_svg.needs(_density(), _animation_pattern, true))) _queue_refresh();
 }
 
 void SVG3D::_bind_methods() {
@@ -1546,8 +1740,31 @@ void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG3D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG3D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG3D::get_texture);
+	ClassDB::bind_method(D_METHOD("set_jitter_amount", "amount"), &SVG3D::set_jitter_amount);
+	ClassDB::bind_method(D_METHOD("get_jitter_amount"), &SVG3D::get_jitter_amount);
+	ClassDB::bind_method(D_METHOD("set_animation_interval", "frames"), &SVG3D::set_animation_interval);
+	ClassDB::bind_method(D_METHOD("get_animation_interval"), &SVG3D::get_animation_interval);
+	ClassDB::bind_method(D_METHOD("set_flip_h", "enabled"), &SVG3D::set_flip_h);
+	ClassDB::bind_method(D_METHOD("is_flipped_h"), &SVG3D::is_flipped_h);
+	ClassDB::bind_method(D_METHOD("set_flip_v", "enabled"), &SVG3D::set_flip_v);
+	ClassDB::bind_method(D_METHOD("is_flipped_v"), &SVG3D::is_flipped_v);
+	ClassDB::bind_method(D_METHOD("set_offset", "offset"), &SVG3D::set_offset);
+	ClassDB::bind_method(D_METHOD("get_offset"), &SVG3D::get_offset);
+	ClassDB::bind_method(D_METHOD("set_modulate", "color"), &SVG3D::set_modulate);
+	ClassDB::bind_method(D_METHOD("get_modulate"), &SVG3D::get_modulate);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
+	ADD_GROUP("Animation", "");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "jitter_amount", PROPERTY_HINT_RANGE,
+			"0,0.1,0.0001,or_greater"), "set_jitter_amount", "get_jitter_amount");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "animation_interval", PROPERTY_HINT_RANGE,
+			"1,120,1,or_greater"), "set_animation_interval", "get_animation_interval");
+	ADD_GROUP("Appearance", "");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "modulate"), "set_modulate", "get_modulate");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "is_flipped_h");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "is_flipped_v");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "offset"), "set_offset", "get_offset");
+	ADD_GROUP("Rendering", "");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pixel_size", PROPERTY_HINT_RANGE,
 			"0.0001,128,0.0001,or_greater,exp"), "set_pixel_size", "get_pixel_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");

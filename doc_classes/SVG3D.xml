@@ -4,7 +4,7 @@
 		Renders SVG markup on a sprite in a 3D scene.
 	</brief_description>
 	<description>
-		SVG3D rasterizes SVG markup onto an internal 3D plane. It monitors the active camera and updates when its integer pixel dimensions change while keeping its size in 3D space unchanged.
+		SVG3D rasterizes SVG markup onto an internal 3D plane. It monitors the active camera and uses a mipmapped texture at 1.5 times the projected pixel dimensions while keeping its size in 3D space unchanged.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -17,8 +17,26 @@
 		</method>
 	</methods>
 	<members>
+		<member name="animation_interval" type="int" setter="set_animation_interval" getter="get_animation_interval" default="10">
+			Number of rendered frames to hold each jitter pattern. The four fixed patterns cycle in order.
+		</member>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
-			If [code]true[/code], redraws the SVG when its integer pixel dimensions through the active camera change. The current texture is reused while those dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
+			If [code]true[/code], redraws the SVG at no less than 1.5 times its projected pixel dimensions through the active camera. The current texture is reused while those dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
+		</member>
+		<member name="flip_h" type="bool" setter="set_flip_h" getter="is_flipped_h" default="false">
+			Mirrors the rendered SVG horizontally.
+		</member>
+		<member name="flip_v" type="bool" setter="set_flip_v" getter="is_flipped_v" default="false">
+			Mirrors the rendered SVG vertically.
+		</member>
+		<member name="jitter_amount" type="float" setter="set_jitter_amount" getter="get_jitter_amount" default="0.0025">
+			Maximum path displacement as a ratio of the SVG document dimensions. A value of [code]0[/code] disables animation. Four deterministic patterns using seeds 1 through 4 are cached and reused.
+		</member>
+		<member name="modulate" type="Color" setter="set_modulate" getter="get_modulate" default="Color(1, 1, 1, 1)">
+			Multiplies the SVG texture color and opacity.
+		</member>
+		<member name="offset" type="Vector2" setter="set_offset" getter="get_offset" default="Vector2(0, 0)">
+			Moves the texture in SVG natural units, independently of the adaptive raster resolution.
 		</member>
 		<member name="pixel_size" type="float" setter="set_pixel_size" getter="get_pixel_size" default="0.01">
 			The size of one SVG unit in 3D space. Adaptive texture changes do not change this visible size.

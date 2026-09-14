@@ -26,7 +26,7 @@ func _exit_tree() -> void:
 # SVG2Dが実際に描く左上原点の自然寸法を、編集用の矩形として返す。
 func svg_rect(node: Node2D) -> Rect2:
 	var size: Vector2 = node.call("get_svg_size")
-	return Rect2(Vector2.ZERO, size)
+	return Rect2(node.get("offset"), size)
 
 func canvas_transform() -> Transform2D:
 	var viewport := EditorInterface.get_editor_viewport_2d()

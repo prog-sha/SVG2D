@@ -9,6 +9,8 @@ const LIMIT_US := 5_000 # 256×192以下の画像化に許す時間
 const FRAME_US := 16_667 # 1024×1024の画像化に許す1コマの時間
 const CACHE_US := 5.0 # 画像を使い回す1回に許す時間
 const RMSE_LIMIT := 5.0 # 直接画像化した比較元との許容平均誤差
+const SUPERSAMPLE_RMSE_LIMIT := 10.0 # 1.5倍画像を縮小したときの縁の許容差
+const THREED_RMSE_LIMIT := 15.0 # 3Dサンプラーを通した表示との許容差
 const SCALES := [0.5, 0.75, 1.0, 1.0625, 1.125, 1.1875, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0]
 
 var failed := false
@@ -57,6 +59,7 @@ func image_max_delta(a: Image, b: Image) -> int:
 func expected_at(w: int, h: int) -> Image:
 	var node: Node2D = ClassDB.instantiate("SVG2D")
 	node.set("src", sample(w, h))
+	node.set("jitter_amount", 0.0)
 	var image: Image = node.call("get_texture").get_image()
 	image.premultiply_alpha()
 	node.free()
@@ -74,6 +77,10 @@ func check_docs(name: String) -> void:
 	var xml := FileAccess.get_file_as_string("res://doc_classes/%s.xml" % name)
 	check(xml.contains('<member name="src"'), "%sのsrc説明がないよ" % name)
 	check(xml.contains('<member name="adaptive"'), "%sのadaptive説明がないよ" % name)
+	check(xml.contains('<member name="jitter_amount"'), "%sのjitter_amount説明がないよ" % name)
+	check(xml.contains('<member name="animation_interval"'), "%sのanimation_interval説明がないよ" % name)
+	check(xml.contains('<member name="flip_h"'), "%sのflip_h説明がないよ" % name)
+	check(xml.contains('<member name="offset"'), "%sのoffset説明がないよ" % name)
 	check(not xml.contains('<member name="size"'), "%sにsize説明が残っているよ" % name)
 
 # 徐々に拡大し、直接画像化した結果との画素差と画像化時間を測る。
@@ -83,6 +90,7 @@ func check_zoom_2d() -> void:
 	root.add_child(view)
 	var svg: Node2D = ClassDB.instantiate("SVG2D")
 	svg.set("src", sample())
+	svg.set("jitter_amount", 0.0)
 	view.add_child(svg)
 	var max_error := 0.0
 	var max_raster := 0
@@ -106,8 +114,6 @@ func check_zoom_2d() -> void:
 		var error := image_rmse(expected, actual)
 		max_error = max(max_error, error)
 		print("SVG2D scale %.2f texture %s RMSE %.3f raster %d us" % [scale, texture.get_size(), error, elapsed])
-		if error >= RMSE_LIMIT:
-			actual.save_png("res://tmp/svg2d_%.2f.png" % scale)
 		check(error < RMSE_LIMIT, "SVG2D scale %.2f RMSEが%.3fだよ" % [scale, error])
 		if is_equal_approx(scale, 1.0):
 			check(texture.get_size() == Vector2(W, H), "SVG2Dが等倍の画素数にならないよ")
@@ -136,6 +142,7 @@ func check_zoom_3d() -> void:
 	camera.current = true
 	var svg: Node3D = ClassDB.instantiate("SVG3D")
 	svg.set("src", sample())
+	svg.set("jitter_amount", 0.0)
 	svg.set("pixel_size", 1.0)
 	view.add_child(svg)
 	var max_error := 0.0
@@ -153,14 +160,10 @@ func check_zoom_3d() -> void:
 		var error := image_rmse(expected, actual)
 		max_error = max(max_error, error)
 		print("SVG3D camera %.2f texture %s RMSE %.3f" % [scale, texture.get_size(), error])
-		if error >= RMSE_LIMIT:
-			actual.save_png("res://tmp/svg3d_%.2f.png" % scale)
-		check(error < RMSE_LIMIT, "SVG3D camera %.2f RMSEが%.3fだよ" % [scale, error])
-		if is_equal_approx(scale, 1.0):
-			check(texture.get_size() == Vector2(W, H), "SVG3Dが等倍の画素数にならないよ")
-			var dot := image_max_delta(expected, actual)
-			print("SVG3D dot max delta %d" % dot)
-			check(dot <= 2, "SVG3Dの等倍表示に2を越える色差があるよ")
+		check(error < THREED_RMSE_LIMIT, "SVG3D camera %.2f RMSEが%.3fだよ" % [scale, error])
+		check(texture.get_size() == Vector2(ceili(w * 1.5), ceili(h * 1.5)),
+			"SVG3Dが投影寸法の1.5倍で画像化されないよ: %.2f" % scale)
+		check(texture.get_image().has_mipmaps(), "SVG3Dの画像にミップマップがないよ")
 	print("SVG3D profile max RMSE %.3f" % max_error)
 	view.free()
 
@@ -175,6 +178,7 @@ func check_perspective_3d() -> void:
 	camera.current = true
 	var svg: Node3D = ClassDB.instantiate("SVG3D")
 	svg.set("src", sample())
+	svg.set("jitter_amount", 0.0)
 	svg.set("pixel_size", 0.1)
 	svg.rotation.y = deg_to_rad(50)
 	view.add_child(svg)
@@ -191,7 +195,7 @@ func check_perspective_3d() -> void:
 	var screen := points.map(func(point: Vector3) -> Vector2: return camera.unproject_position(point))
 	var w: float = max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]))
 	var h: float = max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]))
-	var expected := Vector2(ceili(w - 0.000001), ceili(h - 0.000001))
+	var expected := Vector2(ceili(w * 1.5 - 0.000001), ceili(h * 1.5 - 0.000001))
 	var texture: Texture2D = svg.call("get_texture")
 	check(texture.get_size() == expected, "透視投影の近い辺に解像度が合っていないよ")
 	# 正面向きで奥行きを保った左右移動は投影寸法が変わらないため、同じ画像を使い回す。
@@ -210,7 +214,7 @@ func check_perspective_3d() -> void:
 	svg.position = Vector3(0, 0, 20)
 	await process_frame
 	await process_frame
-	check(svg.call("get_texture").get_size() == Vector2(W, H), "カメラ背面のSVG3Dが最大解像度になっているよ")
+	check(svg.call("get_texture").get_size() == Vector2(ceili(W * 1.5), ceili(H * 1.5)), "カメラ背面のSVG3Dが基準1.5倍解像度になっていないよ")
 	view.free()
 
 # 整数画素への追従、使い回し、上限、固定解像度を共通の画像管理で確かめる。
@@ -218,6 +222,7 @@ func check_cache() -> void:
 	# 等倍付近は必要な整数画素数とし、2倍画像へ飛ばないことを確かめる。
 	var fine: Node2D = ClassDB.instantiate("SVG2D")
 	fine.set("src", sample())
+	fine.set("jitter_amount", 0.0)
 	root.add_child(fine)
 	fine.scale = Vector2(1.01, 1.01)
 	await process_frame
@@ -237,6 +242,7 @@ func check_cache() -> void:
 
 	var svg: Node2D = ClassDB.instantiate("SVG2D")
 	svg.set("src", sample())
+	svg.set("jitter_amount", 0.0)
 	svg.scale = Vector2(4, 4)
 	root.add_child(svg)
 	await process_frame
@@ -267,6 +273,7 @@ func check_cache() -> void:
 func check_large_profile() -> void:
 	var svg: Node2D = ClassDB.instantiate("SVG2D")
 	svg.set("src", '<svg width="1024" height="1024"><rect width="1024" height="1024" fill="#48a9e6"/></svg>')
+	svg.set("jitter_amount", 0.0)
 	var start := Time.get_ticks_usec()
 	var texture: Texture2D = svg.call("get_texture")
 	var elapsed := Time.get_ticks_usec() - start
@@ -274,6 +281,105 @@ func check_large_profile() -> void:
 	check(texture.get_size() == Vector2(1024, 1024), "1024x1024を画像化できないよ")
 	check(elapsed < FRAME_US, "1024x1024の画像化が1コマを越えたよ: %d us" % elapsed)
 	svg.free()
+
+# seed 1〜4の4枚だけが作られ、5枚目から同じRIDを循環利用することを確かめる。
+func check_jitter_animation() -> void:
+	var markup := '<svg width="64" height="48" viewBox="0 0 64 48"><path d="M5 39 L13 8 L31 32 L48 6 L59 40 Z" fill="#111" stroke="#f34" stroke-width="3"/></svg>'
+	var svg: Node2D = ClassDB.instantiate("SVG2D")
+	check(is_equal_approx(svg.get("jitter_amount"), 0.0025), "既定のぶれ量が0.0025でないよ")
+	check(svg.get("animation_interval") == 10, "既定のアニメ間隔が10フレームでないよ")
+	svg.set("src", markup)
+	svg.set("adaptive", false)
+	svg.set("jitter_amount", 0.03)
+	root.add_child(svg)
+	var held: RID = svg.call("get_texture").get_rid()
+	for i in 9:
+		await process_frame
+		check(svg.call("get_texture").get_rid() == held, "既定10フレームより前にパターンが変わるよ")
+	await process_frame
+	check(svg.call("get_texture").get_rid() != held, "10フレーム目でパターンが変わらないよ")
+	# 同じ入力を再設定してseed 1へ戻し、1フレーム間隔で全キャッシュを観察する。
+	svg.set("src", markup)
+	svg.set("animation_interval", 1)
+	var rids: Array[RID] = [svg.call("get_texture").get_rid()]
+	var hashes: Array[int] = [hash(svg.call("get_texture").get_image().get_data())]
+	for i in 4:
+		await process_frame
+		var texture: Texture2D = svg.call("get_texture")
+		rids.push_back(texture.get_rid())
+		hashes.push_back(hash(texture.get_image().get_data()))
+	check(rids[0] == rids[4], "4パターン後に最初の画像キャッシュへ戻らないよ")
+	check(rids.slice(0, 4).duplicate().all(func(rid: RID) -> bool: return rids.slice(0, 4).count(rid) == 1),
+		"4パターンが別々の画像キャッシュになっていないよ")
+	for i in 4:
+		check(hashes[i] != hashes[(i + 1) % 4], "隣り合う揺れパターンの絵が同じだよ: %d" % i)
+	# 別ノードでもseed 1の絵が一致し、実行時乱数に依存しないことを確かめる。
+	var again: Node2D = ClassDB.instantiate("SVG2D")
+	again.set("src", markup)
+	again.set("adaptive", false)
+	again.set("jitter_amount", 0.03)
+	var again_hash: int = hash(again.call("get_texture").get_image().get_data())
+	check(again_hash == hashes[0], "固定seed 1の揺れが再生成時に変わるよ")
+	again.free()
+	# 同じviewBoxを2倍の画像へ焼くと、ぶれを含む使用矩形もほぼ2倍になる。
+	var large: Node2D = ClassDB.instantiate("SVG2D")
+	large.set("src", markup.replace('width="64" height="48"', 'width="128" height="96"'))
+	large.set("adaptive", false)
+	large.set("jitter_amount", 0.03)
+	var small_rect: Rect2i = svg.call("get_texture").get_image().get_used_rect()
+	var large_rect: Rect2i = large.call("get_texture").get_image().get_used_rect()
+	check(Vector2(large_rect.position).distance_to(Vector2(small_rect.position) * 2.0) <= 3.0,
+		"画像を2倍にしたときぶれ位置が寸法比で拡大されないよ")
+	check(Vector2(large_rect.size).distance_to(Vector2(small_rect.size) * 2.0) <= 3.0,
+		"画像を2倍にしたときぶれ量が寸法比で保たれないよ")
+	large.free()
+	print("SVG jitter cache: 4 unique patterns, pattern 5 reused pattern 1 RID")
+	svg.free()
+
+# 2Dの反転・offsetと、3Dのmodulate・反転・自然寸法offsetを実描画ノードで確かめる。
+func check_appearance() -> void:
+	var view := SubViewport.new()
+	view.size = Vector2i(96, 64)
+	view.transparent_bg = true
+	root.add_child(view)
+	var svg: Node2D = ClassDB.instantiate("SVG2D")
+	svg.set("src", '<svg width="64" height="48"><rect width="16" height="48" fill="white"/></svg>')
+	svg.set("jitter_amount", 0.0)
+	svg.set("adaptive", false)
+	svg.set("offset", Vector2(8, 4))
+	svg.set("flip_h", true)
+	svg.modulate = Color(0.5, 0.25, 1.0, 0.5)
+	view.add_child(svg)
+	view.render_target_update_mode = SubViewport.UPDATE_ONCE
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var used := view.get_texture().get_image().get_used_rect()
+	check(used.position.x >= 55 and used.end.x <= 73, "SVG2Dの横反転またはoffsetが描画へ反映されないよ: %s" % used)
+	check(svg.modulate.is_equal_approx(Color(0.5, 0.25, 1.0, 0.5)), "SVG2Dのmodulateを保持できないよ")
+	view.free()
+
+	var svg3: Node3D = ClassDB.instantiate("SVG3D")
+	svg3.set("src", sample())
+	svg3.set("jitter_amount", 0.0)
+	svg3.set("adaptive", false)
+	svg3.set("offset", Vector2(3, 4))
+	svg3.set("flip_h", true)
+	svg3.set("flip_v", true)
+	svg3.set("modulate", Color(0.25, 0.5, 0.75, 0.6))
+	root.add_child(svg3)
+	await process_frame
+	await process_frame
+	var children := svg3.get_children(true)
+	check(children.size() == 1 and children[0] is Sprite3D, "SVG3Dの内部Sprite3Dがないよ")
+	if children.size() == 1 and children[0] is Sprite3D:
+		var sprite := children[0] as Sprite3D
+		check(sprite.flip_h and sprite.flip_v, "SVG3Dの反転が内部Sprite3Dへ反映されないよ")
+		check(sprite.modulate.is_equal_approx(Color(0.25, 0.5, 0.75, 0.6)), "SVG3Dのmodulateが反映されないよ")
+		check(sprite.offset.is_equal_approx(Vector2(4.5, 6.0)), "SVG3Dのoffsetが1.5倍画像へ換算されないよ: %s" % sprite.offset)
+		var texture: Texture2D = sprite.texture
+		check(texture.get_size() == Vector2(96, 72), "固定SVG3Dが自然寸法の1.5倍でないよ")
+		check(texture.get_image().has_mipmaps(), "固定SVG3Dにミップマップがないよ")
+	svg3.free()
 
 # 場面の準備が終わった次のコマから試験を始める。
 func _initialize() -> void:
@@ -305,6 +411,7 @@ func _run() -> void:
 		var node: Node2D = ClassDB.instantiate("SVG2D")
 		# SVG2D と SVG3D が同じファイル素材を直接読めることを保証する。
 		node.set("src", "res://tests/svg/" + path)
+		node.set("jitter_amount", 0.0)
 		check(not has_property(node, "size"), "%sのSVG2Dにsizeが残っているよ" % path)
 		var texture: Texture2D = node.call("get_texture")
 		check(texture != null and texture.get_image().get_used_rect().has_area(), "%sを画像化できないよ" % path)
@@ -312,20 +419,25 @@ func _run() -> void:
 			digest.update(texture.get_image().get_data())
 		var node3: Node3D = ClassDB.instantiate("SVG3D")
 		node3.set("src", "res://tests/svg/" + path)
+		node3.set("jitter_amount", 0.0)
 		root.add_child(node3)
 		await process_frame
 		check(not has_property(node3, "size"), "%sのSVG3Dにsizeが残っているよ" % path)
 		var texture3: Texture2D = node3.call("get_texture")
 		check(texture3 != null, "%sを3D画像化できないよ" % path)
 		if texture != null and texture3 != null:
-			var error := image_rmse(texture.get_image(), texture3.get_image())
-			check(error < RMSE_LIMIT, "%sの2D・3D RMSEが%.3fだよ" % [path, error])
+			var image3 := texture3.get_image()
+			image3.resize(texture.get_width(), texture.get_height(), Image.INTERPOLATE_LANCZOS)
+			var error := image_rmse(texture.get_image(), image3)
+			check(error < SUPERSAMPLE_RMSE_LIMIT, "%sの2D・3D RMSEが%.3fだよ" % [path, error])
 		node.free()
 		node3.free()
 	await check_cache()
 	await check_zoom_2d()
 	await check_zoom_3d()
 	await check_perspective_3d()
+	await check_jitter_animation()
+	await check_appearance()
 	check_large_profile()
 	var config := ConfigFile.new()
 	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfgを読めなかったよ")

@@ -2,7 +2,7 @@
 
 **English** | [日本語](README.ja.md)
 
-SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. By default, it monitors the viewport drawing area and rebuilds the texture at its integer pixel dimensions. It reuses the cached texture while those dimensions stay unchanged, keeping zoomed SVGs sharp without rasterizing every frame. Moving an `SVG3D` node sideways at the same camera depth also reuses the texture when its projected dimensions stay unchanged.
+SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. It reuses cached textures while projected dimensions stay unchanged. `SVG3D` rasterizes at least 1.5 times its projected pixel size and generates mipmaps for cleaner lines.
 
 ## Compatibility
 
@@ -29,7 +29,9 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
-The `adaptive` property is enabled by default. Disable it to keep the texture at the SVG document resolution, capped at 4096 pixels on either axis. The Inspector tooltips describe `src`, `adaptive`, and `pixel_size` where applicable.
+`jitter_amount` displaces paths by a ratio of the document dimensions (0.0025 by default). Exactly four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default); set the amount to zero to stop it. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).
+
+The `adaptive` property is enabled by default. Disable it to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.
 
 Adaptive textures are limited to 4096 pixels on either axis to keep one RGBA texture within 64 MiB. Very large on-screen SVGs therefore use the highest available resolution.
 
