@@ -2,7 +2,7 @@
 
 **English** | [日本語](README.ja.md)
 
-SVG2D lets a Godot project edit SVG documents and render them sharply in 2D and 3D scenes. The **SVG** workspace saves standard SVG files directly, while the runtime GDExtension monitors the viewport drawing area and rebuilds the texture at its integer pixel dimensions. It reuses cached textures while projected dimensions stay unchanged. `SVG3D` rasterizes at least 1.5 times its projected pixel size and generates mipmaps for cleaner lines.
+SVG2D lets a Godot project edit SVG documents and render them sharply in 2D and 3D scenes. The **SVG** workspace saves standard SVG files directly, while the runtime GDExtension monitors the viewport drawing area and rebuilds the texture at its integer pixel dimensions. It reuses cached textures while projected dimensions stay unchanged. `SVG3D` matches its projected pixel size and generates mipmaps for angled or distant views.
 
 ## Compatibility
 
@@ -47,7 +47,7 @@ The `editor` folder, plug-in entry script, and editing documentation are removed
 
 Animation is disabled by default. Enable `animation_enabled` to displace paths by `jitter_amount`, a ratio of the document dimensions (0.0008 by default, capped at 0.3). Four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default). Disabling animation releases its three extra cached textures. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).
 
-The `adaptive` property is enabled by default and follows both runtime cameras and the 3D editor camera. Disable it to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.
+The `adaptive` property is enabled by default and follows both runtime cameras and the 3D editor camera. Disable it to keep the SVG document's natural resolution, capped at 4096 pixels on either axis.
 
 Adaptive textures are limited to 4096 pixels on either axis to keep one RGBA texture within 64 MiB. Very large on-screen SVGs therefore use the highest available resolution.
 

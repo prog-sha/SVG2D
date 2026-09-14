@@ -46,6 +46,7 @@ namespace svg2d {
 // これ以上細かくしても絵は良くならない。8 倍で焼いて縮めた真値と比べると、
 // この細かさで Chromium より真値に近い（曲線中心の絵で 0.96 と 2.06）
 static const double FLAT = 0.05;
+static const int FILTER_3D = 5; // 正面の精度を保ち、斜め表示を滑らかにする方式
 
 // --- 読みかたの小道具 ---
 
@@ -1635,6 +1636,8 @@ void SVG3D::_ensure_sprite() {
 	_sprite = memnew(Sprite3D);
 	_sprite->set_name("SVG");
 	_sprite->set_draw_flag(SpriteBase3D::FLAG_SHADED, false);
+	// 一対一表示を保ちつつ、斜め・遠方ではミップマップと異方性を使う。
+	_sprite->set("texture_filter", FILTER_3D);
 	_sprite->set_flip_h(_flip_h);
 	_sprite->set_flip_v(_flip_v);
 	_sprite->set_modulate(_modulate);
@@ -1642,7 +1645,7 @@ void SVG3D::_ensure_sprite() {
 }
 
 Vector2 SVG3D::_density() const {
-	if (!_adaptive || !is_inside_tree()) return Vector2(1.5f, 1.5f);
+	if (!_adaptive || !is_inside_tree()) return Vector2(1.0f, 1.0f);
 	if (_editor_density_active) return _editor_density;
 	Viewport *view = get_viewport();
 	Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
@@ -1651,7 +1654,7 @@ Vector2 SVG3D::_density() const {
 
 Vector2 SVG3D::_density_for_camera(Camera3D *camera) const {
 	Vector2 size = _svg.draw_size();
-	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return Vector2(1.5f, 1.5f);
+	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return Vector2(1.0f, 1.0f);
 	Transform3D t = get_global_transform();
 	double hw = size.x * _pixel_size * 0.5;
 	double hh = size.y * _pixel_size * 0.5;
@@ -1664,14 +1667,14 @@ Vector2 SVG3D::_density_for_camera(Camera3D *camera) const {
 	// 透視投影でカメラをまたぐ板は上限画素で保護する。
 	int behind = 0;
 	for (const Vector3 &p : world) behind += camera->is_position_behind(p) ? 1 : 0;
-	if (behind == 4) return Vector2(1.5f, 1.5f);
+	if (behind == 4) return Vector2(1.0f, 1.0f);
 	if (behind > 0) return Vector2((float)(MAX_TEX / size.x), (float)(MAX_TEX / size.y));
 	Vector2 screen[4];
 	for (int i = 0; i < 4; i++) screen[i] = camera->unproject_position(world[i]);
 	// 斜めの板は近い辺ほど大きく見えるため、対向する辺の長い方を使う。
 	double w = std::max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]));
 	double h = std::max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]));
-	return Vector2((float)(w * 1.5 / size.x), (float)(h * 1.5 / size.y));
+	return Vector2((float)(w / size.x), (float)(h / size.y));
 }
 
 void SVG3D::_refresh() {

@@ -9,8 +9,8 @@ const LIMIT_US := 5_000 # 256×192以下の画像化に許す時間
 const FRAME_US := 16_667 # 1024×1024の画像化に許す1コマの時間
 const CACHE_US := 5.0 # 画像を使い回す1回に許す時間
 const RMSE_LIMIT := 5.0 # 直接画像化した比較元との許容平均誤差
-const SUPERSAMPLE_RMSE_LIMIT := 10.0 # 1.5倍画像を縮小したときの縁の許容差
-const THREED_RMSE_LIMIT := 15.0 # 3Dサンプラーを通した表示との許容差
+const TEXTURE_RMSE_LIMIT := 5.0 # 2Dと3Dで共有する画像の許容平均誤差
+const THREED_RMSE_LIMIT := 5.0 # 3Dサンプラーを通した表示との許容差
 const SCALES := [0.5, 0.75, 1.0, 1.0625, 1.125, 1.1875, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0]
 
 var failed := false
@@ -185,9 +185,12 @@ func check_zoom_3d() -> void:
 		var error := image_rmse(expected, actual)
 		max_error = max(max_error, error)
 		print("SVG3D camera %.2f texture %s RMSE %.3f" % [scale, texture.get_size(), error])
+		if error >= THREED_RMSE_LIMIT:
+			actual.save_png("res://tmp/svg3d_actual_%.2f.png" % scale)
+			expected.save_png("res://tmp/svg3d_expected_%.2f.png" % scale)
 		check(error < THREED_RMSE_LIMIT, "SVG3D camera %.2f RMSEが%.3fだよ" % [scale, error])
-		check(texture.get_size() == Vector2(ceili(w * 1.5), ceili(h * 1.5)),
-			"SVG3Dが投影寸法の1.5倍で画像化されないよ: %.2f" % scale)
+		check(texture.get_size() == Vector2(w, h),
+			"SVG3Dが投影寸法と同じ画素数で画像化されないよ: %.2f" % scale)
 		check(texture.get_image().has_mipmaps(), "SVG3Dの画像にミップマップがないよ")
 	print("SVG3D profile max RMSE %.3f" % max_error)
 	view.free()
@@ -220,7 +223,7 @@ func check_perspective_3d() -> void:
 	var screen := points.map(func(point: Vector3) -> Vector2: return camera.unproject_position(point))
 	var w: float = max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]))
 	var h: float = max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]))
-	var expected := Vector2(ceili(w * 1.5 - 0.000001), ceili(h * 1.5 - 0.000001))
+	var expected := Vector2(ceili(w - 0.000001), ceili(h - 0.000001))
 	var texture: Texture2D = svg.call("get_texture")
 	check(texture.get_size() == expected, "透視投影の近い辺に解像度が合っていないよ")
 	# 正面向きで奥行きを保った左右移動は投影寸法が変わらないため、同じ画像を使い回す。
@@ -239,7 +242,7 @@ func check_perspective_3d() -> void:
 	svg.position = Vector3(0, 0, 20)
 	await process_frame
 	await process_frame
-	check(svg.call("get_texture").get_size() == Vector2(ceili(W * 1.5), ceili(H * 1.5)), "カメラ背面のSVG3Dが基準1.5倍解像度になっていないよ")
+	check(svg.call("get_texture").get_size() == Vector2(W, H), "カメラ背面のSVG3Dが自然解像度になっていないよ")
 	view.free()
 
 # 整数画素への追従、使い回し、上限、固定解像度を共通の画像管理で確かめる。
@@ -471,9 +474,9 @@ func check_appearance() -> void:
 		var sprite := children[0] as Sprite3D
 		check(sprite.flip_h and sprite.flip_v, "SVG3Dの反転が内部Sprite3Dへ反映されないよ")
 		check(sprite.modulate.is_equal_approx(Color(0.25, 0.5, 0.75, 0.6)), "SVG3Dのmodulateが反映されないよ")
-		check(sprite.offset.is_equal_approx(Vector2(4.5, 6.0)), "SVG3Dのoffsetが1.5倍画像へ換算されないよ: %s" % sprite.offset)
+		check(sprite.offset.is_equal_approx(Vector2(3, 4)), "SVG3Dのoffsetが自然寸法と一致しないよ: %s" % sprite.offset)
 		var texture: Texture2D = sprite.texture
-		check(texture.get_size() == Vector2(96, 72), "固定SVG3Dが自然寸法の1.5倍でないよ")
+		check(texture.get_size() == Vector2(64, 48), "固定SVG3Dが自然寸法と一致しないよ")
 		check(texture.get_image().has_mipmaps(), "固定SVG3Dにミップマップがないよ")
 	svg3.free()
 
@@ -525,7 +528,7 @@ func _run() -> void:
 			var image3 := texture3.get_image()
 			image3.resize(texture.get_width(), texture.get_height(), Image.INTERPOLATE_LANCZOS)
 			var error := image_rmse(texture.get_image(), image3)
-			check(error < SUPERSAMPLE_RMSE_LIMIT, "%sの2D・3D RMSEが%.3fだよ" % [path, error])
+			check(error < TEXTURE_RMSE_LIMIT, "%sの2D・3D RMSEが%.3fだよ" % [path, error])
 		node.free()
 		node3.free()
 	await check_cache()

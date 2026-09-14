@@ -4,7 +4,7 @@
 		Renders SVG markup on a sprite in a 3D scene.
 	</brief_description>
 	<description>
-		SVG3D rasterizes SVG markup onto an internal 3D plane. It monitors the active camera and uses a mipmapped texture at 1.5 times the projected pixel dimensions while keeping its size in 3D space unchanged.
+		SVG3D rasterizes SVG markup onto an internal 3D plane. It monitors the active camera and uses a mipmapped texture matching the projected pixel dimensions while keeping its size in 3D space unchanged.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -30,7 +30,7 @@
 			Number of rendered frames to hold each jitter pattern. The four fixed patterns cycle in order.
 		</member>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
-			If [code]true[/code], redraws the SVG at no less than 1.5 times its projected pixel dimensions through the active camera. The current texture is reused while those dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
+			If [code]true[/code], redraws the SVG at its projected integer pixel dimensions through the active camera. The current texture is reused while those dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
 		</member>
 		<member name="flip_h" type="bool" setter="set_flip_h" getter="is_flipped_h" default="false">
 			Mirrors the rendered SVG horizontally.

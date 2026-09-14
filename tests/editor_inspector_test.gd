@@ -85,7 +85,7 @@ func run_checks() -> void:
 		check(moved_to != Vector2.ZERO and node.position == moved_to, "SVGノードを絵の内側からドラッグ移動できないよ")
 
 	# 3D編集カメラはシーンのCamera3Dではない。プラグインがその投影寸法を渡し、
-	# エディター表示も自然寸法へ落ちず1.5倍解像度になることを画面操作なしで確かめる。
+	# エディター表示もカメラ上の画素数へ追従することを画面操作なしで確かめる。
 	var editor_viewport := EditorInterface.get_editor_viewport_3d(0)
 	check(editor_viewport != null and editor_viewport.get_camera_3d() != null,
 		"3D編集カメラを取得できないよ")
@@ -110,7 +110,7 @@ func run_checks() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var initial_texture3: Texture2D = node3.call("get_texture")
-	check(initial_texture3 != null and initial_texture3.get_size() == Vector2(150, 150),
+	check(initial_texture3 != null and initial_texture3.get_size() == Vector2(100, 100),
 		"3D編集カメラ初期化前の暫定画像を再現できないよ")
 	if svg_plugin:
 		svg_plugin.call("update_svg3d_editor_camera", test_camera)
@@ -118,15 +118,15 @@ func run_checks() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var texture3: Texture2D = node3.call("get_texture")
-	check(texture3 != null and texture3.get_size() == Vector2(450, 450),
-		"初回の暫定キャッシュが3Dエディター投影寸法の1.5倍へ更新されないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
+	check(texture3 != null and texture3.get_size() == Vector2(300, 300),
+		"初回の暫定キャッシュが3Dエディター投影寸法へ更新されないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
 	test_camera.size = 1.0
 	if svg_plugin:
 		svg_plugin.call("update_svg3d_editor_camera", test_camera)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	texture3 = node3.call("get_texture")
-	check(texture3 != null and texture3.get_size() == Vector2(900, 900),
+	check(texture3 != null and texture3.get_size() == Vector2(600, 600),
 		"3Dエディターで拡大しても解像度が追従しないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
 
 	# 実際の3D編集入力経路で、不透明画素だけを選び、カメラ面に沿って移動する。

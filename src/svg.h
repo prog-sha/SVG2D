@@ -200,7 +200,7 @@ private:
 	int _animation_pattern = 0;
 	bool _animation_enabled = false;
 	bool _editor_density_active = false;
-	godot::Vector2 _editor_density = godot::Vector2(1.5, 1.5);
+	godot::Vector2 _editor_density = godot::Vector2(1.0, 1.0);
 
 	// 画像を貼る内部ノードを必要になった時点で作る。
 	void _ensure_sprite();
@@ -242,7 +242,7 @@ public:
 	godot::Vector2 get_offset() const { return _offset; }
 	void set_modulate(const godot::Color &color);
 	godot::Color get_modulate() const { return _modulate; }
-	// EditorPluginから3D編集カメラを受け取る内部用入口。
+	// 編集拡張から3D編集カメラを受け取る内部用入口。
 	void set_editor_camera(godot::Camera3D *camera);
 	// 内部の3D板が使っている画像を返す。
 	godot::Ref<godot::Texture2D> get_texture() const;

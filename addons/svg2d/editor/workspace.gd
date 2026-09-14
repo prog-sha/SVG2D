@@ -20,7 +20,6 @@ const TOOLS := {
 	"hand": ["✥", "View", "H"],
 } # 左の道具列に出す記号、名称、キー
 
-var plugin: EditorPlugin # Godotエディターとの接点
 var document: RefCounted # 編集中のSVG
 var target_node: Object # シーンから開いたSVG2DまたはSVG3D
 var canvas: Control # 図形と選択を表示する面
@@ -44,10 +43,6 @@ var history_names: Array[String] = [] # 状態に移る操作名
 var history_at := -1 # 現在表示している履歴位置
 var saved_at := -1 # 最後に保存した履歴位置
 var _syncing := false # UI反映が新しい操作として戻るのを防ぐ
-
-# EditorPluginを受け取り、外部操作の窓口に使う。
-func setup(owner_plugin: EditorPlugin) -> void:
-	plugin = owner_plugin
 
 # Affinity型のツール・文書・Studioレイアウトを作る。
 func _ready() -> void:

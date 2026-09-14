@@ -24,7 +24,6 @@ var drag_hit_3d := Vector3.ZERO
 func _enter_tree() -> void:
 	workspace = Workspace.new()
 	workspace.name = "SVG"
-	workspace.setup(self)
 	EditorInterface.get_editor_main_screen().add_child(workspace)
 	export_filter = ExportFilter.new()
 	add_export_plugin(export_filter)
@@ -44,9 +43,13 @@ func _exit_tree() -> void:
 	if export_filter:
 		remove_export_plugin(export_filter)
 		export_filter = null
-	if workspace:
-		workspace.queue_free()
-		workspace = null
+	# 終了中のエディターUIから同期的に外し、破棄待ちの参照を残さない。
+	if is_instance_valid(workspace):
+		var parent := workspace.get_parent()
+		if parent:
+			parent.remove_child(workspace)
+		workspace.free()
+	workspace = null
 	set_process(false)
 	update_svg3d_editor_camera(null)
 	if EditorInterface.get_selection().selection_changed.is_connected(update_overlays):
