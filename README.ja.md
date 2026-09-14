@@ -32,3 +32,9 @@ GODOT=/path/to/godot sh tests/test.sh
 SSE2やNEONを使わない通常CPU経路を確かめるときは、`SVG2D_SCALAR=yes` を付けよう。
 
 macOSで両方の画素がSHA-256まで一致するか確かめるときは、`sh tests/test_simd.sh` を実行しよう。
+
+`SVGAnimate2D` と `AnimationPlayer` で棒人間の接点を動かし、Godot MovieWriterで60フレームを実際に書き出す例は [`examples/stickman/stickman_movie.tscn`](examples/stickman/stickman_movie.tscn) だよ。動画まで自動確認するにはffmpegを用意して次を実行しよう。
+
+```sh
+sh tests/test_movie.sh
+```
