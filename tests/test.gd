@@ -192,7 +192,20 @@ func check_perspective_3d() -> void:
 	var w: float = max(screen[0].distance_to(screen[1]), screen[2].distance_to(screen[3]))
 	var h: float = max(screen[0].distance_to(screen[2]), screen[1].distance_to(screen[3]))
 	var expected := Vector2(ceili(w - 0.000001), ceili(h - 0.000001))
-	check(svg.call("get_texture").get_size() == expected, "透視投影の近い辺に解像度が合っていないよ")
+	var texture: Texture2D = svg.call("get_texture")
+	check(texture.get_size() == expected, "透視投影の近い辺に解像度が合っていないよ")
+	# 正面向きで奥行きを保った左右移動は投影寸法が変わらないため、同じ画像を使い回す。
+	svg.rotation = Vector3.ZERO
+	await process_frame
+	await process_frame
+	var cached: RID = svg.call("get_texture").get_rid()
+	for x in [-3.0, -1.5, 0.0, 1.5, 3.0]:
+		svg.position.x = x
+		await process_frame
+		await process_frame
+		texture = svg.call("get_texture")
+		check(texture.get_rid() == cached, "SVG3Dの左右移動で画像を再生成しているよ: x=%.1f" % x)
+	print("SVG3D horizontal cache: 5 moves, RID unchanged")
 	# カメラの後ろに移動した板が不要な最大画像を作らないか確かめる。
 	svg.position = Vector3(0, 0, 20)
 	await process_frame
