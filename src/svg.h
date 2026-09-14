@@ -37,6 +37,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace godot {
+class Camera3D;
+}
+
 namespace svg2d {
 
 class SVG {
@@ -188,11 +192,14 @@ private:
 	int _animation_interval = 10;
 	int _animation_tick = 0;
 	int _animation_pattern = 0;
+	bool _editor_density_active = false;
+	godot::Vector2 _editor_density = godot::Vector2(1.5, 1.5);
 
 	// 画像を貼る内部ノードを必要になった時点で作る。
 	void _ensure_sprite();
 	// 現在のCamera3Dから画面上の拡大率を返す。
 	godot::Vector2 _density() const;
+	godot::Vector2 _density_for_camera(godot::Camera3D *camera) const;
 	// まとまった設定変更のあと、入力に対応する画像を3Dの板へ反映する。
 	void _queue_refresh();
 	void _refresh();
@@ -226,6 +233,8 @@ public:
 	godot::Vector2 get_offset() const { return _offset; }
 	void set_modulate(const godot::Color &color);
 	godot::Color get_modulate() const { return _modulate; }
+	// EditorPluginから3D編集カメラを受け取る内部用入口。
+	void set_editor_camera(godot::Camera3D *camera);
 	// 内部の3D板が使っている画像を返す。
 	godot::Ref<godot::Texture2D> get_texture() const;
 };

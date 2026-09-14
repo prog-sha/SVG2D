@@ -79,6 +79,45 @@ func run_checks() -> void:
 		svg_plugin.call("_forward_canvas_gui_input", release)
 		check(moved_to != Vector2.ZERO and node.position == moved_to, "SVGノードを絵の内側からドラッグ移動できないよ")
 
+	# 3D編集カメラはシーンのCamera3Dではない。プラグインがその投影寸法を渡し、
+	# エディター表示も自然寸法へ落ちず1.5倍解像度になることを画面操作なしで確かめる。
+	var editor_viewport := EditorInterface.get_editor_viewport_3d(0)
+	check(editor_viewport != null and editor_viewport.get_camera_3d() != null,
+		"3D編集カメラを取得できないよ")
+	var test_view := SubViewport.new()
+	test_view.size = Vector2i(800, 600)
+	add_child(test_view)
+	var test_camera := Camera3D.new()
+	test_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	test_camera.size = 2.0
+	test_camera.position = Vector3(0, 0, 10)
+	test_view.add_child(test_camera)
+	test_camera.current = true
+	var node3: Node3D = ClassDB.instantiate("SVG3D")
+	node3.set("jitter_amount", 0.0)
+	node3.set("src", "res://tests/svg/hello.svg")
+	scene_root.add_child(node3)
+	node3.owner = scene_root
+	if svg_plugin:
+		svg_plugin.set_process(false)
+		svg_plugin.call("update_svg3d_editor_camera", test_camera)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var texture3: Texture2D = node3.call("get_texture")
+	check(texture3 != null and texture3.get_size() == Vector2(450, 450),
+		"3Dエディター投影寸法の1.5倍で画像化されないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
+	test_camera.size = 1.0
+	if svg_plugin:
+		svg_plugin.call("update_svg3d_editor_camera", test_camera)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	texture3 = node3.call("get_texture")
+	check(texture3 != null and texture3.get_size() == Vector2(900, 900),
+		"3Dエディターで拡大しても解像度が追従しないよ: %s" % (texture3.get_size() if texture3 else Vector2.ZERO))
+	if svg_plugin:
+		svg_plugin.set_process(true)
+	test_view.free()
+
 	property.free()
 	if not failed:
 		print("SVG Inspectorの試験に通ったよ")

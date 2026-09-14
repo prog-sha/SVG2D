@@ -1581,6 +1581,7 @@ void SVG2D::_bind_methods() {
 }
 
 SVG3D::SVG3D() {
+	add_to_group("_svg3d_editor_nodes");
 	_update_processing();
 }
 
@@ -1597,8 +1598,13 @@ void SVG3D::_ensure_sprite() {
 
 Vector2 SVG3D::_density() const {
 	if (!_adaptive || !is_inside_tree()) return Vector2(1.5f, 1.5f);
+	if (_editor_density_active) return _editor_density;
 	Viewport *view = get_viewport();
 	Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
+	return _density_for_camera(camera);
+}
+
+Vector2 SVG3D::_density_for_camera(Camera3D *camera) const {
 	Vector2 size = _svg.draw_size();
 	if (camera == nullptr || size.x <= 0.0f || size.y <= 0.0f) return Vector2(1.5f, 1.5f);
 	Transform3D t = get_global_transform();
@@ -1723,6 +1729,15 @@ void SVG3D::set_modulate(const Color &color) {
 	_queue_refresh();
 }
 
+void SVG3D::set_editor_camera(Camera3D *camera) {
+	if (camera == nullptr) {
+		_editor_density_active = false;
+		return;
+	}
+	_editor_density = _density_for_camera(camera);
+	_editor_density_active = true;
+}
+
 Ref<Texture2D> SVG3D::get_texture() const {
 	return _sprite == nullptr ? Ref<Texture2D>() : _sprite->get_texture();
 }
@@ -1752,6 +1767,7 @@ void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_offset"), &SVG3D::get_offset);
 	ClassDB::bind_method(D_METHOD("set_modulate", "color"), &SVG3D::set_modulate);
 	ClassDB::bind_method(D_METHOD("get_modulate"), &SVG3D::get_modulate);
+	ClassDB::bind_method(D_METHOD("_set_editor_camera", "camera"), &SVG3D::set_editor_camera);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_GROUP("Animation", "");

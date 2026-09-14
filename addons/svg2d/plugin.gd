@@ -15,13 +15,31 @@ func _enter_tree() -> void:
 	add_inspector_plugin(svg_inspector)
 	add_to_group("svg2d_editor_plugin")
 	EditorInterface.get_selection().selection_changed.connect(update_overlays)
+	set_process(true)
 
 func _exit_tree() -> void:
+	set_process(false)
+	update_svg3d_editor_camera(null)
 	if EditorInterface.get_selection().selection_changed.is_connected(update_overlays):
 		EditorInterface.get_selection().selection_changed.disconnect(update_overlays)
 	if svg_inspector:
 		remove_inspector_plugin(svg_inspector)
 		svg_inspector = null
+
+# シーン内Camera3Dとは別物の3D編集カメラをSVG3Dへ渡す。
+# これが無いとエディターだけ自然寸法へフォールバックし、拡大表示が低解像度になる。
+func _process(_delta: float) -> void:
+	var viewport := EditorInterface.get_editor_viewport_3d(0)
+	update_svg3d_editor_camera(viewport.get_camera_3d() if viewport else null)
+
+func update_svg3d_editor_camera(camera: Camera3D) -> void:
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null:
+		return
+	# 全ノードを毎フレーム走査せず、SVG3Dが登録する非保存グループだけを見る。
+	for node in get_tree().get_nodes_in_group(&"_svg3d_editor_nodes"):
+		if node == root or root.is_ancestor_of(node):
+			node.call("_set_editor_camera", camera)
 
 # SVG2Dが実際に描く左上原点の自然寸法を、編集用の矩形として返す。
 func svg_rect(node: Node2D) -> Rect2:
