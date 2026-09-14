@@ -31,7 +31,7 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
-`SVGRope2D` and `SVGRope3D` provide a PBD rope pinned at the node origin. With `src`, the SVG is sliced from top to bottom and each slice center follows the particle chain. Enable `line_mode` to use a plain rope without an SVG, configured by `line_width` and `line_color`. The Inspector exposes `segments`, `max_length` (zero derives it from SVG height), `elasticity`, `damping`, `gravity`, `constraint_iterations`, and `pin_start`.
+`SpriteRope2D` and `SpriteRope3D` accept any standard `Texture2D`, including PNG, WebP, and Godot-imported SVG resources. `SVGRope2D` and `SVGRope3D` are separate SVG-source variants with the `src` picker and supersampled SVG rendering. Both use a PBD rope pinned at the node origin; rows from top to bottom follow the particle chain. Enable `line_mode` for a plain rope configured by `line_width` and `line_color`. `max_length` set to zero derives the length from the texture or SVG height.
 
 ```gdscript
 var rope := SVGRope2D.new()
@@ -40,6 +40,12 @@ rope.segments = 24
 rope.max_length = 320.0
 rope.elasticity = 0.85
 add_child(rope)
+```
+
+```gdscript
+var image_rope := SpriteRope2D.new()
+image_rope.texture = preload("res://banner.png")
+add_child(image_rope)
 ```
 
 Animation is disabled by default. Enable `animation_enabled` to deform path outlines without translating the whole shape. `jitter_amount` is the maximum peak-to-peak deformation as a ratio of the document dimensions (0.0008 by default, capped at 0.3). Four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default). Disabling animation releases its three extra cached textures. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).

@@ -78,6 +78,17 @@ func run_checks() -> void:
 			"SVGRope2DへInspectorからSVG素材を設定できないよ")
 		rope_property.free()
 		rope_editor.free()
+		var sprite_rope: Node2D = ClassDB.instantiate("SpriteRope2D")
+		var imported_svg := load("res://tests/svg/hello.svg") as Texture2D
+		sprite_rope.set("texture", imported_svg)
+		var texture_hint_ok := false
+		for info in sprite_rope.get_property_list():
+			if info.name == "texture":
+				texture_hint_ok = info.type == TYPE_OBJECT and info.hint == PROPERTY_HINT_RESOURCE_TYPE \
+					and info.hint_string == "Texture2D"
+		check(imported_svg != null and sprite_rope.get("texture") == imported_svg and texture_hint_ok,
+			"SpriteRope2DへInspector相当のTexture2D素材を設定できないよ")
+		sprite_rope.free()
 		# 2D編集Canvasのズーム、ノード拡縮、Retina相当の画面倍率を合成する。
 		var zoomed_canvas := Transform2D.IDENTITY.scaled(Vector2(2.0, 3.0))
 		var editor_density: Vector2 = svg_plugin.call("svg2d_density", node, zoomed_canvas, 2.0)

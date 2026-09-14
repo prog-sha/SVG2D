@@ -16,6 +16,8 @@ static void initialize_svg2d(ModuleInitializationLevel level) {
 	if (level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
 	GDREGISTER_CLASS(svg2d::SVG2D);
 	GDREGISTER_CLASS(svg2d::SVG3D);
+	GDREGISTER_CLASS(svg2d::SpriteRope2D);
+	GDREGISTER_CLASS(svg2d::SpriteRope3D);
 	GDREGISTER_CLASS(svg2d::SVGRope2D);
 	GDREGISTER_CLASS(svg2d::SVGRope3D);
 }

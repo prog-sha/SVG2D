@@ -2,7 +2,7 @@
 
 **English** | [日本語](README.ja.md)
 
-SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. Use `SVG2D` and `SVG3D` for static artwork, or `SVGRope2D` and `SVGRope3D` for PBD-deformed SVG ropes and plain line ropes. It includes deterministic path jitter, adaptive texture caching, and supersampled mipmapped 3D output.
+SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. It provides `SpriteRope2D` / `SpriteRope3D` for arbitrary textures and separate `SVGRope2D` / `SVGRope3D` SVG-source nodes. It includes deterministic path jitter, adaptive texture caching, and supersampled mipmapped 3D output.
 
 The packaged add-on currently supports Godot 4.7 or later on Windows x86_64 and macOS Universal. See [`addons/svg2d/README.md`](addons/svg2d/README.md) for installation, usage, and supported SVG features.
 

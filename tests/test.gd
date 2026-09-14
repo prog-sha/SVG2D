@@ -543,15 +543,43 @@ func check_appearance() -> void:
 	svg3.free()
 
 func check_ropes() -> void:
+	check(ClassDB.class_exists("SpriteRope2D"), "SpriteRope2Dが登録されていないよ")
+	check(ClassDB.class_exists("SpriteRope3D"), "SpriteRope3Dが登録されていないよ")
 	check(ClassDB.class_exists("SVGRope2D"), "SVGRope2Dが登録されていないよ")
 	check(ClassDB.class_exists("SVGRope3D"), "SVGRope3Dが登録されていないよ")
-	if not ClassDB.class_exists("SVGRope2D") or not ClassDB.class_exists("SVGRope3D"):
+	if not ClassDB.class_exists("SpriteRope2D") or not ClassDB.class_exists("SpriteRope3D") \
+			or not ClassDB.class_exists("SVGRope2D") or not ClassDB.class_exists("SVGRope3D"):
 		return
+	# SpriteRopeはSVG文字列ではなく、標準Texture2Dを素材として受け取る。
+	var image := Image.create(32, 24, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0.9, 0.2, 0.5, 1.0))
+	var image_texture := ImageTexture.create_from_image(image)
+	var sprite_rope2: Node2D = ClassDB.instantiate("SpriteRope2D")
+	sprite_rope2.set("texture", image_texture)
+	sprite_rope2.set("simulation_enabled", false)
+	check(sprite_rope2.get("texture") == image_texture and not has_property(sprite_rope2, "src"),
+		"SpriteRope2Dが標準Texture2D専用になっていないよ")
+	var sprite_points2: PackedVector2Array = sprite_rope2.call("get_rope_points")
+	check(sprite_points2[-1].is_equal_approx(Vector2(0, 24)),
+		"SpriteRope2Dが画像高を自動長として扱わないよ")
+	sprite_rope2.free()
+	var sprite_rope3: Node3D = ClassDB.instantiate("SpriteRope3D")
+	sprite_rope3.set("texture", image_texture)
+	sprite_rope3.set("simulation_enabled", false)
+	root.add_child(sprite_rope3)
+	await process_frame
+	var sprite_points3: PackedVector3Array = sprite_rope3.call("get_rope_points")
+	check(is_equal_approx(sprite_points3[-1].y, -0.24) and not has_property(sprite_rope3, "src"),
+		"SpriteRope3Dが画像高とpixel_sizeから自動長を作らないよ")
+	check(sprite_rope3.get_child(0, true).mesh.surface_get_material(0)
+			.get_texture(BaseMaterial3D.TEXTURE_ALBEDO) == image_texture,
+		"SpriteRope3Dの帯へTexture2Dが設定されないよ")
+	sprite_rope3.free()
 	var view := SubViewport.new()
 	view.size = Vector2i(256, 128)
 	view.transparent_bg = true
 	root.add_child(view)
-	var rope2: Node2D = ClassDB.instantiate("SVGRope2D")
+	var rope2: Node2D = ClassDB.instantiate("SpriteRope2D")
 	rope2.set("line_mode", true)
 	rope2.set("line_width", 6.0)
 	rope2.set("line_color", Color(0.2, 0.8, 1.0, 1.0))
@@ -606,7 +634,7 @@ func check_ropes() -> void:
 		"SVGRope2DがSVGを粒子中心線に沿って変形描画しないよ")
 	svg_view.free()
 
-	var rope3: Node3D = ClassDB.instantiate("SVGRope3D")
+	var rope3: Node3D = ClassDB.instantiate("SpriteRope3D")
 	rope3.set("line_mode", true)
 	rope3.set("line_width", 0.08)
 	rope3.set("line_color", Color(1.0, 0.4, 0.2, 0.8))

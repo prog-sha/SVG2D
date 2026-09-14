@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SpriteRope2D" inherits="Node2D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/tools/doc_classes.xsd">
+	<brief_description>PBD rope for any Texture2D, or a plain line.</brief_description>
+	<description>Divides a Texture2D vertically and bends its rows along a PBD particle chain pinned at the node origin.</description>
+	<methods>
+		<method name="get_rope_points" qualifiers="const"><return type="PackedVector2Array" /><description>Returns local-space PBD particle positions.</description></method>
+		<method name="reset_simulation"><return type="void" /><description>Restores a straight rope.</description></method>
+	</methods>
+	<members>
+		<member name="texture" type="Texture2D" setter="set_texture" getter="get_texture">Image drawn along the rope. Imported SVG, PNG, WebP, and other Texture2D resources are supported.</member>
+		<member name="line_mode" type="bool" setter="set_line_mode" getter="is_line_mode" default="false">Draws a plain line without a texture.</member>
+		<member name="simulation_enabled" type="bool" setter="set_simulation_enabled" getter="is_simulation_enabled" default="true">Runs PBD physics outside the editor.</member>
+		<member name="pin_start" type="bool" setter="set_pin_start" getter="is_pin_start" default="true">Pins the top particle at the node origin.</member>
+		<member name="segments" type="int" setter="set_segments" getter="get_segments" default="16">Number of PBD particles.</member>
+		<member name="max_length" type="float" setter="set_max_length" getter="get_max_length" default="0.0">Maximum rope length. Zero uses the texture height.</member>
+		<member name="elasticity" type="float" setter="set_elasticity" getter="get_elasticity" default="0.9">Distance-constraint strength.</member>
+		<member name="damping" type="float" setter="set_damping" getter="get_damping" default="0.02">Velocity damping.</member>
+		<member name="gravity" type="Vector2" setter="set_gravity" getter="get_gravity" default="Vector2(0, 980)">Local acceleration.</member>
+		<member name="constraint_iterations" type="int" setter="set_constraint_iterations" getter="get_constraint_iterations" default="8">PBD solver passes.</member>
+		<member name="line_width" type="float" setter="set_line_width" getter="get_line_width" default="4.0">Plain-line width.</member>
+		<member name="line_color" type="Color" setter="set_line_color" getter="get_line_color" default="Color(1, 1, 1, 1)">Plain-line color.</member>
+	</members>
+</class>

@@ -80,15 +80,17 @@ static Vector3 rope_side_3d(const std::vector<Vector3> &points, size_t i) {
 	return side.normalized();
 }
 
-SVGRope2D::SVGRope2D() { set_physics_process(true); }
+SpriteRope2D::SpriteRope2D() { set_physics_process(true); }
 
-double SVGRope2D::_effective_length() const {
+Vector2 SpriteRope2D::_visual_size() const { return _texture.is_valid() ? _texture->get_size() : Vector2(); }
+
+double SpriteRope2D::_effective_length() const {
 	if (_max_length > 0.0) return _max_length;
-	Vector2 size = _svg.draw_size();
+	Vector2 size = _visual_size();
 	return size.y > 0.0f ? size.y : 200.0;
 }
 
-void SVGRope2D::reset_simulation() {
+void SpriteRope2D::reset_simulation() {
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
 	double length = _effective_length();
@@ -100,9 +102,9 @@ void SVGRope2D::reset_simulation() {
 	queue_redraw();
 }
 
-void SVGRope2D::_ready() { reset_simulation(); }
+void SpriteRope2D::_ready() { reset_simulation(); }
 
-void SVGRope2D::_simulate(double delta) {
+void SpriteRope2D::_simulate(double delta) {
 	if (_points.size() != (size_t)_segments) reset_simulation();
 	// Verletの速度を減衰してからPBD距離制約へ渡す。
 	float keep = (float)(1.0 - _damping);
@@ -112,14 +114,14 @@ void SVGRope2D::_simulate(double delta) {
 			_elasticity, _effective_length());
 }
 
-void SVGRope2D::_physics_process(double delta) {
+void SpriteRope2D::_physics_process(double delta) {
 	if (!_simulation_enabled || Engine::get_singleton()->is_editor_hint()) return;
-	if (!_line_mode && _svg.draw_size().x <= 0.0f) return;
+	if (!_line_mode && _texture.is_null()) return;
 	_simulate(delta);
 	queue_redraw();
 }
 
-void SVGRope2D::_draw() {
+void SpriteRope2D::_draw() {
 	if (_points.size() < 2) reset_simulation();
 	PackedVector2Array center;
 	center.resize((int)_points.size());
@@ -128,8 +130,8 @@ void SVGRope2D::_draw() {
 		draw_polyline(center, _line_color, (float)_line_width, true);
 		return;
 	}
-	Vector2 size = _svg.draw_size();
-	Ref<Texture2D> texture = _svg.get_texture(Vector2(1.5f, 1.5f));
+	Vector2 size = _visual_size();
+	Ref<Texture2D> texture = _texture;
 	if (texture.is_null() || size.x <= 0.0f || size.y <= 0.0f) return;
 	float half = size.x * 0.5f;
 	PackedColorArray colors;
@@ -152,55 +154,54 @@ void SVGRope2D::_draw() {
 	}
 }
 
-void SVGRope2D::set_src(const String &src) { _svg.set_src(src); reset_simulation(); }
-void SVGRope2D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
-void SVGRope2D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled); }
-void SVGRope2D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
-void SVGRope2D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
-void SVGRope2D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
-void SVGRope2D::set_max_length(double value) { value = std::isfinite(value) ? std::max(0.0, value) : 0.0; if (_max_length != value) { _max_length = value; reset_simulation(); } }
-void SVGRope2D::set_elasticity(double value) { _elasticity = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.9; }
-void SVGRope2D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
-void SVGRope2D::set_gravity(const Vector2 &value) { _gravity = value; }
-void SVGRope2D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.1, value) : 4.0; queue_redraw(); }
-void SVGRope2D::set_line_color(const Color &value) { _line_color = value; queue_redraw(); }
+void SpriteRope2D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
+void SpriteRope2D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
+void SpriteRope2D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled); }
+void SpriteRope2D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
+void SpriteRope2D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
+void SpriteRope2D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
+void SpriteRope2D::set_max_length(double value) { value = std::isfinite(value) ? std::max(0.0, value) : 0.0; if (_max_length != value) { _max_length = value; reset_simulation(); } }
+void SpriteRope2D::set_elasticity(double value) { _elasticity = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.9; }
+void SpriteRope2D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
+void SpriteRope2D::set_gravity(const Vector2 &value) { _gravity = value; }
+void SpriteRope2D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.1, value) : 4.0; queue_redraw(); }
+void SpriteRope2D::set_line_color(const Color &value) { _line_color = value; queue_redraw(); }
 
-PackedVector2Array SVGRope2D::get_rope_points() const {
+PackedVector2Array SpriteRope2D::get_rope_points() const {
 	PackedVector2Array out;
 	out.resize((int)_points.size());
 	for (int i = 0; i < (int)_points.size(); i++) out.set(i, _points[(size_t)i]);
 	return out;
 }
 
-void SVGRope2D::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("set_src", "src"), &SVGRope2D::set_src);
-	ClassDB::bind_method(D_METHOD("get_src"), &SVGRope2D::get_src);
-	ClassDB::bind_method(D_METHOD("set_line_mode", "enabled"), &SVGRope2D::set_line_mode);
-	ClassDB::bind_method(D_METHOD("is_line_mode"), &SVGRope2D::is_line_mode);
-	ClassDB::bind_method(D_METHOD("set_simulation_enabled", "enabled"), &SVGRope2D::set_simulation_enabled);
-	ClassDB::bind_method(D_METHOD("is_simulation_enabled"), &SVGRope2D::is_simulation_enabled);
-	ClassDB::bind_method(D_METHOD("set_pin_start", "enabled"), &SVGRope2D::set_pin_start);
-	ClassDB::bind_method(D_METHOD("is_pin_start"), &SVGRope2D::is_pin_start);
-	ClassDB::bind_method(D_METHOD("set_segments", "segments"), &SVGRope2D::set_segments);
-	ClassDB::bind_method(D_METHOD("get_segments"), &SVGRope2D::get_segments);
-	ClassDB::bind_method(D_METHOD("set_constraint_iterations", "iterations"), &SVGRope2D::set_constraint_iterations);
-	ClassDB::bind_method(D_METHOD("get_constraint_iterations"), &SVGRope2D::get_constraint_iterations);
-	ClassDB::bind_method(D_METHOD("set_max_length", "length"), &SVGRope2D::set_max_length);
-	ClassDB::bind_method(D_METHOD("get_max_length"), &SVGRope2D::get_max_length);
-	ClassDB::bind_method(D_METHOD("set_elasticity", "elasticity"), &SVGRope2D::set_elasticity);
-	ClassDB::bind_method(D_METHOD("get_elasticity"), &SVGRope2D::get_elasticity);
-	ClassDB::bind_method(D_METHOD("set_damping", "damping"), &SVGRope2D::set_damping);
-	ClassDB::bind_method(D_METHOD("get_damping"), &SVGRope2D::get_damping);
-	ClassDB::bind_method(D_METHOD("set_gravity", "gravity"), &SVGRope2D::set_gravity);
-	ClassDB::bind_method(D_METHOD("get_gravity"), &SVGRope2D::get_gravity);
-	ClassDB::bind_method(D_METHOD("set_line_width", "width"), &SVGRope2D::set_line_width);
-	ClassDB::bind_method(D_METHOD("get_line_width"), &SVGRope2D::get_line_width);
-	ClassDB::bind_method(D_METHOD("set_line_color", "color"), &SVGRope2D::set_line_color);
-	ClassDB::bind_method(D_METHOD("get_line_color"), &SVGRope2D::get_line_color);
-	ClassDB::bind_method(D_METHOD("reset_simulation"), &SVGRope2D::reset_simulation);
-	ClassDB::bind_method(D_METHOD("get_rope_points"), &SVGRope2D::get_rope_points);
-	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVGRope2D::get_svg_size);
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"), "set_src", "get_src");
+void SpriteRope2D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_texture", "texture"), &SpriteRope2D::set_texture);
+	ClassDB::bind_method(D_METHOD("get_texture"), &SpriteRope2D::get_texture);
+	ClassDB::bind_method(D_METHOD("set_line_mode", "enabled"), &SpriteRope2D::set_line_mode);
+	ClassDB::bind_method(D_METHOD("is_line_mode"), &SpriteRope2D::is_line_mode);
+	ClassDB::bind_method(D_METHOD("set_simulation_enabled", "enabled"), &SpriteRope2D::set_simulation_enabled);
+	ClassDB::bind_method(D_METHOD("is_simulation_enabled"), &SpriteRope2D::is_simulation_enabled);
+	ClassDB::bind_method(D_METHOD("set_pin_start", "enabled"), &SpriteRope2D::set_pin_start);
+	ClassDB::bind_method(D_METHOD("is_pin_start"), &SpriteRope2D::is_pin_start);
+	ClassDB::bind_method(D_METHOD("set_segments", "segments"), &SpriteRope2D::set_segments);
+	ClassDB::bind_method(D_METHOD("get_segments"), &SpriteRope2D::get_segments);
+	ClassDB::bind_method(D_METHOD("set_constraint_iterations", "iterations"), &SpriteRope2D::set_constraint_iterations);
+	ClassDB::bind_method(D_METHOD("get_constraint_iterations"), &SpriteRope2D::get_constraint_iterations);
+	ClassDB::bind_method(D_METHOD("set_max_length", "length"), &SpriteRope2D::set_max_length);
+	ClassDB::bind_method(D_METHOD("get_max_length"), &SpriteRope2D::get_max_length);
+	ClassDB::bind_method(D_METHOD("set_elasticity", "elasticity"), &SpriteRope2D::set_elasticity);
+	ClassDB::bind_method(D_METHOD("get_elasticity"), &SpriteRope2D::get_elasticity);
+	ClassDB::bind_method(D_METHOD("set_damping", "damping"), &SpriteRope2D::set_damping);
+	ClassDB::bind_method(D_METHOD("get_damping"), &SpriteRope2D::get_damping);
+	ClassDB::bind_method(D_METHOD("set_gravity", "gravity"), &SpriteRope2D::set_gravity);
+	ClassDB::bind_method(D_METHOD("get_gravity"), &SpriteRope2D::get_gravity);
+	ClassDB::bind_method(D_METHOD("set_line_width", "width"), &SpriteRope2D::set_line_width);
+	ClassDB::bind_method(D_METHOD("get_line_width"), &SpriteRope2D::get_line_width);
+	ClassDB::bind_method(D_METHOD("set_line_color", "color"), &SpriteRope2D::set_line_color);
+	ClassDB::bind_method(D_METHOD("get_line_color"), &SpriteRope2D::get_line_color);
+	ClassDB::bind_method(D_METHOD("reset_simulation"), &SpriteRope2D::reset_simulation);
+	ClassDB::bind_method(D_METHOD("get_rope_points"), &SpriteRope2D::get_rope_points);
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D"), "set_texture", "get_texture");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "line_mode"), "set_line_mode", "is_line_mode");
 	ADD_GROUP("Simulation", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "simulation_enabled"), "set_simulation_enabled", "is_simulation_enabled");
@@ -216,15 +217,37 @@ void SVGRope2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "line_color"), "set_line_color", "get_line_color");
 }
 
-SVGRope3D::SVGRope3D() { set_physics_process(true); }
+Vector2 SVGRope2D::_visual_size() const { return _svg.draw_size(); }
 
-double SVGRope3D::_effective_length() const {
+void SVGRope2D::_validate_property(PropertyInfo &property) const {
+	// SVG専用ノードでは生成物のtextureを編集させず、srcだけを素材入口にする。
+	if (property.name == StringName("texture")) property.usage = PROPERTY_USAGE_NONE;
+}
+
+void SVGRope2D::set_src(const String &src) {
+	_svg.set_src(src);
+	// SVGは原寸の1.5倍で一度だけラスタ化する。PBD更新中は同じ素材を再利用する。
+	SpriteRope2D::set_texture(_svg.get_texture(Vector2(1.5f, 1.5f)));
+}
+
+void SVGRope2D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_src", "src"), &SVGRope2D::set_src);
+	ClassDB::bind_method(D_METHOD("get_src"), &SVGRope2D::get_src);
+	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVGRope2D::get_svg_size);
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"), "set_src", "get_src");
+}
+
+SpriteRope3D::SpriteRope3D() { set_physics_process(true); }
+
+Vector2 SpriteRope3D::_visual_size() const { return _texture.is_valid() ? _texture->get_size() : Vector2(); }
+
+double SpriteRope3D::_effective_length() const {
 	if (_max_length > 0.0) return _max_length;
-	Vector2 size = _svg.draw_size();
+	Vector2 size = _visual_size();
 	return size.y > 0.0f ? size.y * _pixel_size : 2.0;
 }
 
-void SVGRope3D::_ensure_mesh() {
+void SpriteRope3D::_ensure_mesh() {
 	if (_mesh_instance != nullptr) return;
 	_mesh.instantiate();
 	_material.instantiate();
@@ -238,7 +261,7 @@ void SVGRope3D::_ensure_mesh() {
 	add_child(_mesh_instance, false, Node::INTERNAL_MODE_BACK);
 }
 
-void SVGRope3D::reset_simulation() {
+void SpriteRope3D::reset_simulation() {
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
 	double length = _effective_length();
@@ -250,9 +273,9 @@ void SVGRope3D::reset_simulation() {
 	if (is_inside_tree()) _update_mesh();
 }
 
-void SVGRope3D::_ready() { reset_simulation(); }
+void SpriteRope3D::_ready() { reset_simulation(); }
 
-void SVGRope3D::_simulate(double delta) {
+void SpriteRope3D::_simulate(double delta) {
 	if (_points.size() != (size_t)_segments) reset_simulation();
 	float keep = (float)(1.0 - _damping);
 	for (size_t i = _pin_start ? 1 : 0; i < _points.size(); i++)
@@ -261,11 +284,11 @@ void SVGRope3D::_simulate(double delta) {
 			_elasticity, _effective_length());
 }
 
-void SVGRope3D::_update_mesh() {
+void SpriteRope3D::_update_mesh() {
 	_ensure_mesh();
 	_mesh->clear_surfaces();
 	if (_points.size() < 2) return;
-	Vector2 svg_size = _svg.draw_size();
+	Vector2 visual_size = _visual_size();
 	Ref<Texture2D> texture;
 	float half;
 	if (_line_mode) {
@@ -273,9 +296,9 @@ void SVGRope3D::_update_mesh() {
 		_material->set_texture(BaseMaterial3D::TEXTURE_ALBEDO, Ref<Texture2D>());
 		_material->set_albedo(_line_color);
 	} else {
-		texture = _svg.get_texture(Vector2(1.5f, 1.5f), 0, true);
-		if (texture.is_null() || svg_size.x <= 0.0f || svg_size.y <= 0.0f) return;
-		half = (float)(svg_size.x * _pixel_size * 0.5);
+		texture = _texture;
+		if (texture.is_null() || visual_size.x <= 0.0f || visual_size.y <= 0.0f) return;
+		half = (float)(visual_size.x * _pixel_size * 0.5);
 		_material->set_texture(BaseMaterial3D::TEXTURE_ALBEDO, texture);
 		_material->set_albedo(_modulate);
 	}
@@ -307,68 +330,67 @@ void SVGRope3D::_update_mesh() {
 	_mesh->surface_set_material(0, _material);
 }
 
-void SVGRope3D::_physics_process(double delta) {
+void SpriteRope3D::_physics_process(double delta) {
 	if (!_simulation_enabled || Engine::get_singleton()->is_editor_hint()) return;
-	if (!_line_mode && _svg.draw_size().x <= 0.0f) return;
+	if (!_line_mode && _texture.is_null()) return;
 	_simulate(delta);
 	_update_mesh();
 }
 
-void SVGRope3D::set_src(const String &src) { _svg.set_src(src); reset_simulation(); }
-void SVGRope3D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
-void SVGRope3D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled); }
-void SVGRope3D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
-void SVGRope3D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
-void SVGRope3D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
-void SVGRope3D::set_max_length(double value) { value = std::isfinite(value) ? std::max(0.0, value) : 0.0; if (_max_length != value) { _max_length = value; reset_simulation(); } }
-void SVGRope3D::set_elasticity(double value) { _elasticity = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.9; }
-void SVGRope3D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
-void SVGRope3D::set_gravity(const Vector3 &value) { _gravity = value; }
-void SVGRope3D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.0001, value) : 0.04; _update_mesh(); }
-void SVGRope3D::set_line_color(const Color &value) { _line_color = value; _update_mesh(); }
-void SVGRope3D::set_pixel_size(double value) { value = std::isfinite(value) ? std::max(0.0001, value) : 0.01; if (_pixel_size != value) { _pixel_size = value; reset_simulation(); } }
-void SVGRope3D::set_modulate(const Color &value) { _modulate = value; _update_mesh(); }
+void SpriteRope3D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
+void SpriteRope3D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
+void SpriteRope3D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled); }
+void SpriteRope3D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
+void SpriteRope3D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
+void SpriteRope3D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
+void SpriteRope3D::set_max_length(double value) { value = std::isfinite(value) ? std::max(0.0, value) : 0.0; if (_max_length != value) { _max_length = value; reset_simulation(); } }
+void SpriteRope3D::set_elasticity(double value) { _elasticity = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.9; }
+void SpriteRope3D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
+void SpriteRope3D::set_gravity(const Vector3 &value) { _gravity = value; }
+void SpriteRope3D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.0001, value) : 0.04; _update_mesh(); }
+void SpriteRope3D::set_line_color(const Color &value) { _line_color = value; _update_mesh(); }
+void SpriteRope3D::set_pixel_size(double value) { value = std::isfinite(value) ? std::max(0.0001, value) : 0.01; if (_pixel_size != value) { _pixel_size = value; reset_simulation(); } }
+void SpriteRope3D::set_modulate(const Color &value) { _modulate = value; _update_mesh(); }
 
-PackedVector3Array SVGRope3D::get_rope_points() const {
+PackedVector3Array SpriteRope3D::get_rope_points() const {
 	PackedVector3Array out;
 	out.resize((int)_points.size());
 	for (int i = 0; i < (int)_points.size(); i++) out.set(i, _points[(size_t)i]);
 	return out;
 }
 
-void SVGRope3D::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("set_src", "src"), &SVGRope3D::set_src);
-	ClassDB::bind_method(D_METHOD("get_src"), &SVGRope3D::get_src);
-	ClassDB::bind_method(D_METHOD("set_line_mode", "enabled"), &SVGRope3D::set_line_mode);
-	ClassDB::bind_method(D_METHOD("is_line_mode"), &SVGRope3D::is_line_mode);
-	ClassDB::bind_method(D_METHOD("set_simulation_enabled", "enabled"), &SVGRope3D::set_simulation_enabled);
-	ClassDB::bind_method(D_METHOD("is_simulation_enabled"), &SVGRope3D::is_simulation_enabled);
-	ClassDB::bind_method(D_METHOD("set_pin_start", "enabled"), &SVGRope3D::set_pin_start);
-	ClassDB::bind_method(D_METHOD("is_pin_start"), &SVGRope3D::is_pin_start);
-	ClassDB::bind_method(D_METHOD("set_segments", "segments"), &SVGRope3D::set_segments);
-	ClassDB::bind_method(D_METHOD("get_segments"), &SVGRope3D::get_segments);
-	ClassDB::bind_method(D_METHOD("set_constraint_iterations", "iterations"), &SVGRope3D::set_constraint_iterations);
-	ClassDB::bind_method(D_METHOD("get_constraint_iterations"), &SVGRope3D::get_constraint_iterations);
-	ClassDB::bind_method(D_METHOD("set_max_length", "length"), &SVGRope3D::set_max_length);
-	ClassDB::bind_method(D_METHOD("get_max_length"), &SVGRope3D::get_max_length);
-	ClassDB::bind_method(D_METHOD("set_elasticity", "elasticity"), &SVGRope3D::set_elasticity);
-	ClassDB::bind_method(D_METHOD("get_elasticity"), &SVGRope3D::get_elasticity);
-	ClassDB::bind_method(D_METHOD("set_damping", "damping"), &SVGRope3D::set_damping);
-	ClassDB::bind_method(D_METHOD("get_damping"), &SVGRope3D::get_damping);
-	ClassDB::bind_method(D_METHOD("set_gravity", "gravity"), &SVGRope3D::set_gravity);
-	ClassDB::bind_method(D_METHOD("get_gravity"), &SVGRope3D::get_gravity);
-	ClassDB::bind_method(D_METHOD("set_line_width", "width"), &SVGRope3D::set_line_width);
-	ClassDB::bind_method(D_METHOD("get_line_width"), &SVGRope3D::get_line_width);
-	ClassDB::bind_method(D_METHOD("set_line_color", "color"), &SVGRope3D::set_line_color);
-	ClassDB::bind_method(D_METHOD("get_line_color"), &SVGRope3D::get_line_color);
-	ClassDB::bind_method(D_METHOD("set_pixel_size", "size"), &SVGRope3D::set_pixel_size);
-	ClassDB::bind_method(D_METHOD("get_pixel_size"), &SVGRope3D::get_pixel_size);
-	ClassDB::bind_method(D_METHOD("set_modulate", "color"), &SVGRope3D::set_modulate);
-	ClassDB::bind_method(D_METHOD("get_modulate"), &SVGRope3D::get_modulate);
-	ClassDB::bind_method(D_METHOD("reset_simulation"), &SVGRope3D::reset_simulation);
-	ClassDB::bind_method(D_METHOD("get_rope_points"), &SVGRope3D::get_rope_points);
-	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVGRope3D::get_svg_size);
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"), "set_src", "get_src");
+void SpriteRope3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_texture", "texture"), &SpriteRope3D::set_texture);
+	ClassDB::bind_method(D_METHOD("get_texture"), &SpriteRope3D::get_texture);
+	ClassDB::bind_method(D_METHOD("set_line_mode", "enabled"), &SpriteRope3D::set_line_mode);
+	ClassDB::bind_method(D_METHOD("is_line_mode"), &SpriteRope3D::is_line_mode);
+	ClassDB::bind_method(D_METHOD("set_simulation_enabled", "enabled"), &SpriteRope3D::set_simulation_enabled);
+	ClassDB::bind_method(D_METHOD("is_simulation_enabled"), &SpriteRope3D::is_simulation_enabled);
+	ClassDB::bind_method(D_METHOD("set_pin_start", "enabled"), &SpriteRope3D::set_pin_start);
+	ClassDB::bind_method(D_METHOD("is_pin_start"), &SpriteRope3D::is_pin_start);
+	ClassDB::bind_method(D_METHOD("set_segments", "segments"), &SpriteRope3D::set_segments);
+	ClassDB::bind_method(D_METHOD("get_segments"), &SpriteRope3D::get_segments);
+	ClassDB::bind_method(D_METHOD("set_constraint_iterations", "iterations"), &SpriteRope3D::set_constraint_iterations);
+	ClassDB::bind_method(D_METHOD("get_constraint_iterations"), &SpriteRope3D::get_constraint_iterations);
+	ClassDB::bind_method(D_METHOD("set_max_length", "length"), &SpriteRope3D::set_max_length);
+	ClassDB::bind_method(D_METHOD("get_max_length"), &SpriteRope3D::get_max_length);
+	ClassDB::bind_method(D_METHOD("set_elasticity", "elasticity"), &SpriteRope3D::set_elasticity);
+	ClassDB::bind_method(D_METHOD("get_elasticity"), &SpriteRope3D::get_elasticity);
+	ClassDB::bind_method(D_METHOD("set_damping", "damping"), &SpriteRope3D::set_damping);
+	ClassDB::bind_method(D_METHOD("get_damping"), &SpriteRope3D::get_damping);
+	ClassDB::bind_method(D_METHOD("set_gravity", "gravity"), &SpriteRope3D::set_gravity);
+	ClassDB::bind_method(D_METHOD("get_gravity"), &SpriteRope3D::get_gravity);
+	ClassDB::bind_method(D_METHOD("set_line_width", "width"), &SpriteRope3D::set_line_width);
+	ClassDB::bind_method(D_METHOD("get_line_width"), &SpriteRope3D::get_line_width);
+	ClassDB::bind_method(D_METHOD("set_line_color", "color"), &SpriteRope3D::set_line_color);
+	ClassDB::bind_method(D_METHOD("get_line_color"), &SpriteRope3D::get_line_color);
+	ClassDB::bind_method(D_METHOD("set_pixel_size", "size"), &SpriteRope3D::set_pixel_size);
+	ClassDB::bind_method(D_METHOD("get_pixel_size"), &SpriteRope3D::get_pixel_size);
+	ClassDB::bind_method(D_METHOD("set_modulate", "color"), &SpriteRope3D::set_modulate);
+	ClassDB::bind_method(D_METHOD("get_modulate"), &SpriteRope3D::get_modulate);
+	ClassDB::bind_method(D_METHOD("reset_simulation"), &SpriteRope3D::reset_simulation);
+	ClassDB::bind_method(D_METHOD("get_rope_points"), &SpriteRope3D::get_rope_points);
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D"), "set_texture", "get_texture");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "line_mode"), "set_line_mode", "is_line_mode");
 	ADD_GROUP("Simulation", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "simulation_enabled"), "set_simulation_enabled", "is_simulation_enabled");
@@ -385,6 +407,28 @@ void SVGRope3D::_bind_methods() {
 	ADD_GROUP("Line", "");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_width", PROPERTY_HINT_RANGE, "0.0001,100,0.001,or_greater"), "set_line_width", "get_line_width");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "line_color"), "set_line_color", "get_line_color");
+}
+
+Vector2 SVGRope3D::_visual_size() const { return _svg.draw_size(); }
+
+void SVGRope3D::_validate_property(PropertyInfo &property) const {
+	if (property.name == StringName("texture")) property.usage = PROPERTY_USAGE_NONE;
+}
+
+void SVGRope3D::set_src(const String &src) {
+	_svg.set_src(src);
+	SpriteRope3D::set_texture(_svg.get_texture(Vector2(1.5f, 1.5f), 0, true));
+}
+
+void SVGRope3D::set_pixel_size(double value) {
+	SpriteRope3D::set_pixel_size(value);
+}
+
+void SVGRope3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_src", "src"), &SVGRope3D::set_src);
+	ClassDB::bind_method(D_METHOD("get_src"), &SVGRope3D::get_src);
+	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVGRope3D::get_svg_size);
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"), "set_src", "get_src");
 }
 
 } // namespace svg2d
