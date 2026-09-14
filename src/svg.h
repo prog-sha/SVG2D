@@ -142,9 +142,13 @@ private:
 	int _animation_tick = 0;
 	int _animation_pattern = 0;
 	bool _animation_enabled = false;
+	bool _editor_density_active = false;
+	godot::Vector2 _editor_density = godot::Vector2(1.5, 1.5);
 
 	// ローカル座標からViewport座標への拡大率を返す。
 	godot::Vector2 _density() const;
+	// 2D編集Viewportがまだ無い間も低解像度画像をキャッシュしないための一時密度。
+	godot::Vector2 _editor_fallback_density() const;
 	void _update_processing();
 	bool _advance_animation();
 
@@ -175,6 +179,8 @@ public:
 	godot::Vector2 get_offset() const { return _offset; }
 	// ノードが貼る画像を返す。Sprite2D など別の描き手でも使える。
 	godot::Ref<godot::Texture2D> get_texture();
+	// EditorPluginから2D編集画面の実画素密度を受け取る内部用入口。
+	void set_editor_density(const godot::Vector2 &density);
 	// SVG文書の自然寸法。エディターの選択面にも使う。
 	godot::Vector2 get_svg_size() const { return _svg.draw_size(); }
 };

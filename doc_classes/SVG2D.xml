@@ -30,7 +30,7 @@
 			Number of rendered frames to hold each jitter pattern. The four fixed patterns cycle in order.
 		</member>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
-			If [code]true[/code], redraws the SVG when its integer pixel dimensions in the viewport change. The current texture is reused while those dimensions stay unchanged. Each texture axis is limited to 4096 pixels.
+			If [code]true[/code], redraws the SVG when its integer pixel dimensions in the viewport change. In the 2D editor, canvas zoom and display scale are included with at least 1.5x supersampling. The current texture is reused while those dimensions stay unchanged. Each texture axis is limited to 4096 pixels.
 		</member>
 		<member name="flip_h" type="bool" setter="set_flip_h" getter="is_flipped_h" default="false">
 			Mirrors the SVG horizontally inside its natural rectangle.

@@ -49,19 +49,34 @@ func run_checks() -> void:
 	property.call("_file_selected", "res://tests/svg/hello.svg")
 	check(node.get("src") == "res://tests/svg/hello.svg", "Inspectorからsrcを設定できないよ")
 	var texture: Texture2D = node.call("get_texture")
-	check(texture != null and texture.get_size() == Vector2(100, 100), "Inspectorで選んだSVGが表示用画像にならないよ")
+	check(texture != null and texture.get_size() == Vector2(2048, 2048),
+		"2D編集Viewport初期化前に高精細な暫定画像を作らないよ")
 
 	# FILEヒントでシーン保存時に変換されるuid://も同じ素材として読めること。
 	var uid := ResourceUID.path_to_uid("res://tests/svg/hello.svg")
 	check(uid.begins_with("uid://"), "SVG素材のUIDを取得できないよ")
 	node.set("src", uid)
 	texture = node.call("get_texture")
-	check(texture != null and texture.get_size() == Vector2(100, 100), "uid://のSVG素材を表示できないよ")
+	check(texture != null and texture.get_size() == Vector2(2048, 2048),
+		"uid://のSVG素材を高精細な編集画像として表示できないよ")
 
 	# 本番EditorPluginへマウス入力を渡し、絵の内側をつかんで移動できること。
 	var svg_plugin := get_tree().get_first_node_in_group("svg2d_editor_plugin")
 	check(svg_plugin != null, "SVG2Dの2D編集プラグインが動いていないよ")
 	if svg_plugin:
+		# 2D編集Canvasのズーム、ノード拡縮、Retina相当の画面倍率を合成する。
+		var zoomed_canvas := Transform2D.IDENTITY.scaled(Vector2(2.0, 3.0))
+		var editor_density: Vector2 = svg_plugin.call("svg2d_density", node, zoomed_canvas, 2.0)
+		check(editor_density == Vector2(4.0, 6.0),
+			"2Dエディターのズームまたは画面倍率を解像度へ反映できないよ: %s" % editor_density)
+		node.call("_set_editor_density", editor_density)
+		texture = node.call("get_texture")
+		check(texture.get_size() == Vector2(400, 600),
+			"SVG2Dの編集用画像が実画素密度へ更新されないよ: %s" % texture.get_size())
+		node.call("_set_editor_density", Vector2.ZERO)
+		texture = node.call("get_texture")
+		check(texture.get_size() == Vector2(2048, 2048),
+			"2D編集Viewportを失ったとき低解像度キャッシュへ戻ったよ")
 		check(svg_plugin.call("svg_rect", node) == Rect2(0, 0, 100, 100), "SVGの編集矩形が自然寸法と違うよ")
 		check(svg_plugin.call("_handles", node), "SVG2Dを編集対象として扱っていないよ")
 		var transparent_hole: Vector2 = svg_plugin.call("screen_transform", node) * Vector2(70, 70)

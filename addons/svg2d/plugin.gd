@@ -15,6 +15,7 @@ var drag_start_3d := Vector3.ZERO
 var drag_plane_point := Vector3.ZERO
 var drag_plane_normal := Vector3.FORWARD
 var drag_hit_3d := Vector3.ZERO
+const EDITOR_OVERSAMPLE := 1.5
 
 func _enter_tree() -> void:
 	svg_inspector = SVGInspector.new()
@@ -30,6 +31,7 @@ func _handles(object: Object) -> bool:
 
 func _exit_tree() -> void:
 	set_process(false)
+	update_svg2d_editor_density(null)
 	update_svg3d_editor_camera(null)
 	if EditorInterface.get_selection().selection_changed.is_connected(update_overlays):
 		EditorInterface.get_selection().selection_changed.disconnect(update_overlays)
@@ -37,11 +39,34 @@ func _exit_tree() -> void:
 		remove_inspector_plugin(svg_inspector)
 		svg_inspector = null
 
-# シーン内Camera3Dとは別物の3D編集カメラをSVG3Dへ渡す。
-# これが無いとエディターだけ自然寸法へフォールバックし、拡大表示が低解像度になる。
+# 2D編集画面のズームと画面倍率、3D編集カメラを各ノードへ渡す。
+# どちらもシーンのViewport変換だけではエディター固有の表示密度を取得できない。
 func _process(_delta: float) -> void:
+	update_svg2d_editor_density(EditorInterface.get_editor_viewport_2d())
 	var viewport := EditorInterface.get_editor_viewport_3d(0)
 	update_svg3d_editor_camera(viewport.get_camera_3d() if viewport else null)
+
+func editor_pixel_ratio() -> float:
+	var display_scale := DisplayServer.screen_get_scale(DisplayServer.window_get_current_screen())
+	return maxf(EDITOR_OVERSAMPLE, display_scale if is_finite(display_scale) else 1.0)
+
+func svg2d_density(node: Node2D, editor_canvas: Transform2D, pixel_ratio: float) -> Vector2:
+	var transform := editor_canvas * node.global_transform
+	var ratio := maxf(EDITOR_OVERSAMPLE, pixel_ratio)
+	return Vector2(transform.x.length(), transform.y.length()) * ratio
+
+func update_svg2d_editor_density(viewport: SubViewport) -> void:
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null:
+		return
+	var valid := viewport != null and viewport.get_visible_rect().size.x >= 64.0 \
+		and viewport.get_visible_rect().size.y >= 64.0
+	var editor_canvas := viewport.get_canvas_transform() if valid else Transform2D.IDENTITY
+	var pixel_ratio := editor_pixel_ratio()
+	for node in get_tree().get_nodes_in_group(&"_svg2d_editor_nodes"):
+		if node == root or root.is_ancestor_of(node):
+			node.call("_set_editor_density",
+				svg2d_density(node, editor_canvas, pixel_ratio) if valid else Vector2.ZERO)
 
 func update_svg3d_editor_camera(camera: Camera3D) -> void:
 	var root := EditorInterface.get_edited_scene_root()

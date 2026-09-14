@@ -1544,13 +1544,24 @@ Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool
 }
 
 SVG2D::SVG2D() {
+	add_to_group("_svg2d_editor_nodes");
 	_update_processing();
 }
 
 Vector2 SVG2D::_density() const {
 	if (!_adaptive || !is_inside_tree()) return Vector2(1, 1);
+	if (Engine::get_singleton()->is_editor_hint())
+		return _editor_density_active ? _editor_density : _editor_fallback_density();
 	Transform2D t = get_global_transform_with_canvas();
 	return Vector2(t[0].length(), t[1].length());
+}
+
+Vector2 SVG2D::_editor_fallback_density() const {
+	Vector2 size = _svg.draw_size();
+	double longest = std::max((double)size.x, (double)size.y);
+	if (longest <= 0.0) return Vector2(1.5f, 1.5f);
+	double density = std::max(1.5, EDITOR_FALLBACK_TEX / longest);
+	return Vector2((float)density, (float)density);
 }
 
 void SVG2D::set_src(const String &s) {
@@ -1590,6 +1601,18 @@ void SVG2D::_draw() {
 // いまの設定で焼いた画像を、ほかの 2D 描画でも使える形で返す。
 Ref<Texture2D> SVG2D::get_texture() {
 	return _svg.get_texture(_density(), _animation_pattern);
+}
+
+void SVG2D::set_editor_density(const Vector2 &density) {
+	if (!std::isfinite((double)density.x) || !std::isfinite((double)density.y) ||
+			density.x <= 0.0f || density.y <= 0.0f) {
+		_editor_density_active = false;
+		return;
+	}
+	bool changed = !_editor_density_active || density != _editor_density;
+	_editor_density = density;
+	_editor_density_active = true;
+	if (_adaptive && changed && _svg.needs(_editor_density, _animation_pattern)) queue_redraw();
 }
 
 void SVG2D::_update_processing() {
@@ -1653,6 +1676,7 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG2D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG2D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
+	ClassDB::bind_method(D_METHOD("_set_editor_density", "density"), &SVG2D::set_editor_density);
 	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVG2D::get_svg_size);
 	ClassDB::bind_method(D_METHOD("set_jitter_amount", "amount"), &SVG2D::set_jitter_amount);
 	ClassDB::bind_method(D_METHOD("get_jitter_amount"), &SVG2D::get_jitter_amount);
