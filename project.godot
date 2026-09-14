@@ -6,6 +6,10 @@ config_version=5
 
 config/name="SVG2D"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/svg2d/plugin.cfg")
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"

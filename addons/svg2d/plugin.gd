@@ -1,12 +1,17 @@
-# SVG2D のノードと SVG 素材用 Inspector を Godot エディターへ結ぶ入口。
-# 責務: アドオンの有効・無効と、src のファイル選択・プレビューを提供する。
+# SVGノード、素材Inspector、SVG編集ワークスペースをGodotエディターへ結ぶ入口。
+# 責務: srcの選択・プレビュー、シーン操作、独立したSVG作図画面を提供する。
+# 設計思想: Inspectorとシーン操作を保ち、文書編集UIはeditorフォルダーへ閉じる。
 @tool
 extends EditorPlugin
 
 const SVGInspector = preload("editor/svg_inspector.gd")
 const ShapeUtils = preload("editor/svg_shape_utils.gd")
+const Workspace = preload("editor/workspace.gd") # 中央のSVG編集画面
+const ExportFilter = preload("editor/export_filter.gd") # ゲームから編集ファイルを外す係
 
 var svg_inspector: EditorInspectorPlugin
+var workspace: Control # 表示中のSVG編集ワークスペース
+var export_filter: EditorExportPlugin # 書き出し中の編集ファイル除外
 var drag_node: Node2D
 var drag_start := Vector2.ZERO
 var drag_offset := Vector2.ZERO
@@ -17,6 +22,13 @@ var drag_plane_normal := Vector3.FORWARD
 var drag_hit_3d := Vector3.ZERO
 
 func _enter_tree() -> void:
+	workspace = Workspace.new()
+	workspace.name = "SVG"
+	workspace.setup(self)
+	EditorInterface.get_editor_main_screen().add_child(workspace)
+	export_filter = ExportFilter.new()
+	add_export_plugin(export_filter)
+	_make_visible(false)
 	svg_inspector = SVGInspector.new()
 	add_inspector_plugin(svg_inspector)
 	add_to_group("svg2d_editor_plugin")
@@ -29,6 +41,12 @@ func _handles(object: Object) -> bool:
 	return object != null and (object.is_class("SVG2D") or object.is_class("SVG3D"))
 
 func _exit_tree() -> void:
+	if export_filter:
+		remove_export_plugin(export_filter)
+		export_filter = null
+	if workspace:
+		workspace.queue_free()
+		workspace = null
 	set_process(false)
 	update_svg3d_editor_camera(null)
 	if EditorInterface.get_selection().selection_changed.is_connected(update_overlays):
@@ -36,6 +54,26 @@ func _exit_tree() -> void:
 	if svg_inspector:
 		remove_inspector_plugin(svg_inspector)
 		svg_inspector = null
+
+# 2D・3Dと同じ中央領域を使うSVG編集画面であることを知らせる。
+func _has_main_screen() -> bool:
+	return true
+
+func _get_plugin_name() -> String:
+	return "SVG"
+
+func _get_plugin_icon() -> Texture2D:
+	return EditorInterface.get_editor_theme().get_icon("Node2D", "EditorIcons")
+
+# エディター上部のSVGボタンに合わせて画面を表示する。
+func _make_visible(visible: bool) -> void:
+	if workspace:
+		workspace.visible = visible
+
+# Inspectorで選んだSVGノードの文書を編集画面へ同期する。
+func _edit(object: Object) -> void:
+	if workspace and object:
+		workspace.edit_node(object)
 
 # シーン内Camera3Dとは別物の3D編集カメラをSVG3Dへ渡す。
 # これが無いとエディターだけ自然寸法へフォールバックし、拡大表示が低解像度になる。

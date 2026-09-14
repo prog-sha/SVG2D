@@ -2,7 +2,7 @@
 
 **English** | [日本語](README.ja.md)
 
-SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. It reuses cached textures while projected dimensions stay unchanged. `SVG3D` rasterizes at least 1.5 times its projected pixel size and generates mipmaps for cleaner lines.
+SVG2D lets a Godot project edit SVG documents and render them sharply in 2D and 3D scenes. The **SVG** workspace saves standard SVG files directly, while the runtime GDExtension monitors the viewport drawing area and rebuilds the texture at its integer pixel dimensions. It reuses cached textures while projected dimensions stay unchanged. `SVG3D` rasterizes at least 1.5 times its projected pixel size and generates mipmaps for cleaner lines.
 
 ## Compatibility
 
@@ -31,6 +31,20 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
+## SVG editor
+
+Choose **SVG** in Godot's main editor toolbar. Open an existing `.svg`, or create a new document. The workspace follows a familiar vector-editor layout:
+
+- Pick Move, Node, Pen, Pencil, Rectangle, Ellipse, Line, Text, or View from the left tool panel.
+- Draw and select on the center canvas. Drag a selection to move it, drag its lower-right handle to scale it, and use Node on straight paths and polygons to move their points.
+- Arrange parts and groups in Layers. Use the top toolbar for history, duplication, deletion, grouping, stacking, alignment, zoom, and saving.
+- Edit IDs, geometry, fill, stroke, opacity, transforms, and text in Appearance. Use the SVG tab when direct markup editing is more convenient.
+- Select an `SVG2D` or `SVG3D` scene node to edit its `src` in the same workspace.
+
+Unknown SVG elements and attributes remain in the document when it is opened and saved. Complex Bézier curves, boolean path operations, text shaping, gradients, masks, filters, and symbols can be preserved and edited in the SVG source panel; their dedicated visual tools are not yet provided.
+
+The `editor` folder, plug-in entry script, and editing documentation are removed from exported games by the export filter. Files under `src` never reference editor scripts, so exported projects keep the runtime renderer separate.
+
 Animation is disabled by default. Enable `animation_enabled` to displace paths by `jitter_amount`, a ratio of the document dimensions (0.0008 by default, capped at 0.3). Four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default). Disabling animation releases its three extra cached textures. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).
 
 The `adaptive` property is enabled by default and follows both runtime cameras and the 3D editor camera. Disable it to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.
@@ -43,7 +57,7 @@ Pixel conversion uses SSE2 on x86_64 and NEON on arm64. Builds for other archite
 
 Supported features include basic shapes, paths, fills, strokes, gradients, clipping paths, `use`, nested `svg` elements, `viewBox`, and basic CSS selectors.
 
-Text, filters, masks, patterns, markers, animation, and external images are not supported.
+Text, filters, masks, patterns, markers, SVG SMIL animation, and external images are preserved by the editor but are not rendered by the runtime node.
 
 ## License
 
