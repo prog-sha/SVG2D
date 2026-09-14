@@ -599,6 +599,9 @@ func check_ropes() -> void:
 	for i in 12:
 		await physics_frame
 	var points2: PackedVector2Array = rope2.call("get_rope_points")
+	var rope_backend: String = rope2.call("get_simulation_backend")
+	check(rope_backend in ["neon", "sse2", "scalar"],
+		"未知のロープ計算バックエンドだよ: %s" % rope_backend)
 	check(points2.size() == 9 and points2[0].distance_to(Vector2.ZERO) < 0.001,
 		"SVGRope2Dの粒子数または上端固定が違うよ")
 	var max_link2 := 0.0
@@ -672,6 +675,7 @@ func check_ropes() -> void:
 	check(rope_texture != null and rope_texture.get_size() == Vector2(W * 1.5, H * 1.5),
 		"SVGRope3Dの帯メッシュへ1.5倍SVGテクスチャが設定されないよ")
 	svg_rope3.free()
+	print("Rope simulation backend: %s" % rope_backend)
 	print("SVG rope PBD: 2D %.3f px/link, 3D %.4f units/link" % [max_link2, max_link3])
 
 # 場面の準備が終わった次のコマから試験を始める。

@@ -13,21 +13,117 @@
 #include <algorithm>
 #include <cmath>
 
+#if !defined(SVG2D_SCALAR) && !defined(REAL_T_IS_DOUBLE) && \
+		(defined(__SSE2__) || defined(_M_X64) || defined(_M_AMD64))
+#define SVG2D_ROPE_SSE2
+#include <emmintrin.h>
+#elif !defined(SVG2D_SCALAR) && !defined(REAL_T_IS_DOUBLE) && \
+		defined(__aarch64__) && defined(__ARM_NEON)
+#define SVG2D_ROPE_NEON
+#include <arm_neon.h>
+#endif
+
 using namespace godot;
 
 namespace svg2d {
 
 template <typename V>
-static void solve_rope(std::vector<V> &points, std::vector<V> &previous, const V &gravity,
-		double delta, bool pin_start, int iterations, double elasticity, double length) {
-	if (points.size() < 2 || previous.size() != points.size()) return;
-	double dt = std::min(std::max(delta, 0.0), 1.0 / 30.0);
-	for (size_t i = pin_start ? 1 : 0; i < points.size(); i++) {
+static void integrate_scalar(std::vector<V> &points, std::vector<V> &previous,
+		const V &gravity_step, float keep, size_t begin) {
+	for (size_t i = begin; i < points.size(); i++) {
 		V current = points[i];
-		points[i] += (points[i] - previous[i]) + gravity * (float)(dt * dt);
+		points[i] += (points[i] - previous[i]) * keep + gravity_step;
 		previous[i] = current;
 	}
-	V anchor = points[0];
+}
+
+static void integrate_rope(std::vector<Vector2> &points, std::vector<Vector2> &previous,
+		const Vector2 &gravity_step, float keep, size_t begin) {
+	size_t i = begin;
+#if defined(SVG2D_ROPE_SSE2)
+	const __m128 k = _mm_set1_ps(keep);
+	const __m128 g = _mm_set_ps(gravity_step.y, gravity_step.x,
+			gravity_step.y, gravity_step.x);
+	for (; i + 1 < points.size(); i += 2) {
+		__m128 p = _mm_loadu_ps(&points[i].x);
+		__m128 old = _mm_loadu_ps(&previous[i].x);
+		__m128 next = _mm_add_ps(p, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(p, old), k), g));
+		_mm_storeu_ps(&previous[i].x, p);
+		_mm_storeu_ps(&points[i].x, next);
+	}
+#elif defined(SVG2D_ROPE_NEON)
+	const float32x4_t k = vdupq_n_f32(keep);
+	const float32_t gv[4] = { gravity_step.x, gravity_step.y,
+			gravity_step.x, gravity_step.y };
+	const float32x4_t g = vld1q_f32(gv);
+	for (; i + 1 < points.size(); i += 2) {
+		float32x4_t p = vld1q_f32(&points[i].x);
+		float32x4_t old = vld1q_f32(&previous[i].x);
+		float32x4_t next = vaddq_f32(p, vaddq_f32(vmulq_f32(vsubq_f32(p, old), k), g));
+		vst1q_f32(&previous[i].x, p);
+		vst1q_f32(&points[i].x, next);
+	}
+#endif
+	integrate_scalar(points, previous, gravity_step, keep, i);
+}
+
+static void integrate_rope(std::vector<Vector3> &points, std::vector<Vector3> &previous,
+		const Vector3 &gravity_step, float keep, size_t begin) {
+	size_t i = begin;
+#if defined(SVG2D_ROPE_NEON)
+	const float32x4_t k = vdupq_n_f32(keep);
+	const float32x4_t gx = vdupq_n_f32(gravity_step.x);
+	const float32x4_t gy = vdupq_n_f32(gravity_step.y);
+	const float32x4_t gz = vdupq_n_f32(gravity_step.z);
+	for (; i + 3 < points.size(); i += 4) {
+		float32x4x3_t p = vld3q_f32(&points[i].x);
+		float32x4x3_t old = vld3q_f32(&previous[i].x);
+		float32x4x3_t next;
+		next.val[0] = vaddq_f32(p.val[0], vaddq_f32(vmulq_f32(vsubq_f32(p.val[0], old.val[0]), k), gx));
+		next.val[1] = vaddq_f32(p.val[1], vaddq_f32(vmulq_f32(vsubq_f32(p.val[1], old.val[1]), k), gy));
+		next.val[2] = vaddq_f32(p.val[2], vaddq_f32(vmulq_f32(vsubq_f32(p.val[2], old.val[2]), k), gz));
+		vst3q_f32(&previous[i].x, p);
+		vst3q_f32(&points[i].x, next);
+	}
+#elif defined(SVG2D_ROPE_SSE2)
+	const __m128 k = _mm_set1_ps(keep);
+	const __m128 gx = _mm_set1_ps(gravity_step.x), gy = _mm_set1_ps(gravity_step.y);
+	const __m128 gz = _mm_set1_ps(gravity_step.z);
+	for (; i + 3 < points.size(); i += 4) {
+		__m128 px = _mm_set_ps(points[i + 3].x, points[i + 2].x, points[i + 1].x, points[i].x);
+		__m128 py = _mm_set_ps(points[i + 3].y, points[i + 2].y, points[i + 1].y, points[i].y);
+		__m128 pz = _mm_set_ps(points[i + 3].z, points[i + 2].z, points[i + 1].z, points[i].z);
+		__m128 ox = _mm_set_ps(previous[i + 3].x, previous[i + 2].x, previous[i + 1].x, previous[i].x);
+		__m128 oy = _mm_set_ps(previous[i + 3].y, previous[i + 2].y, previous[i + 1].y, previous[i].y);
+		__m128 oz = _mm_set_ps(previous[i + 3].z, previous[i + 2].z, previous[i + 1].z, previous[i].z);
+		__m128 nx = _mm_add_ps(px, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(px, ox), k), gx));
+		__m128 ny = _mm_add_ps(py, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(py, oy), k), gy));
+		__m128 nz = _mm_add_ps(pz, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(pz, oz), k), gz));
+		float xs[4], ys[4], zs[4];
+		_mm_storeu_ps(xs, nx); _mm_storeu_ps(ys, ny); _mm_storeu_ps(zs, nz);
+		for (int lane = 0; lane < 4; lane++) {
+			previous[i + (size_t)lane] = points[i + (size_t)lane];
+			points[i + (size_t)lane] = Vector3(xs[lane], ys[lane], zs[lane]);
+		}
+	}
+#endif
+	integrate_scalar(points, previous, gravity_step, keep, i);
+}
+
+static const char *rope_backend_name() {
+#if defined(SVG2D_ROPE_NEON)
+	return "neon";
+#elif defined(SVG2D_ROPE_SSE2)
+	return "sse2";
+#else
+	return "scalar";
+#endif
+}
+
+template <typename V>
+static void solve_rope(std::vector<V> &points, const V &anchor, bool pin_start,
+		int iterations, double elasticity, double length) {
+	if (points.size() < 2) return;
 	double link = length / (double)(points.size() - 1);
 	float stiffness = (float)std::clamp(elasticity, 0.0, 1.0);
 	for (int pass = 0; pass < iterations; pass++) {
@@ -106,12 +202,14 @@ void SpriteRope2D::_ready() { reset_simulation(); }
 
 void SpriteRope2D::_simulate(double delta) {
 	if (_points.size() != (size_t)_segments) reset_simulation();
-	// Verletの速度を減衰してからPBD距離制約へ渡す。
+	if (_previous.size() != _points.size()) reset_simulation();
+	Vector2 anchor = _points[0];
+	double dt = std::min(std::max(delta, 0.0), 1.0 / 30.0);
 	float keep = (float)(1.0 - _damping);
-	for (size_t i = _pin_start ? 1 : 0; i < _points.size(); i++)
-		_previous[i] = _points[i] - (_points[i] - _previous[i]) * keep;
-	solve_rope(_points, _previous, _gravity, delta, _pin_start, _constraint_iterations,
-			_elasticity, _effective_length());
+	integrate_rope(_points, _previous, _gravity * (float)(dt * dt), keep,
+			_pin_start ? 1u : 0u);
+	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
+			_effective_length());
 }
 
 void SpriteRope2D::_physics_process(double delta) {
@@ -174,6 +272,8 @@ PackedVector2Array SpriteRope2D::get_rope_points() const {
 	return out;
 }
 
+String SpriteRope2D::get_simulation_backend() const { return rope_backend_name(); }
+
 void SpriteRope2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_texture", "texture"), &SpriteRope2D::set_texture);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SpriteRope2D::get_texture);
@@ -201,6 +301,7 @@ void SpriteRope2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_line_color"), &SpriteRope2D::get_line_color);
 	ClassDB::bind_method(D_METHOD("reset_simulation"), &SpriteRope2D::reset_simulation);
 	ClassDB::bind_method(D_METHOD("get_rope_points"), &SpriteRope2D::get_rope_points);
+	ClassDB::bind_method(D_METHOD("get_simulation_backend"), &SpriteRope2D::get_simulation_backend);
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D"), "set_texture", "get_texture");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "line_mode"), "set_line_mode", "is_line_mode");
 	ADD_GROUP("Simulation", "");
@@ -277,11 +378,14 @@ void SpriteRope3D::_ready() { reset_simulation(); }
 
 void SpriteRope3D::_simulate(double delta) {
 	if (_points.size() != (size_t)_segments) reset_simulation();
+	if (_previous.size() != _points.size()) reset_simulation();
+	Vector3 anchor = _points[0];
+	double dt = std::min(std::max(delta, 0.0), 1.0 / 30.0);
 	float keep = (float)(1.0 - _damping);
-	for (size_t i = _pin_start ? 1 : 0; i < _points.size(); i++)
-		_previous[i] = _points[i] - (_points[i] - _previous[i]) * keep;
-	solve_rope(_points, _previous, _gravity, delta, _pin_start, _constraint_iterations,
-			_elasticity, _effective_length());
+	integrate_rope(_points, _previous, _gravity * (float)(dt * dt), keep,
+			_pin_start ? 1u : 0u);
+	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
+			_effective_length());
 }
 
 void SpriteRope3D::_update_mesh() {
@@ -359,6 +463,8 @@ PackedVector3Array SpriteRope3D::get_rope_points() const {
 	return out;
 }
 
+String SpriteRope3D::get_simulation_backend() const { return rope_backend_name(); }
+
 void SpriteRope3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_texture", "texture"), &SpriteRope3D::set_texture);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SpriteRope3D::get_texture);
@@ -390,6 +496,7 @@ void SpriteRope3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_modulate"), &SpriteRope3D::get_modulate);
 	ClassDB::bind_method(D_METHOD("reset_simulation"), &SpriteRope3D::reset_simulation);
 	ClassDB::bind_method(D_METHOD("get_rope_points"), &SpriteRope3D::get_rope_points);
+	ClassDB::bind_method(D_METHOD("get_simulation_backend"), &SpriteRope3D::get_simulation_backend);
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D"), "set_texture", "get_texture");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "line_mode"), "set_line_mode", "is_line_mode");
 	ADD_GROUP("Simulation", "");

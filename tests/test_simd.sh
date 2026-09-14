@@ -16,6 +16,11 @@ fast=$(SVG2D_SCALAR=no sh tests/test.sh)
 plain=$(SVG2D_SCALAR=yes sh tests/test.sh)
 fast_hash=$(printf '%s\n' "$fast" | sed -n 's/^SVG pixel SHA256: //p')
 plain_hash=$(printf '%s\n' "$plain" | sed -n 's/^SVG pixel SHA256: //p')
+fast_rope=$(printf '%s\n' "$fast" | sed -n 's/^Rope simulation backend: //p')
+plain_rope=$(printf '%s\n' "$plain" | sed -n 's/^Rope simulation backend: //p')
 [ -n "$fast_hash" ]
 [ "$fast_hash" = "$plain_hash" ]
+[ "$plain_rope" = scalar ]
+[ "$fast_rope" = neon ] || [ "$fast_rope" = sse2 ]
 printf 'SIMD / scalar pixel SHA256: %s\n' "$fast_hash"
+printf 'Rope simulation backends: %s / %s\n' "$fast_rope" "$plain_rope"

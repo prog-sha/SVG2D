@@ -4,6 +4,7 @@
 	<description>Divides a Texture2D vertically and bends its rows along a 3D PBD particle chain.</description>
 	<methods>
 		<method name="get_rope_points" qualifiers="const"><return type="PackedVector3Array" /><description>Returns local-space PBD particle positions.</description></method>
+		<method name="get_simulation_backend" qualifiers="const"><return type="String" /><description>Returns neon, sse2, or scalar for the active Verlet integration backend.</description></method>
 		<method name="reset_simulation"><return type="void" /><description>Restores a straight rope.</description></method>
 	</methods>
 	<members>

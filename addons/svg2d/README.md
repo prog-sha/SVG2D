@@ -33,6 +33,8 @@ add_child(picture)
 
 `SpriteRope2D` and `SpriteRope3D` accept any standard `Texture2D`, including PNG, WebP, and Godot-imported SVG resources. `SVGRope2D` and `SVGRope3D` are separate SVG-source variants with the `src` picker and supersampled SVG rendering. Both use a PBD rope pinned at the node origin; rows from top to bottom follow the particle chain. Enable `line_mode` for a plain rope configured by `line_width` and `line_color`. `max_length` set to zero derives the length from the texture or SVG height.
 
+Verlet integration uses NEON on ARM64 or SSE2 on x86_64. The ordered distance-constraint solver remains scalar because each link depends on the preceding correction. Unsupported CPUs, double-precision builds, and builds made with `SVG2D_SCALAR=yes` automatically use the equivalent scalar integration path.
+
 ```gdscript
 var rope := SVGRope2D.new()
 rope.src = "res://banner.svg"

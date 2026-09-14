@@ -47,6 +47,7 @@ public:
 	void set_line_width(double value); double get_line_width() const { return _line_width; }
 	void set_line_color(const godot::Color &value); godot::Color get_line_color() const { return _line_color; }
 	godot::PackedVector2Array get_rope_points() const;
+	godot::String get_simulation_backend() const;
 };
 
 class SVGRope2D : public SpriteRope2D {
@@ -101,6 +102,7 @@ public:
 	virtual void set_pixel_size(double value); double get_pixel_size() const { return _pixel_size; }
 	void set_modulate(const godot::Color &value); godot::Color get_modulate() const { return _modulate; }
 	godot::PackedVector3Array get_rope_points() const;
+	godot::String get_simulation_backend() const;
 };
 
 class SVGRope3D : public SpriteRope3D {

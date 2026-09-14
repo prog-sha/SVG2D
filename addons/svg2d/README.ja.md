@@ -33,6 +33,8 @@ add_child(picture)
 
 `SpriteRope2D` と `SpriteRope3D` はPNG・WebP・GodotでインポートしたSVGなど、標準の `Texture2D` を受け取るPBD紐だよ。`SVGRope2D` と `SVGRope3D` は `src` 選択と高解像度SVG生成を持つ別のSVG専用クラスだよ。どちらも上から下の各段を粒子列へ追従させる。`line_mode` をONにすれば素材なしで `line_width` と `line_color` の普通の紐になるよ。`max_length` が0なら素材の高さから長さを自動算出するよ。
 
+Verlet積分はARM64ならNEON、x86_64ならSSE2を使うよ。隣の補正結果へ依存する距離制約は順序を壊さない通常CPU計算のままだよ。非対応CPU・倍精度ビルド・`SVG2D_SCALAR=yes` では、同じ式のscalar経路へ自動で切り替わるよ。
+
 ```gdscript
 var rope := SVGRope2D.new()
 rope.src = "res://banner.svg"
