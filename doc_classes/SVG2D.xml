@@ -12,16 +12,13 @@
 		<method name="get_texture">
 			<return type="Texture2D" />
 			<description>
-				Returns the texture rasterized from [member src] at [member size].
+				Returns the texture rasterized from [member src] at the current viewport density.
 			</description>
 		</method>
 	</methods>
 	<members>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
 			If [code]true[/code], redraws the SVG at a higher texture resolution when it grows in the viewport. The current power-of-two level is reused to avoid redrawing during every frame of a zoom. Each texture axis is limited to 4096 pixels.
-		</member>
-		<member name="size" type="Vector2" setter="set_size" getter="get_size" default="Vector2(0, 0)">
-			The SVG display size in local coordinates. Set both components above zero to override the SVG document size. [code]Vector2.ZERO[/code] uses the document size. When [member adaptive] is enabled, the internal texture can be larger to keep the result sharp.
 		</member>
 		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">
 			The complete SVG markup to render. Load an SVG file as text and assign its contents here.

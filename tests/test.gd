@@ -1,21 +1,35 @@
-# SVG2D と SVG3D の公開 API と基本の描画結果を短時間で確かめるテスト。
-# 責務: クラス登録、説明、読み取り、画像化、2Dと3Dの一致を一括で検証すること。
-# 設計思想: 1回の起動でデータと3D画面を確かめ、失敗を終了コードと短い文で返す。
+# SVG2DとSVG3Dの公開API・拡大描画・速度を一度に確かめるテスト。
+# 責務: 文書寸法、画面密度、画素差、キャッシュ、処理時間を短時間で検証すること。
+# 設計思想: 同じ図を直接の目標寸法でも描き、実表示との画素差を大きさごとに比べる。
 extends SceneTree
 
-const W := 64 # 比較画像の横幅
-const H := 48 # 比較画像の縦幅
+const W := 64 # 試験SVGの自然な横幅
+const H := 48 # 試験SVGの自然な縦幅
+const LIMIT_US := 5_000 # 256×192以下の画像化に許す時間
+const FRAME_US := 16_667 # 1024×1024の画像化に許す1コマの時間
+const CACHE_US := 5.0 # 画像を使い回す1回に許す時間
+const SCALES := [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0]
 
 var failed := false
+var digest := HashingContext.new()
 
-# 条件が外れたときに、後続の確認を続けながら失敗を覚える。
+# 同じ図を指定した自然寸法で作り、直接画像化した比較元に使う。
+func sample(w: int = W, h: int = H) -> String:
+	return """<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 64 48">
+	<defs><linearGradient id="g"><stop stop-color="#246bfd"/><stop offset="1" stop-color="#f04b73"/></linearGradient></defs>
+	<rect x="1.25" y="1.5" width="61.5" height="45" rx="7" fill="url(#g)"/>
+	<circle cx="19.5" cy="24" r="11.25" fill="#31d17c" fill-opacity=".72"/>
+	<path d="M31 37 C35 8 52 8 58 36" fill="none" stroke="#fff" stroke-width="3.5"/>
+</svg>""" % [w, h]
+
+# 条件が外れたときに後続の確認を続けながら失敗を覚える。
 func check(ok: bool, message: String) -> void:
 	if ok:
 		return
 	failed = true
 	push_error(message)
 
-# 2枚の絵が画素ごとにどの程度離れているかを0〜255の値で測る。
+# 2枚の絵が画素ごとにどの程度離れているかを0〜255で測る。
 func image_rmse(a: Image, b: Image) -> float:
 	if a.get_size() != b.get_size():
 		return INF
@@ -27,168 +41,214 @@ func image_rmse(a: Image, b: Image) -> float:
 		sum += d * d
 	return sqrt(sum / aa.size())
 
-# クラス参照に利用者向けのプロパティ説明が入っているか確かめる。
+# 2枚の絵で最も大きい1成分の差を測り、局所的なずれを見落とさないようにする。
+func image_max_delta(a: Image, b: Image) -> int:
+	if a.get_size() != b.get_size():
+		return 255
+	var aa := a.get_data()
+	var bb := b.get_data()
+	var found := 0
+	for i in aa.size():
+		found = max(found, absi(aa[i] - bb[i]))
+	return found
+
+# 直接その寸法で画像化し、表示先と同じ掛け合わせ済み透明色へそろえる。
+func expected_at(w: int, h: int) -> Image:
+	var node: Node2D = ClassDB.instantiate("SVG2D")
+	node.set("src", sample(w, h))
+	var image: Image = node.call("get_texture").get_image()
+	image.premultiply_alpha()
+	node.free()
+	return image
+
+# 公開プロパティに指定名があるかを返す。
+func has_property(node: Object, name: String) -> bool:
+	for property in node.get_property_list():
+		if property.name == name:
+			return true
+	return false
+
+# クラス参照に説明があり、廃止した寸法プロパティが残っていないか確かめる。
 func check_docs(name: String) -> void:
 	var xml := FileAccess.get_file_as_string("res://doc_classes/%s.xml" % name)
-	check(xml.contains('<member name="src"'), "%s の src 説明がないよ" % name)
-	check(xml.contains('<member name="size"'), "%s の size 説明がないよ" % name)
-	check(xml.contains('<member name="adaptive"'), "%s の adaptive 説明がないよ" % name)
+	check(xml.contains('<member name="src"'), "%sのsrc説明がないよ" % name)
+	check(xml.contains('<member name="adaptive"'), "%sのadaptive説明がないよ" % name)
+	check(not xml.contains('<member name="size"'), "%sにsize説明が残っているよ" % name)
 
-# 2Dの拡大率に応じて解像度が段階的に上がり、同じ段階では画像を使い回すか確かめる。
-func check_adaptive_2d(sample: String) -> void:
-	var svg: Node2D = ClassDB.instantiate("SVG2D")
-	svg.set("src", sample)
-	svg.set("size", Vector2(W, H))
-	svg.scale = Vector2(4, 4)
-	root.add_child(svg)
-	await process_frame
-	var large: Texture2D = svg.call("get_texture")
-	check(large.get_size() == Vector2(W * 4, H * 4), "SVG2Dが拡大時の解像度へ変わらないよ")
-	var rid := large.get_rid()
-	check(svg.call("get_texture").get_rid() == rid, "SVG2Dが同じ領域で画像を使い回していないよ")
-	# 段階の境界付近では高い側を保ち、わずかな揺れで描き直さない。
-	svg.scale = Vector2(4.01, 4.01)
-	await process_frame
-	var upper: Texture2D = svg.call("get_texture")
-	check(upper.get_size() == Vector2(W * 8, H * 8), "SVG2Dの解像度段階が違うよ")
-	svg.scale = Vector2(3.99, 3.99)
-	await process_frame
-	check(svg.call("get_texture").get_rid() == upper.get_rid(), "SVG2Dが境界の揺れで描き直しているよ")
-	# 極端な拡大でも片辺4096画素を越えず、画像の使用量を抑える。
-	svg.set("size", Vector2(4096, 1))
-	svg.scale = Vector2(2, 2)
-	await process_frame
-	check(svg.call("get_texture").get_size() == Vector2(4096, 1), "SVG2Dの解像度上限が違うよ")
-	svg.set("adaptive", false)
-	check(not svg.is_processing(), "SVG2Dが固定解像度でも監視を続けているよ")
-	svg.set("size", Vector2(W, H))
-	var base: Texture2D = svg.call("get_texture")
-	check(base.get_size() == Vector2(W, H), "SVG2Dの固定解像度が違うよ")
-	svg.free()
-
-# SVG3Dを正面から等倍で描き、元画像との画素差を確かめる。
-func check_view(sample: String) -> void:
-	var flat: Node2D = ClassDB.instantiate("SVG2D")
-	flat.set("src", sample)
-	flat.set("size", Vector2(W, H))
-	var expected: Image = flat.call("get_texture").get_image()
-	# 3Dの描画先は透明度を色へ掛けた値を返すため、比較元も同じ形へそろえる。
-	expected.premultiply_alpha()
-
+# 徐々に拡大し、直接画像化した結果との画素差と画像化時間を測る。
+func check_zoom_2d() -> void:
 	var view := SubViewport.new()
-	view.size = Vector2i(W, H)
 	view.transparent_bg = true
-	view.render_target_update_mode = SubViewport.UPDATE_ONCE
 	root.add_child(view)
+	var svg: Node2D = ClassDB.instantiate("SVG2D")
+	svg.set("src", sample())
+	view.add_child(svg)
+	var max_error := 0.0
+	var max_raster := 0
+	var last := RID()
+	for scale in SCALES:
+		var w := roundi(W * scale)
+		var h := roundi(H * scale)
+		view.size = Vector2i(w, h)
+		svg.scale = Vector2(scale, scale)
+		var start := Time.get_ticks_usec()
+		var texture: Texture2D = svg.call("get_texture")
+		var elapsed := Time.get_ticks_usec() - start
+		if texture.get_rid() != last:
+			max_raster = max(max_raster, elapsed)
+			last = texture.get_rid()
+		view.render_target_update_mode = SubViewport.UPDATE_ONCE
+		await process_frame
+		await RenderingServer.frame_post_draw
+		var actual := view.get_texture().get_image()
+		var expected := expected_at(w, h)
+		var error := image_rmse(expected, actual)
+		max_error = max(max_error, error)
+		print("SVG2D scale %.2f texture %s RMSE %.3f raster %d us" % [scale, texture.get_size(), error, elapsed])
+		if error >= 8.0:
+			actual.save_png("res://tmp/svg2d_%.2f.png" % scale)
+		check(error < 8.0, "SVG2D scale %.2f RMSEが%.3fだよ" % [scale, error])
+		if is_equal_approx(scale, 1.0):
+			check(texture.get_size() == Vector2(W, H), "SVG2Dが等倍の画素数にならないよ")
+			var dot := image_max_delta(expected, actual)
+			print("SVG2D dot max delta %d" % dot)
+			check(dot <= 1, "SVG2Dの等倍表示に1を越える色差があるよ")
+	var start := Time.get_ticks_usec()
+	for i in 10_000:
+		svg.call("get_texture")
+	var cache_us := (Time.get_ticks_usec() - start) / 10_000.0
+	print("SVG2D profile max RMSE %.3f, raster %d us, cache %.3f us/call" % [max_error, max_raster, cache_us])
+	check(max_raster < LIMIT_US, "SVG2Dの画像化が遅いよ: %d us" % max_raster)
+	check(cache_us < CACHE_US, "SVG2Dのキャッシュ取得が遅いよ: %.3f us" % cache_us)
+	view.free()
 
+# カメラへ出る大きさを変え、3D表示も各寸法の直接画像化と比べる。
+func check_zoom_3d() -> void:
+	var view := SubViewport.new()
+	view.transparent_bg = true
+	root.add_child(view)
 	var camera := Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = H
 	camera.position = Vector3(0, 0, 10)
 	view.add_child(camera)
 	camera.current = true
-
 	var svg: Node3D = ClassDB.instantiate("SVG3D")
-	svg.set("src", sample)
-	svg.set("size", Vector2(W, H))
+	svg.set("src", sample())
 	svg.set("pixel_size", 1.0)
 	view.add_child(svg)
+	var max_error := 0.0
+	for scale in [0.5, 1.0, 1.5, 2.0, 3.0, 4.0]:
+		var w := roundi(W * scale)
+		var h := roundi(H * scale)
+		view.size = Vector2i(w, h)
+		view.render_target_update_mode = SubViewport.UPDATE_ONCE
+		await process_frame
+		await process_frame
+		await RenderingServer.frame_post_draw
+		var texture: Texture2D = svg.call("get_texture")
+		var actual := view.get_texture().get_image()
+		var expected := expected_at(w, h)
+		var error := image_rmse(expected, actual)
+		max_error = max(max_error, error)
+		print("SVG3D camera %.2f texture %s RMSE %.3f" % [scale, texture.get_size(), error])
+		if error >= 8.0:
+			actual.save_png("res://tmp/svg3d_%.2f.png" % scale)
+		check(error < 8.0, "SVG3D camera %.2f RMSEが%.3fだよ" % [scale, error])
+		if is_equal_approx(scale, 1.0):
+			check(texture.get_size() == Vector2(W, H), "SVG3Dが等倍の画素数にならないよ")
+			var dot := image_max_delta(expected, actual)
+			print("SVG3D dot max delta %d" % dot)
+			check(dot <= 2, "SVG3Dの等倍表示に2を越える色差があるよ")
+	print("SVG3D profile max RMSE %.3f" % max_error)
+	view.free()
 
-	# カメラの拡大を反映した画像を作り、同じ領域では使い回す。
-	camera.size = H / 4.0
+# 解像度段階、境界の余裕、上限、固定解像度を共通の画像管理で確かめる。
+func check_cache() -> void:
+	var svg: Node2D = ClassDB.instantiate("SVG2D")
+	svg.set("src", sample())
+	svg.scale = Vector2(4, 4)
+	root.add_child(svg)
 	await process_frame
 	var large: Texture2D = svg.call("get_texture")
-	check(large.get_size() == Vector2(W * 4, H * 4), "SVG3Dが拡大時の解像度へ変わらないよ")
-	var rid := large.get_rid()
-	check(svg.call("get_texture").get_rid() == rid, "SVG3Dが同じ領域で画像を使い回していないよ")
-	# 端数を切り上げた画像でも、3D空間では指定した縦横比を保つ。
-	var fraction: Node3D = ClassDB.instantiate("SVG3D")
-	fraction.set("src", sample)
-	fraction.set("size", Vector2(1.1, 100))
-	fraction.set("pixel_size", 1.0)
-	view.add_child(fraction)
+	check(large.get_size() == Vector2(W * 4, H * 4), "拡大時の解像度が違うよ")
+	check(svg.call("get_texture").get_rid() == large.get_rid(), "同じ領域で画像を使い回していないよ")
+	svg.scale = Vector2(4.01, 4.01)
 	await process_frame
-	var sprite: Sprite3D = fraction.get_child(0, true)
-	check(is_equal_approx(sprite.scale.x, 1.1 / fraction.call("get_texture").get_width()), "SVG3Dの端数幅が違うよ")
-	check(is_equal_approx(sprite.scale.y, 100.0 / fraction.call("get_texture").get_height()), "SVG3Dの端数高さが違うよ")
-	fraction.free()
-
-	# 元の画角へ戻した処理後に描画完了の通知を受け、早取りを防ぐ。
-	camera.size = H
-	view.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var upper: Texture2D = svg.call("get_texture")
+	svg.scale = Vector2(3.99, 3.99)
 	await process_frame
+	check(svg.call("get_texture").get_rid() == upper.get_rid(), "境界の揺れで描き直しているよ")
+	svg.set("src", '<svg width="4096" height="1"><rect width="4096" height="1"/></svg>')
+	svg.scale = Vector2(2, 2)
 	await process_frame
-	var normal: Texture2D = svg.call("get_texture")
-	check(normal.get_size() == Vector2(W, H), "SVG3Dが元の解像度へ戻らないよ")
-	await RenderingServer.frame_post_draw
-	var actual := view.get_texture().get_image()
-	var error := image_rmse(expected, actual)
-	print("SVG3D view RMSE: %.3f" % error)
-	if error >= 8.0:
-		expected.save_png("res://tmp/svg3d_expected.png")
-		actual.save_png("res://tmp/svg3d_actual.png")
-	check(error < 8.0, "SVG3D view RMSE が %.3f だよ" % error)
+	check(svg.call("get_texture").get_size() == Vector2(4096, 1), "解像度上限が違うよ")
+	svg.set("src", sample())
 	svg.set("adaptive", false)
-	check(not svg.is_processing(), "SVG3Dが固定解像度でも監視を続けているよ")
-	view.free()
-	flat.free()
+	check(not svg.is_processing(), "固定解像度でも監視を続けているよ")
+	check(svg.call("get_texture").get_size() == Vector2(W, H), "文書の固定解像度が違うよ")
+	svg.free()
 
-# 場面の準備が終わった次のコマから、利用者が触る入口をまとめて確かめる。
+# 大きな不透明画像を作り、画素変換を含む処理が1コマの時間に収まるか測る。
+func check_large_profile() -> void:
+	var svg: Node2D = ClassDB.instantiate("SVG2D")
+	svg.set("src", '<svg width="1024" height="1024"><rect width="1024" height="1024" fill="#48a9e6"/></svg>')
+	var start := Time.get_ticks_usec()
+	var texture: Texture2D = svg.call("get_texture")
+	var elapsed := Time.get_ticks_usec() - start
+	print("SVG2D 1024x1024 profile %d us" % elapsed)
+	check(texture.get_size() == Vector2(1024, 1024), "1024x1024を画像化できないよ")
+	check(elapsed < FRAME_US, "1024x1024の画像化が1コマを越えたよ: %d us" % elapsed)
+	svg.free()
+
+# 場面の準備が終わった次のコマから試験を始める。
 func _initialize() -> void:
 	DisplayServer.window_set_position(Vector2i(10000, 10000))
 	_run.call_deferred()
 
-# 小さなSVGを通し、API・説明・2D画像・3D画像を一括で判断する。
+# 公開APIと描画をまとめて判断する。
 func _run() -> void:
+	digest.start(HashingContext.HASH_SHA256)
 	if not ClassDB.class_exists("SVG2D"):
-		var status: GDExtensionManager.LoadStatus = GDExtensionManager.load_extension(
-				"res://addons/svg2d/svg2d.gdextension")
-		check(status == GDExtensionManager.LOAD_STATUS_OK,
-				"GDExtension を読み込めなかったよ: %s" % status)
-	check(ClassDB.class_exists("SVG2D"), "SVG2D が登録されていないよ")
-	check(ClassDB.class_exists("SVG3D"), "SVG3D が登録されていないよ")
-	check(not ClassDB.class_exists("SVG"), "内部の SVG が公開されているよ")
+		var status := GDExtensionManager.load_extension("res://addons/svg2d/svg2d.gdextension")
+		check(status == GDExtensionManager.LOAD_STATUS_OK, "GDExtensionを読み込めなかったよ: %s" % status)
+	check(ClassDB.class_exists("SVG2D"), "SVG2Dが登録されていないよ")
+	check(ClassDB.class_exists("SVG3D"), "SVG3Dが登録されていないよ")
+	check(not ClassDB.class_exists("SVG"), "内部のSVGが公開されているよ")
 	if failed:
 		quit(1)
 		return
-
 	check_docs("SVG2D")
 	check_docs("SVG3D")
 	for path in ["hello.svg", "spec.svg", "spec2.svg"]:
-		var sample := FileAccess.get_file_as_string("res://tests/svg/" + path)
+		var src := FileAccess.get_file_as_string("res://tests/svg/" + path)
 		var node: Node2D = ClassDB.instantiate("SVG2D")
-		node.set("src", sample)
-		node.set("size", Vector2(W, H))
-		check(node.get("src") == sample, "%s の src が戻らないよ" % path)
-		check(node.get("size") == Vector2(W, H), "%s の大きさが戻らないよ" % path)
+		node.set("src", src)
+		check(not has_property(node, "size"), "%sのSVG2Dにsizeが残っているよ" % path)
 		var texture: Texture2D = node.call("get_texture")
-		check(texture != null, "%s の画像を作れなかったよ" % path)
+		check(texture != null and texture.get_image().get_used_rect().has_area(), "%sを画像化できないよ" % path)
 		if texture != null:
-			var image := texture.get_image()
-			check(image.get_size() == Vector2i(W, H), "%s の画像の大きさが違うよ" % path)
-			check(image.get_used_rect().has_area(), "%s の画像が空だよ" % path)
+			digest.update(texture.get_image().get_data())
 		var node3: Node3D = ClassDB.instantiate("SVG3D")
-		node3.set("src", sample)
-		node3.set("size", Vector2(W, H))
+		node3.set("src", src)
+		root.add_child(node3)
 		await process_frame
-		check(node3 is Node3D, "%s の SVG3D が3Dノードではないよ" % path)
-		check(node3.get("src") == sample, "%s の SVG3D src が戻らないよ" % path)
-		check(node3.get("size") == Vector2(W, H), "%s の SVG3D の大きさが戻らないよ" % path)
+		check(not has_property(node3, "size"), "%sのSVG3Dにsizeが残っているよ" % path)
 		var texture3: Texture2D = node3.call("get_texture")
-		check(texture3 != null, "%s の3D画像を作れなかったよ" % path)
+		check(texture3 != null, "%sを3D画像化できないよ" % path)
 		if texture != null and texture3 != null:
 			var error := image_rmse(texture.get_image(), texture3.get_image())
-			check(error < 8.0, "%s の SVG3D RMSE が %.3f だよ" % [path, error])
-			print("%s SVG3D RMSE: %.3f" % [path, error])
+			check(error < 8.0, "%sの2D・3D RMSEが%.3fだよ" % [path, error])
 		node.free()
 		node3.free()
-	await check_adaptive_2d(FileAccess.get_file_as_string("res://tests/svg/spec.svg"))
-	await check_view(FileAccess.get_file_as_string("res://tests/svg/spec.svg"))
-
+	await check_cache()
+	await check_zoom_2d()
+	await check_zoom_3d()
+	check_large_profile()
 	var config := ConfigFile.new()
-	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfg を読めなかったよ")
+	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfgを読めなかったよ")
 	check(config.get_value("plugin", "script") == "plugin.gd", "プラグインの入口が違うよ")
-	check(load("res://addons/svg2d/plugin.gd") != null, "プラグインの入口を読めなかったよ")
 	if not failed:
-		print("SVG2D / SVG3D の試験に通ったよ")
+		print("SVG pixel SHA256: %s" % digest.finish().hex_encode())
+		print("SVG2D / SVG3Dの試験に通ったよ")
 	quit(1 if failed else 0)

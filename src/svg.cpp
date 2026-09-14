@@ -21,8 +21,17 @@
 #include <godot_cpp/variant/packed_string_array.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <memory>
+
+#if !defined(SVG2D_SCALAR) && (defined(__SSE2__) || defined(_M_X64) || defined(_M_AMD64))
+#define SVG2D_SSE2
+#include <emmintrin.h>
+#elif !defined(SVG2D_SCALAR) && defined(__aarch64__) && defined(__ARM_NEON)
+#define SVG2D_NEON
+#include <arm_neon.h>
+#endif
 
 using namespace godot;
 using namespace svg2d::svg;
@@ -1251,26 +1260,60 @@ Ref<Image> SVG::render(int w, int h) const {
 	// 掛け合わせ済みの色を、ふつうの色へ戻して絵にする。
 	// resize は 0 で埋めてくれるので、触っていない所はそのまま透けた色でよい。
 	// 割り算は 256 目の表に置き換える。1 枚ぶん割り算すると、その処理で 2 ミリ秒かかる
-	static uint32_t recip[256];
-	static bool made = false;
-	if (!made) {
-		for (int i = 1; i < 256; i++) recip[i] = (uint32_t)(255u * 65536u / (uint32_t)i);
-		made = true;
-	}
+	static const std::array<uint32_t, 256> recip = [] {
+		std::array<uint32_t, 256> out{};
+		for (int i = 1; i < 256; i++) out[(size_t)i] = 255u * 65536u / (uint32_t)i;
+		return out;
+	}();
 	PackedByteArray buf;
 	buf.resize((int64_t)w * (int64_t)h * 4);
 	uint8_t *out = buf.ptrw();
 	for (int y = cv.dy0; y <= cv.dy1; y++) {
 		const uint8_t *src = &cv.px[((size_t)y * (size_t)w + (size_t)cv.dx0) * 4];
 		uint8_t *dst = out + ((size_t)y * (size_t)w + (size_t)cv.dx0) * 4;
-		for (int x = cv.dx0; x <= cv.dx1; x++, src += 4, dst += 4) {
+		int x = cv.dx0;
+		// 完全透明・完全不透明な4画素をCPUのベクトル命令でまとめ、半透明は同じ整数計算へ戻す。
+		for (; x + 3 <= cv.dx1; x += 4, src += 16, dst += 16) {
+			bool clear = false, opaque = false;
+#if defined(SVG2D_SSE2)
+			__m128i px = _mm_loadu_si128((const __m128i *)src);
+			__m128i alpha = _mm_srli_epi32(px, 24);
+			clear = _mm_movemask_epi8(_mm_cmpeq_epi32(alpha, _mm_setzero_si128())) == 0xffff;
+			opaque = _mm_movemask_epi8(_mm_cmpeq_epi32(alpha, _mm_set1_epi32(255))) == 0xffff;
+			if (opaque) _mm_storeu_si128((__m128i *)dst, px);
+#elif defined(SVG2D_NEON)
+			uint8x16_t px = vld1q_u8(src);
+			uint32x4_t alpha = vshrq_n_u32(vreinterpretq_u32_u8(px), 24);
+			clear = vmaxvq_u32(alpha) == 0;
+			opaque = vminvq_u32(alpha) == 255;
+			if (opaque) vst1q_u8(dst, px);
+#endif
+			if (clear || opaque) continue;
+			for (int i = 0; i < 4; i++) {
+				const uint8_t *s = src + i * 4;
+				uint8_t *d = dst + i * 4;
+				uint8_t a = s[3];
+				if (a == 0) continue;
+				if (a == 255) {
+					d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 255;
+					continue;
+				}
+				uint32_t k = recip[(size_t)a];
+				for (int j = 0; j < 3; j++) {
+					uint32_t v = ((uint32_t)s[j] * k + 32768u) >> 16;
+					d[j] = (uint8_t)(v > 255u ? 255u : v);
+				}
+				d[3] = a;
+			}
+		}
+		for (; x <= cv.dx1; x++, src += 4, dst += 4) {
 			uint8_t a = src[3];
 			if (a == 0) continue;
 			if (a == 255) {   // まるごと乗った所はそのまま写す
 				dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = 255;
 				continue;
 			}
-			uint32_t k = recip[a];
+			uint32_t k = recip[(size_t)a];
 			for (int j = 0; j < 3; j++) {
 				uint32_t v = ((uint32_t)src[j] * k + 32768u) >> 16;
 				dst[j] = (uint8_t)(v > 255u ? 255u : v);
@@ -1294,15 +1337,7 @@ void SVGTexture::set_src(const String &s) {
 	_dirty = true;
 }
 
-void SVGTexture::set_size(const Vector2 &s) {
-	if (_size == s) return;
-	_size = s;
-	_level = 0.0;
-	_dirty = true;
-}
-
 Vector2 SVGTexture::draw_size() const {
-	if (_size.x > 0.0f && _size.y > 0.0f) return _size;
 	return _doc == nullptr ? Vector2() : _doc->doc_size();
 }
 
@@ -1372,11 +1407,6 @@ void SVG2D::set_src(const String &s) {
 	queue_redraw();
 }
 
-void SVG2D::set_size(const Vector2 &s) {
-	_svg.set_size(s);
-	queue_redraw();
-}
-
 void SVG2D::set_adaptive(bool enabled) {
 	if (_adaptive == enabled) return;
 	_adaptive = enabled;
@@ -1403,14 +1433,11 @@ Ref<Texture2D> SVG2D::get_texture() {
 void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_src", "text"), &SVG2D::set_src);
 	ClassDB::bind_method(D_METHOD("get_src"), &SVG2D::get_src);
-	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG2D::set_size);
-	ClassDB::bind_method(D_METHOD("get_size"), &SVG2D::get_size);
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG2D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG2D::is_adaptive);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
 			"set_src", "get_src");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 }
 
@@ -1470,11 +1497,6 @@ void SVG3D::set_src(const String &s) {
 	_queue_refresh();
 }
 
-void SVG3D::set_size(const Vector2 &s) {
-	_svg.set_size(s);
-	_queue_refresh();
-}
-
 void SVG3D::set_pixel_size(double size) {
 	double value = std::isfinite(size) ? std::max(0.0001, size) : 0.01;
 	if (_pixel_size == value) return;
@@ -1500,8 +1522,6 @@ void SVG3D::_process(double) {
 void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_src", "text"), &SVG3D::set_src);
 	ClassDB::bind_method(D_METHOD("get_src"), &SVG3D::get_src);
-	ClassDB::bind_method(D_METHOD("set_size", "size"), &SVG3D::set_size);
-	ClassDB::bind_method(D_METHOD("get_size"), &SVG3D::get_size);
 	ClassDB::bind_method(D_METHOD("set_pixel_size", "size"), &SVG3D::set_pixel_size);
 	ClassDB::bind_method(D_METHOD("get_pixel_size"), &SVG3D::get_pixel_size);
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG3D::set_adaptive);
@@ -1509,7 +1529,6 @@ void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG3D::get_texture);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_MULTILINE_TEXT),
 			"set_src", "get_src");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "size"), "set_size", "get_size");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pixel_size", PROPERTY_HINT_RANGE,
 			"0.0001,128,0.0001,or_greater,exp"), "set_pixel_size", "get_pixel_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");

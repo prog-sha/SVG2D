@@ -20,18 +20,20 @@ The packaged add-on includes precompiled debug and release binaries for Windows 
 
 ## Usage
 
-Add an `SVG2D` node to a 2D scene or an `SVG3D` node to a 3D scene, then set its `src` property to SVG markup. Set `size` to control the displayed dimensions; leave it at zero to use the SVG document size. On `SVG3D`, use `pixel_size` to control the size in 3D space.
+Add an `SVG2D` node to a 2D scene or an `SVG3D` node to a 3D scene, then set its `src` property to SVG markup. The SVG document width and height define its natural dimensions. Transform `SVG2D` or adjust the camera to change its on-screen dimensions. On `SVG3D`, use `pixel_size` to control its dimensions in 3D space.
 
 ```gdscript
 var picture := SVG2D.new()
 picture.src = FileAccess.get_file_as_string("res://picture.svg")
-picture.size = Vector2(320, 240)
+picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
-The `adaptive` property is enabled by default. Disable it to keep the texture at the `size` resolution. The Inspector tooltips describe `src`, `size`, `adaptive`, and `pixel_size` where applicable.
+The `adaptive` property is enabled by default. Disable it to keep the texture at the SVG document resolution, capped at 4096 pixels on either axis. The Inspector tooltips describe `src`, `adaptive`, and `pixel_size` where applicable.
 
 Adaptive textures are limited to 4096 pixels on either axis to keep one RGBA texture within 64 MiB. Very large on-screen SVGs therefore use the highest available resolution.
+
+Pixel conversion uses SSE2 on x86_64 and NEON on arm64. Builds for other architectures use the equivalent scalar CPU path.
 
 ## SVG support
 

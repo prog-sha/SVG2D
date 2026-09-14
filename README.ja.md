@@ -26,3 +26,7 @@ macOS ではテスト用スクリプトが Godot 4.7.1 を自動で探すよ。G
 ```sh
 GODOT=/path/to/godot sh tests/test.sh
 ```
+
+SSE2やNEONを使わない通常CPU経路を確かめるときは、`SVG2D_SCALAR=yes` を付けよう。
+
+macOSで両方の画素がSHA-256まで一致するか確かめるときは、`sh tests/test_simd.sh` を実行しよう。

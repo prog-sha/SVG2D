@@ -4,6 +4,7 @@
 .DS_Store
 .sconsign.dblite
 tmp/
+ログ/
 addons/svg2d/bin/*/
 src/*.os
 src/*.o

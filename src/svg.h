@@ -88,7 +88,6 @@ public:
 class SVGTexture {
 private:
 	godot::String _src;
-	godot::Vector2 _size = godot::Vector2(0, 0);
 	std::unique_ptr<SVG> _doc;
 	godot::Ref<godot::ImageTexture> _tex;
 	godot::Vector2 _baked = godot::Vector2(0, 0);
@@ -102,9 +101,6 @@ public:
 	// SVG の中身を読み、次の取得時に新しい画像を作れる状態へする。
 	void set_src(const godot::String &s);
 	godot::String get_src() const { return _src; }
-	// 焼く画素数を決め、次の取得時に新しい画像を作れる状態へする。
-	void set_size(const godot::Vector2 &s);
-	godot::Vector2 get_size() const { return _size; }
 	// SVGが場面内で占める基準サイズを返す。
 	godot::Vector2 draw_size() const;
 	// 指定した画面密度で画像を作り直す必要があるかを返す。
@@ -136,9 +132,6 @@ public:
 	// SVG の中身を入れる。入れると次に描くときに焼き直す。
 	void set_src(const godot::String &s);
 	godot::String get_src() const { return _svg.get_src(); }
-	// 出す大きさ。0 なら札に書いてある大きさをそのまま使う。
-	void set_size(const godot::Vector2 &s);
-	godot::Vector2 get_size() const { return _svg.get_size(); }
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
@@ -176,9 +169,6 @@ public:
 	// SVG の中身を入れ、3Dの板を描き直す。
 	void set_src(const godot::String &s);
 	godot::String get_src() const { return _svg.get_src(); }
-	// 焼く画素数を決め、3Dの板を描き直す。
-	void set_size(const godot::Vector2 &s);
-	godot::Vector2 get_size() const { return _svg.get_size(); }
 	// SVGの1画素を3D空間で何単位にするかを決める。
 	void set_pixel_size(double size);
 	double get_pixel_size() const { return _pixel_size; }

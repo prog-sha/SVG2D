@@ -20,18 +20,20 @@ SVG2D は、SVG を Godot の 2D・3D シーンに表示するための軽量な
 
 ## 使ってみよう
 
-2Dシーンでは `SVG2D`、3Dシーンでは `SVG3D` ノードを追加し、インスペクターから `src` に SVG の文字列を設定しよう。表示サイズを指定するときは `size` を設定し、ゼロのままなら SVG 文書の大きさを使うよ。`SVG3D` の空間内での大きさは `pixel_size` で調整しよう。
+2Dシーンでは `SVG2D`、3Dシーンでは `SVG3D` ノードを追加し、インスペクターから `src` に SVG の文字列を設定しよう。SVG文書の幅と高さが自然な寸法になるよ。画面上の寸法は `SVG2D` の変形やカメラで変えよう。`SVG3D` の空間内での寸法は `pixel_size` で調整しよう。
 
 ```gdscript
 var picture := SVG2D.new()
 picture.src = FileAccess.get_file_as_string("res://picture.svg")
-picture.size = Vector2(320, 240)
+picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
-`adaptive` は初めから有効だよ。固定解像度にしたいときは無効にしよう。インスペクターでは `src`、`size`、`adaptive`、`pixel_size` にマウスを重ねると説明を読めるよ。
+`adaptive` は初めから有効だよ。SVG文書の解像度に固定したいときは無効にしよう。この場合も各辺の上限は4096画素だよ。インスペクターでは `src`、`adaptive`、`pixel_size` にマウスを重ねると説明を読めるよ。
 
 自動解像度の画像は、RGBA画像1枚を64 MiB以内に収めるため、各辺を4096画素までにしているよ。画面上でとても大きくした場合は、この範囲で最も細かい画像を使うよ。
+
+画素変換はx86_64ではSSE2、arm64ではNEONを使うよ。ほかのアーキテクチャー向けに組み立てた場合は、同じ結果になる通常のCPU処理へ切り替わるよ。
 
 ## 対応している SVG
 

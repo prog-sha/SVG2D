@@ -10,6 +10,7 @@ case $(uname -s) in
   *) host=${1:-} ;;      # ほかの環境では引数を使う
 esac
 platform=${1:-$host} # 手元の環境に合わせる組み立て先
+scalar=${SVG2D_SCALAR:-no} # yesならベクトル命令を使わない経路を確かめる
 if [ -n "${GODOT:-}" ]; then
   godot=$GODOT
 elif [ "$platform" = macos ]; then
@@ -20,8 +21,9 @@ fi
 [ -x "$godot" ] || { echo "Godot 4.7 が見つからないよ。GODOT で場所を渡してね"; exit 2; }
 
 cd "$root"
-scons platform="$platform" target=template_debug
+scons platform="$platform" target=template_debug svg2d_scalar="$scalar"
 result=$("$godot" --resolution 64x48 --quit-after 180 --path "$root" --script tests/test.gd 2>&1)
 printf '%s\n' "$result"
-printf '%s\n' "$result" | grep -q "SVG2D / SVG3D の試験に通ったよ"
-printf '%s\n' "$result" | grep -q "SVG3D view RMSE:"
+printf '%s\n' "$result" | grep -q "SVG2D / SVG3Dの試験に通ったよ"
+printf '%s\n' "$result" | grep -q "SVG2D profile max RMSE"
+printf '%s\n' "$result" | grep -q "SVG3D profile max RMSE"

@@ -26,3 +26,7 @@ On macOS, the test script automatically looks for Godot 4.7.1. Set `GODOT` when 
 ```sh
 GODOT=/path/to/godot sh tests/test.sh
 ```
+
+Set `SVG2D_SCALAR=yes` to verify the scalar CPU fallback without SSE2 or NEON.
+
+Run `sh tests/test_simd.sh` on macOS to verify that both paths produce the same pixel SHA-256.
