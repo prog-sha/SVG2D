@@ -1,6 +1,85 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
-[ext_resource type="Script" path="res://examples/stickman/stickman_movie.gd" id="1_movie"]
+[sub_resource type="Animation" id="Animation_dance"]
+resource_name = "dance"
+length = 2.0
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Stickman:paths/path_2/point_1")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(91, 184), Vector2(72, 126), Vector2(101, 199), Vector2(65, 158), Vector2(91, 184)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Stickman:paths/path_3/point_1")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(229, 184), Vector2(219, 205), Vector2(248, 128), Vector2(223, 151), Vector2(229, 184)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Stickman:paths/path_4/point_1")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(108, 326), Vector2(126, 315), Vector2(91, 310), Vector2(119, 326), Vector2(108, 326)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Stickman:paths/path_5/point_1")
+tracks/3/interp = 2
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(212, 326), Vector2(237, 302), Vector2(221, 326), Vector2(194, 304), Vector2(212, 326)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_stickman"]
+_data = {
+&"dance": SubResource("Animation_dance")
+}
 
 [node name="StickmanMovie" type="Node2D"]
-script = ExtResource("1_movie")
+
+[node name="Background" type="Polygon2D" parent="."]
+polygon = PackedVector2Array(0, 0, 640, 0, 640, 360, 0, 360)
+color = Color(0.0627451, 0.0784314, 0.14902, 1)
+
+[node name="Stage" type="Polygon2D" parent="."]
+polygon = PackedVector2Array(55, 324, 55, 270, 76, 191, 116, 126, 173, 82, 243, 64, 320, 68, 397, 64, 467, 82, 524, 126, 564, 191, 585, 270, 585, 324)
+color = Color(0.0941176, 0.12549, 0.227451, 1)
+
+[node name="Floor" type="Line2D" parent="."]
+points = PackedVector2Array(76, 340, 564, 340)
+width = 2.0
+default_color = Color(0.458824, 0.509804, 0.658824, 1)
+
+[node name="Stickman" type="SVGAnimate2D" parent="."]
+position = Vector2(160, 0)
+src = "res://examples/stickman/stickman.svg"
+adaptive = false
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_stickman")
+}
+autoplay = "dance"

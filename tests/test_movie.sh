@@ -28,7 +28,7 @@ else
 fi
 cat "$log"
 test -s "$movie"
-grep -q "Stickman MovieWriter demo" "$log"
+grep -q "Done recording movie at path" "$log"
 if grep -q '^ERROR:' "$log"; then
 	echo "MovieWriter実行中にGodotがエラーを出したよ"
 	exit 1
