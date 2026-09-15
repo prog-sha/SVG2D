@@ -699,10 +699,11 @@ func check_svg_animate() -> void:
 	check(node.call("get_path_point", 0, 1) == Vector2(44, 18)
 		and node.call("get_in_handle", 0, 1) == original_in + Vector2(4, 6),
 		"接点移動でBezierハンドルが相対位置を保たないよ")
-	node.call("set_in_handle", 0, 1, Vector2(35, 4))
+	node.set("paths/path_0/point_1/in_handle", Vector2(35, 4))
 	check(node.call("get_in_handle", 0, 1) == Vector2(35, 4)
-		and node.call("get_path_count") == 2 and node.call("get_point_count", 0) == 3,
-		"カーブ編集でpathトポロジーが変わったよ")
+			and node.get("paths/path_0/point_1/in_handle") == Vector2(35, 4)
+			and node.call("get_path_count") == 2 and node.call("get_point_count", 0) == 3,
+		"保存プロパティのカーブ編集でpathトポロジーが変わったよ")
 	check(node.get("src") == source, "接点編集でsrc素材参照を書き換えたよ")
 	var texture: Texture2D = node.call("get_texture")
 	check(texture != null and texture.get_image().get_used_rect().has_area(),
@@ -723,6 +724,28 @@ func check_svg_animate() -> void:
 	check(node.call("get_path_point", 0, 1) == Vector2(48, 20),
 		"AnimationPlayerから接点番号プロパティをキーフレーム編集できないよ")
 	node.free()
+	# 接点とBezierハンドルがシーン保存後にも残り、パス数を変えないことを保証する。
+	var save_root := Node2D.new()
+	save_root.name = "SavedPath"
+	var saved: Node2D = ClassDB.instantiate("SVGAnimate2D")
+	saved.set("src", source)
+	save_root.add_child(saved)
+	saved.owner = save_root
+	saved.set("paths/path_0/point_1", Vector2(46, 19))
+	saved.set("paths/path_0/point_1/in_handle", Vector2(34, 3))
+	var packed := PackedScene.new()
+	check(packed.pack(save_root) == OK
+		and ResourceSaver.save(packed, "user://svg_animate_saved.tscn") == OK,
+		"SVGAnimate2D編集結果をシーンへ保存できないよ")
+	save_root.free()
+	var loaded_scene := load("user://svg_animate_saved.tscn") as PackedScene
+	var loaded_root: Node = loaded_scene.instantiate() if loaded_scene else null
+	var loaded: Node = loaded_root.get_child(0) if loaded_root else null
+	check(loaded != null and loaded.call("get_path_count") == 2
+		and loaded.get("paths/path_0/point_1") == Vector2(46, 19)
+		and loaded.get("paths/path_0/point_1/in_handle") == Vector2(34, 3),
+		"保存した接点またはBezierハンドルをシーン再読込で復元できないよ")
+	if loaded_root: loaded_root.free()
 	var node3: Node3D = ClassDB.instantiate("SVGAnimate3D")
 	node3.set("src", source)
 	node3.set("paths/path_0/point_2", Vector2(54, 30))

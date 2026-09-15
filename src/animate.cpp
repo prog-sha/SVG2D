@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace godot;
@@ -43,6 +44,8 @@ public:
 	String source;
 	std::string markup;
 	std::vector<PathSlot> slots;
+	// PackedSceneは動的プロパティをsrcより先に復元するため、解析前の値を順序付きで待機する。
+	std::vector<std::pair<StringName, Vector2>> pending;
 
 	static void skip(const char *&p) {
 		while (*p && (std::isspace((unsigned char)*p) || *p == ',')) p++;
@@ -204,18 +207,27 @@ public:
 	}
 };
 
-static bool property_indices(const StringName &name, int &path, int &point) {
+enum PathPropertyPart { PATH_ANCHOR, PATH_IN_HANDLE, PATH_OUT_HANDLE };
+
+static bool property_indices(const StringName &name, int &path, int &point, PathPropertyPart &part) {
 	String s = name;
 	if (!s.begins_with("paths/path_")) return false;
 	PackedStringArray parts = s.split("/");
-	if (parts.size() != 3 || !parts[1].begins_with("path_") || !parts[2].begins_with("point_")) return false;
-	path = parts[1].trim_prefix("path_").to_int(); point = parts[2].trim_prefix("point_").to_int(); return true;
+	if ((parts.size() != 3 && parts.size() != 4) || !parts[1].begins_with("path_") || !parts[2].begins_with("point_")) return false;
+	path = parts[1].trim_prefix("path_").to_int(); point = parts[2].trim_prefix("point_").to_int();
+	part = PATH_ANCHOR;
+	if (parts.size() == 4) {
+		if (parts[3] == "in_handle") part = PATH_IN_HANDLE;
+		else if (parts[3] == "out_handle") part = PATH_OUT_HANDLE;
+		else return false;
+	}
+	return true;
 }
 
 #define ANIMATE_IMPL(CLASS, BASE) \
 CLASS::CLASS() : _paths(new SVGPathAnimationData()) {} \
 CLASS::~CLASS() = default; \
-void CLASS::set_src(const String &src) { _paths->parse(src); BASE::set_src(src); notify_property_list_changed(); } \
+void CLASS::set_src(const String &src) { _paths->parse(src); bool restored = false; for (const auto &entry : _paths->pending) { int path, point; PathPropertyPart part; if (!property_indices(entry.first, path, point, part) || !_paths->valid(path, point)) continue; if (part == PATH_ANCHOR) _paths->move_point(path, point, entry.second); else _paths->set_handle(path, point, entry.second, part == PATH_IN_HANDLE); restored = true; } _paths->pending.clear(); BASE::set_src(restored ? _paths->rebuilt() : src); notify_property_list_changed(); } \
 String CLASS::get_src() const { return _paths->source; } \
 int CLASS::get_path_count() const { return (int)_paths->slots.size(); } \
 int CLASS::get_point_count(int path) const { return path >= 0 && path < get_path_count() ? (int)_paths->slots[(size_t)path].path.points.size() : 0; } \
@@ -226,9 +238,9 @@ void CLASS::set_path_point(int path, int point, const Vector2 &value) { if (!_pa
 void CLASS::set_in_handle(int path, int point, const Vector2 &value) { if (!_paths->valid(path, point)) return; _paths->set_handle(path, point, value, true); BASE::set_src(_paths->rebuilt()); } \
 void CLASS::set_out_handle(int path, int point, const Vector2 &value) { if (!_paths->valid(path, point)) return; _paths->set_handle(path, point, value, false); BASE::set_src(_paths->rebuilt()); } \
 PackedVector2Array CLASS::get_path_points(int path) const { PackedVector2Array out; int n = get_point_count(path); out.resize(n); for (int i = 0; i < n; i++) out.set(i, get_path_point(path, i)); return out; } \
-bool CLASS::_set(const StringName &name, const Variant &value) { int path, point; if (!property_indices(name, path, point) || value.get_type() != Variant::VECTOR2) return false; set_path_point(path, point, value); return true; } \
-bool CLASS::_get(const StringName &name, Variant &value) const { int path, point; if (!property_indices(name, path, point) || !_paths->valid(path, point)) return false; value = get_path_point(path, point); return true; } \
-void CLASS::_get_property_list(List<PropertyInfo> *list) const { for (int p = 0; p < get_path_count(); p++) for (int i = 0; i < get_point_count(p); i++) list->push_back(PropertyInfo(Variant::VECTOR2, "paths/path_" + itos(p) + "/point_" + itos(i), PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_KEYING_INCREMENTS)); } \
+bool CLASS::_set(const StringName &name, const Variant &value) { int path, point; PathPropertyPart part; if (!property_indices(name, path, point, part) || value.get_type() != Variant::VECTOR2) return false; Vector2 v = value; if (!_paths->valid(path, point)) { _paths->pending.push_back({name, v}); return true; } if (part == PATH_ANCHOR) set_path_point(path, point, v); else if (part == PATH_IN_HANDLE) set_in_handle(path, point, v); else set_out_handle(path, point, v); return true; } \
+bool CLASS::_get(const StringName &name, Variant &value) const { int path, point; PathPropertyPart part; if (!property_indices(name, path, point, part) || !_paths->valid(path, point)) return false; value = part == PATH_ANCHOR ? get_path_point(path, point) : part == PATH_IN_HANDLE ? get_in_handle(path, point) : get_out_handle(path, point); return true; } \
+void CLASS::_get_property_list(List<PropertyInfo> *list) const { for (int p = 0; p < get_path_count(); p++) for (int i = 0; i < get_point_count(p); i++) { String base = "paths/path_" + itos(p) + "/point_" + itos(i); list->push_back(PropertyInfo(Variant::VECTOR2, base, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_KEYING_INCREMENTS)); list->push_back(PropertyInfo(Variant::VECTOR2, base + "/in_handle", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT)); list->push_back(PropertyInfo(Variant::VECTOR2, base + "/out_handle", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT)); } } \
 void CLASS::_bind_methods() { \
 	ClassDB::bind_method(D_METHOD("get_path_count"), &CLASS::get_path_count); ClassDB::bind_method(D_METHOD("get_point_count", "path"), &CLASS::get_point_count); \
 	ClassDB::bind_method(D_METHOD("get_path_point", "path", "point"), &CLASS::get_path_point); ClassDB::bind_method(D_METHOD("set_path_point", "path", "point", "value"), &CLASS::set_path_point); \

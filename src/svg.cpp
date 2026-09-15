@@ -1364,6 +1364,15 @@ Ref<Image> SVG::render(int w, int h, double jitter, int seed) const {
 		st.m = view_fit(_view, _par, (double)w, (double)h);
 		st.vw = _view.size.x;
 		st.vh = _view.size.y;
+	} else {
+		// viewBoxがなくても、width/heightの利用者座標を焼き先全体へ拡大する。
+		// これがないと編集用2048px画像の左上100pxなどにだけ描かれ、表示・クリック・
+		// パス接点の座標が一致しない。
+		Vector2 natural = doc_size();
+		st.vw = natural.x;
+		st.vh = natural.y;
+		st.m = Transform2D((float)((double)w / natural.x), 0, 0,
+				(float)((double)h / natural.y), 0, 0);
 	}
 	c.jitter_span = Vector2((float)st.vw, (float)st.vh);
 	draw_elem(c, *_root, st);

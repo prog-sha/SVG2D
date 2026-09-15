@@ -41,7 +41,13 @@ mkdir "$editor_root/tests"
 cp tests/editor_inspector_test.gd "$editor_root/tests/editor_inspector_test.gd"
 cp tests/editor_test_plugin.cfg "$editor_root/tests/editor_test_plugin.cfg"
 cp -R tests/svg "$editor_root/tests/svg"
-editor_result=$("$godot" --headless --editor --path "$editor_root" --quit-after 600 2>&1)
+if editor_result=$("$godot" --headless --editor --path "$editor_root" --quit-after 600 2>&1); then
+	:
+else
+	printf '%s\n' "$editor_result"
+	echo "Godotエディター統合試験が失敗したよ"
+	exit 1
+fi
 printf '%s\n' "$editor_result"
 printf '%s\n' "$editor_result" | grep -q "SVG Inspectorの試験に通ったよ"
 if printf '%s\n' "$editor_result" | grep -q '^ERROR:'; then

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="SVGAnimate2D" inherits="SVG2D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/tools/doc_classes.xsd">
 	<brief_description>Editable and keyframeable SVG path node for 2D.</brief_description>
-	<description>Exposes every existing SVG path anchor as paths/path_N/point_N. These Vector2 properties can be keyed by AnimationPlayer. Editing moves existing anchors and cubic handles without adding or deleting paths or points.</description>
+	<description>Exposes every existing SVG path anchor as paths/path_N/point_N and stores its cubic controls as in_handle/out_handle child properties. Anchor properties can be keyed by AnimationPlayer. Editor tools move existing anchors and handles without adding or deleting paths or points.</description>
 	<methods>
 		<method name="get_path_count" qualifiers="const"><return type="int" /></method>
 		<method name="get_point_count" qualifiers="const"><return type="int" /><param index="0" name="path" type="int" /></method>
