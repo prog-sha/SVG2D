@@ -729,10 +729,44 @@ func check_svg_animate() -> void:
 	root.add_child(node3)
 	await process_frame
 	check(node3.call("get_path_point", 0, 2) == Vector2(54, 30)
-		and node3.call("get_texture") != null,
+			and node3.call("get_texture") != null,
 		"SVGAnimate3Dの接点編集または再描画が動かないよ")
 	node3.free()
-	print("SVG animate paths: numbered points and AnimationPlayer track passed")
+
+	# 配布する3Dシーンそのものを読み、ジャンプ・回転・接点変形・着地を数値で確かめる。
+	var demo_scene := load("res://examples/stickman/stickman_movie_3d.tscn") as PackedScene
+	check(demo_scene != null, "SVGAnimate3D棒人間シーンを読み込めないよ")
+	if demo_scene != null:
+		var demo := demo_scene.instantiate()
+		root.add_child(demo)
+		var demo_svg := demo.get_node("Stickman3D") as Node3D
+		var demo_player := demo.get_node("AnimationPlayer") as AnimationPlayer
+		check(demo_svg != null and demo_svg.is_class("SVGAnimate3D"),
+			"棒人間シーンがSVGAnimate3Dで構築されていないよ")
+		check(demo_player != null and demo_player.has_animation("jump_spin"),
+			"棒人間シーンにAnimationPlayerのjump_spinがないよ")
+		if demo_svg != null and demo_player != null and demo_player.has_animation("jump_spin"):
+			var jump := demo_player.get_animation("jump_spin")
+			check(jump.get_track_count() == 6,
+				"SVGAnimate3Dの移動・回転・4接点トラックが揃っていないよ")
+			demo_player.seek(0.0, true)
+			var landed_point: Vector2 = demo_svg.get("paths/path_2/point_1")
+			demo_player.seek(1.0, true)
+			var apex_point: Vector2 = demo_svg.get("paths/path_2/point_1")
+			var backward := demo_svg.basis * Vector3(0, 0, 1)
+			check(demo_svg.position.y > 1.19 and apex_point.y < landed_point.y - 60.0,
+				"SVGAnimate3Dが頂点で上昇・空中姿勢になっていないよ")
+			check(backward.z < -0.99,
+				"SVGAnimate3Dがジャンプ頂点までにY軸半回転していないよ: %s" % backward)
+			demo_player.seek(1.999, true)
+			var forward := demo_svg.basis * Vector3(0, 0, 1)
+			check(demo_svg.position.y < -0.29
+					and demo_svg.get("paths/path_2/point_1").distance_to(landed_point) < 1.0,
+				"SVGAnimate3Dが初期位置・初期姿勢へ着地していないよ")
+			check(forward.z > 0.99,
+				"SVGAnimate3Dが着地までにY軸を1回転していないよ: %s" % forward)
+		demo.free()
+	print("SVG animate paths: 2D point track and 3D jump-spin-landing passed")
 
 # 場面の準備が終わった次のコマから試験を始める。
 func _initialize() -> void:

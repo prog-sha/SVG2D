@@ -33,7 +33,7 @@ SSE2やNEONを使わない通常CPU経路を確かめるときは、`SVG2D_SCALA
 
 macOSで両方の画素がSHA-256まで一致するか確かめるときは、`sh tests/test_simd.sh` を実行しよう。
 
-`SVGAnimate2D` と `AnimationPlayer` で棒人間の接点を動かし、Godot MovieWriterで60フレームを実際に書き出す例は [`examples/stickman/stickman_movie.tscn`](examples/stickman/stickman_movie.tscn) だよ。動画まで自動確認するにはffmpegを用意して次を実行しよう。
+`SVGAnimate2D` と `AnimationPlayer` で棒人間の接点を動かす例は [`examples/stickman/stickman_movie.tscn`](examples/stickman/stickman_movie.tscn)、`SVGAnimate3D` でジャンプ・1回転・着地させる例は [`examples/stickman/stickman_movie_3d.tscn`](examples/stickman/stickman_movie_3d.tscn) だよ。どちらもスクリプトを使わず、ノードとキーフレームをTSCNへ保存しているよ。Godot MovieWriterで各60フレームを書き出して自動確認するにはffmpegを用意して次を実行しよう。
 
 ```sh
 sh tests/test_movie.sh

@@ -1,0 +1,121 @@
+[gd_scene load_steps=6 format=3]
+
+[sub_resource type="Environment" id="Environment_stage"]
+background_mode = 1
+background_color = Color(0.0352941, 0.0470588, 0.101961, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+shading_mode = 0
+albedo_color = Color(0.286275, 0.690196, 0.901961, 1)
+
+[sub_resource type="QuadMesh" id="QuadMesh_floor"]
+material = SubResource("StandardMaterial3D_floor")
+size = Vector2(10, 0.08)
+
+[sub_resource type="Animation" id="Animation_jump_spin"]
+resource_name = "jump_spin"
+length = 2.0
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Stickman3D:position")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, -0.3, 0), Vector3(0, 0.7, 0), Vector3(0, 1.2, 0), Vector3(0, 0.7, 0), Vector3(0, -0.3, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Stickman3D:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = false
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0, 0.8, -0.08), Vector3(0, 3.141593, 0.12), Vector3(0, 5.48, -0.08), Vector3(0, 6.283185, 0)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Stickman3D:paths/path_2/point_1")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(91, 184), Vector2(75, 139), Vector2(92, 116), Vector2(75, 139), Vector2(91, 184)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Stickman3D:paths/path_3/point_1")
+tracks/3/interp = 2
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(229, 184), Vector2(245, 139), Vector2(228, 116), Vector2(245, 139), Vector2(229, 184)]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("Stickman3D:paths/path_4/point_1")
+tracks/4/interp = 2
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(108, 326), Vector2(125, 294), Vector2(137, 270), Vector2(125, 294), Vector2(108, 326)]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("Stickman3D:paths/path_5/point_1")
+tracks/5/interp = 2
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0, 0.5, 1, 1.5, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(212, 326), Vector2(195, 294), Vector2(183, 270), Vector2(195, 294), Vector2(212, 326)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_stickman3d"]
+_data = {
+&"jump_spin": SubResource("Animation_jump_spin")
+}
+
+[node name="StickmanMovie3D" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_stage")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 10)
+projection = 1
+size = 7.0
+current = true
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+position = Vector3(0, -2.15, -0.2)
+mesh = SubResource("QuadMesh_floor")
+
+[node name="Stickman3D" type="SVGAnimate3D" parent="."]
+position = Vector3(0, -0.3, 0)
+src = "res://examples/stickman/stickman.svg"
+adaptive = false
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_stickman3d")
+}
+autoplay = "jump_spin"
