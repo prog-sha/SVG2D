@@ -898,6 +898,18 @@ func _run() -> void:
 	var config := ConfigFile.new()
 	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfgを読めなかったよ")
 	check(config.get_value("plugin", "script") == "plugin.gd", "プラグインの入口が違うよ")
+	var version := String(config.get_value("plugin", "version"))
+	check(FileAccess.get_file_as_string("res://ASSET_LIBRARY.md").contains(
+		"| Asset Version | %s |" % version), "Asset Libraryとplugin.cfgの版が一致しないよ")
+	var extension := ConfigFile.new()
+	check(extension.load("res://addons/svg2d/svg2d.gdextension") == OK,
+		"svg2d.gdextensionを読めなかったよ")
+	var libraries := extension.get_section_keys("libraries")
+	check(libraries.size() == 4, "配布していない環境のGDExtensionパスがあるよ: %s" % [libraries])
+	for key in libraries:
+		var relative := String(extension.get_value("libraries", key)).trim_prefix(".")
+		check(FileAccess.file_exists("res://addons/svg2d" + relative),
+			"GDExtensionバイナリがないよ: %s" % relative)
 	if not failed:
 		print("SVG pixel SHA256: %s" % digest.finish().hex_encode())
 		print("SVG2D / SVG3Dの試験に通ったよ")

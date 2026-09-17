@@ -12,8 +12,8 @@ restore() {
 }
 trap restore EXIT
 
-fast=$(SVG2D_SCALAR=no sh tests/test.sh)
-plain=$(SVG2D_SCALAR=yes sh tests/test.sh)
+fast=$(SVG2D_SCALAR=no SVG2D_SKIP_EDITOR=yes sh tests/test.sh)
+plain=$(SVG2D_SCALAR=yes SVG2D_SKIP_EDITOR=yes sh tests/test.sh)
 fast_hash=$(printf '%s\n' "$fast" | sed -n 's/^SVG pixel SHA256: //p')
 plain_hash=$(printf '%s\n' "$plain" | sed -n 's/^SVG pixel SHA256: //p')
 fast_rope=$(printf '%s\n' "$fast" | sed -n 's/^Rope simulation backend: //p')

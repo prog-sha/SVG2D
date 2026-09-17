@@ -70,12 +70,13 @@ public:
 		return r.first->second.val;
 	}
 
-	// 中身があとから太ったときに、抱えている量を直す
-	void grew(uint64_t key, size_t more) {
+	// 中身を作り直したとき、加算せず現在の実量へ置き換える。
+	void resize(uint64_t key, size_t bytes) {
 		auto it = _map.find(key);
 		if (it == _map.end()) return;
-		it->second.bytes += more;
-		_bytes += more;
+		_bytes -= it->second.bytes;
+		it->second.bytes = bytes;
+		_bytes += bytes;
 	}
 
 	void clear() {

@@ -290,9 +290,25 @@ func run_checks() -> void:
 		path_control.free()
 		if key_player: key_player.free()
 		animate.free()
+		# シーン切替でドラッグ対象が先に解放されても、遅い入力処理を安全に破棄する。
+		var freed_drag: Node2D = ClassDB.instantiate("SVG2D")
+		scene_root.add_child(freed_drag)
+		svg_plugin.set("drag_node", freed_drag)
+		freed_drag.free()
+		svg_plugin.call("finish_drag")
+		check(svg_plugin.get("drag_node") == null,
+			"解放済みSVG2Dのドラッグ状態が残っているよ")
+		var freed_path: Node2D = ClassDB.instantiate("SVGAnimate2D")
+		scene_root.add_child(freed_path)
+		svg_plugin.set("path_node", freed_path)
+		svg_plugin.set("path_dragging", true)
+		freed_path.free()
+		svg_plugin.call("finish_path_drag")
+		check(svg_plugin.get("path_node") == null and not svg_plugin.get("path_dragging"),
+			"解放済みSVGAnimate2Dの接点ドラッグ状態が残っているよ")
 
-	# 3D編集カメラはシーンのCamera3Dではない。プラグインがその投影寸法を渡し、
-	# エディター表示も自然寸法へ落ちず1.5倍解像度になることを画面操作なしで確かめる。
+		# 3D編集カメラはシーンのCamera3Dではない。プラグインがその投影寸法を渡し、
+		# エディター表示も自然寸法へ落ちず1.5倍解像度になることを画面操作なしで確かめる。
 	var editor_viewport := EditorInterface.get_editor_viewport_3d(0)
 	check(editor_viewport != null and editor_viewport.get_camera_3d() != null,
 		"3D編集カメラを取得できないよ")

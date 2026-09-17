@@ -41,6 +41,10 @@ func _handles(object: Object) -> bool:
 
 func _exit_tree() -> void:
 	set_process(false)
+	# シーン切替中に解放された編集対象を、遅れて届く入力から参照しない。
+	drag_node = null
+	path_node = null
+	path_dragging = false
 	_attach_canvas_input(null)
 	update_svg2d_editor_density(null)
 	update_svg3d_editor_camera(null)
@@ -250,7 +254,7 @@ func mirror_opposite_handle(node: Node, moved: Vector2) -> void:
 		anchor + direction.normalized() * old.distance_to(anchor))
 
 func select_path_control(node: Node, path: int, point: int, part := "") -> void:
-	if node == null or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
+	if not is_instance_valid(node) or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
 		return
 	path_node = node
 	path_index = clampi(path, 0, maxi(0, int(node.call("get_path_count")) - 1))
@@ -274,7 +278,7 @@ func _find_animation_player(node: Node) -> AnimationPlayer:
 
 # 接点番号を、現在のAnimationPlayerへ値トラックとして登録する。
 func insert_path_key(node: Node, path: int, point: int) -> bool:
-	if node == null or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
+	if not is_instance_valid(node) or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
 		return false
 	var player := _find_animation_player(node)
 	if player == null: return false
@@ -305,7 +309,12 @@ func insert_path_key(node: Node, path: int, point: int) -> bool:
 	return true
 
 func finish_path_drag() -> void:
-	if not path_dragging or path_node == null:
+	if not path_dragging:
+		return
+	if not is_instance_valid(path_node):
+		path_node = null
+		path_dragging = false
+		update_overlays()
 		return
 	var node := path_node
 	var finish: Vector2 = node.call("get_path_point" if path_part == "point" else "get_%s_handle" % path_part,
@@ -373,7 +382,7 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 			return _canvas_handled(event)
 		if path_dragging:
 			finish_path_drag(); return _canvas_handled(event)
-		if drag_node:
+		if is_instance_valid(drag_node):
 			finish_drag()
 			return _canvas_handled(event)
 	if event is InputEventMouseMotion and path_dragging and path_node is Node2D \
@@ -386,13 +395,18 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 		set_path_control(path_node, local)
 		if not event.alt_pressed: mirror_opposite_handle(path_node, local)
 		update_overlays(); return _canvas_handled(event)
-	if event is InputEventMouseMotion and drag_node and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+	if event is InputEventMouseMotion and is_instance_valid(drag_node) \
+			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		drag_node.position = screen_to_parent(drag_node, event.position) - drag_offset
 		update_overlays()
 		return _canvas_handled(event)
 	return false
 
 func finish_drag() -> void:
+	if not is_instance_valid(drag_node):
+		drag_node = null
+		update_overlays()
+		return
 	var moved := drag_node
 	var finish := moved.position
 	drag_node = null

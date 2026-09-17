@@ -21,6 +21,10 @@ fi
 [ -x "$godot" ] || { echo "Godot 4.7 が見つからないよ。GODOT で場所を渡してね"; exit 2; }
 
 cd "$root"
+# 容量計算はGodot起動前に短い部品試験で確かめる。
+mkdir -p tmp
+${CXX:-c++} -std=c++17 -Isrc tests/cache_test.cpp -o tmp/cache_test
+tmp/cache_test
 scons platform="$platform" target=template_debug svg2d_scalar="$scalar"
 result=$("$godot" --resolution 64x48 --path "$root" --script tests/test.gd 2>&1)
 printf '%s\n' "$result"
@@ -30,6 +34,11 @@ printf '%s\n' "$result" | grep -q "SVG3D profile max RMSE"
 if printf '%s\n' "$result" | grep -q '^ERROR:'; then
   echo "Godotがエラーを出したよ"
   exit 1
+fi
+
+# SIMD比較では同じエディター試験を2回繰り返さず、描画本体だけを比較する。
+if [ "${SVG2D_SKIP_EDITOR:-no}" = yes ]; then
+	exit 0
 fi
 
 # 配布用addonsを空のプロジェクトへ入れ、プラグイン有効状態の実エディターで確かめる。

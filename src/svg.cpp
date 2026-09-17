@@ -1237,7 +1237,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 					b->rbox = path_box(b->ring);
 					b->rkey = rk;
 					b->ringed = true;
-					c.store->geo.grew(key, path_bytes(b->ring));
+					c.store->geo.resize(key, path_bytes(b->fill) + path_bytes(b->ring));
 				}
 				rasterize(c, c.scratch, b->ring, b->rbox, st.m, false);
 				paint_mask(c, c.scratch, sp);
