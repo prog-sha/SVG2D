@@ -2,8 +2,12 @@
 #define SVG2D_ROPE_H
 
 #include "svg.h"
+#include <godot_cpp/classes/animatable_body2d.hpp>
+#include <godot_cpp/classes/animatable_body3d.hpp>
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/mesh_instance3d.hpp>
+#include <godot_cpp/classes/pin_joint2d.hpp>
+#include <godot_cpp/classes/pin_joint3d.hpp>
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/core/property_info.hpp>
@@ -18,15 +22,21 @@ class SpriteRope2D : public godot::Node2D {
 protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector2> _points, _previous;
+	godot::AnimatableBody2D *_attachment_anchor = nullptr;
+	godot::PinJoint2D *_attachment_joint = nullptr;
+	godot::NodePath _attachment_body;
+	uint64_t _attachment_target_id = 0;
 	bool _line_mode = false, _simulation_enabled = true, _pin_start = true;
 	bool _use_system_gravity = true;
-	int _segments = 16, _constraint_iterations = 8;
+	int _segments = 16, _constraint_iterations = 8, _attachment_point = -1;
 	double _max_length = 0.0, _elasticity = 0.9, _damping = 0.02, _gravity_scale = 1.0, _line_width = 4.0;
 	godot::Vector2 _gravity = godot::Vector2(0, 980);
 	godot::Color _line_color = godot::Color(1, 1, 1, 1);
 	double _effective_length() const;
 	godot::Vector2 _effective_gravity() const;
 	void _simulate(double delta);
+	void _sync_attachment();
+	void _clear_attachment();
 	virtual godot::Vector2 _visual_size() const;
 	static void _bind_methods();
 public:
@@ -51,6 +61,8 @@ public:
 	godot::Vector2 get_effective_gravity() const { return _effective_gravity(); }
 	void set_line_width(double value); double get_line_width() const { return _line_width; }
 	void set_line_color(const godot::Color &value); godot::Color get_line_color() const { return _line_color; }
+	void set_attachment_body(const godot::NodePath &path); godot::NodePath get_attachment_body() const { return _attachment_body; }
+	void set_attachment_point(int value); int get_attachment_point() const { return _attachment_point; }
 	godot::PackedVector2Array get_rope_points() const;
 	godot::String get_simulation_backend() const;
 };
@@ -74,11 +86,15 @@ protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector3> _points, _previous;
 	godot::MeshInstance3D *_mesh_instance = nullptr;
+	godot::AnimatableBody3D *_attachment_anchor = nullptr;
+	godot::PinJoint3D *_attachment_joint = nullptr;
+	godot::NodePath _attachment_body;
+	uint64_t _attachment_target_id = 0;
 	godot::Ref<godot::ArrayMesh> _mesh;
 	godot::Ref<godot::StandardMaterial3D> _material;
 	bool _line_mode = false, _simulation_enabled = true, _pin_start = true;
 	bool _use_system_gravity = true;
-	int _segments = 16, _constraint_iterations = 8;
+	int _segments = 16, _constraint_iterations = 8, _attachment_point = -1;
 	double _max_length = 0.0, _elasticity = 0.9, _damping = 0.02, _gravity_scale = 1.0;
 	double _line_width = 0.04, _pixel_size = 0.01;
 	godot::Vector3 _gravity = godot::Vector3(0, -9.8, 0);
@@ -86,6 +102,7 @@ protected:
 	double _effective_length() const;
 	godot::Vector3 _effective_gravity() const;
 	void _ensure_mesh(); void _update_mesh(); void _simulate(double delta);
+	void _sync_attachment(); void _clear_attachment();
 	virtual godot::Vector2 _visual_size() const;
 	static void _bind_methods();
 public:
@@ -111,6 +128,8 @@ public:
 	void set_line_color(const godot::Color &value); godot::Color get_line_color() const { return _line_color; }
 	virtual void set_pixel_size(double value); double get_pixel_size() const { return _pixel_size; }
 	void set_modulate(const godot::Color &value); godot::Color get_modulate() const { return _modulate; }
+	void set_attachment_body(const godot::NodePath &path); godot::NodePath get_attachment_body() const { return _attachment_body; }
+	void set_attachment_point(int value); int get_attachment_point() const { return _attachment_point; }
 	godot::PackedVector3Array get_rope_points() const;
 	godot::String get_simulation_backend() const;
 };

@@ -5,8 +5,11 @@
 #include <godot_cpp/classes/mesh.hpp>
 #include <godot_cpp/classes/physics_server2d.hpp>
 #include <godot_cpp/classes/physics_server3d.hpp>
+#include <godot_cpp/classes/physics_body2d.hpp>
+#include <godot_cpp/classes/physics_body3d.hpp>
 #include <godot_cpp/classes/world2d.hpp>
 #include <godot_cpp/classes/world3d.hpp>
+#include <godot_cpp/core/object.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
@@ -223,6 +226,44 @@ void SpriteRope2D::reset_simulation() {
 
 void SpriteRope2D::_ready() { reset_simulation(); }
 
+void SpriteRope2D::_clear_attachment() {
+	_attachment_target_id = 0;
+	if (_attachment_joint != nullptr) _attachment_joint->queue_free();
+	if (_attachment_anchor != nullptr) _attachment_anchor->queue_free();
+	_attachment_joint = nullptr;
+	_attachment_anchor = nullptr;
+}
+
+void SpriteRope2D::_sync_attachment() {
+	if (_attachment_body.is_empty() || !is_inside_tree() || _points.empty()) return;
+	PhysicsBody2D *body = Object::cast_to<PhysicsBody2D>(ObjectDB::get_instance(_attachment_target_id));
+	if (body == nullptr || !body->is_inside_tree()) {
+		body = Object::cast_to<PhysicsBody2D>(get_node_or_null(_attachment_body));
+		_attachment_target_id = body == nullptr ? 0 : body->get_instance_id();
+	}
+	if (body == nullptr || !body->is_inside_tree()) {
+		if (_attachment_joint != nullptr) _attachment_joint->set_node_b(NodePath());
+		return;
+	}
+	int point = _attachment_point < 0 ? (int)_points.size() - 1 :
+			std::min(_attachment_point, (int)_points.size() - 1);
+	if (_attachment_joint == nullptr || _attachment_anchor == nullptr) {
+		_attachment_anchor = memnew(AnimatableBody2D);
+		_attachment_anchor->set_name("RopeAttachmentAnchor");
+		_attachment_anchor->set_position(_points[(size_t)point]);
+		add_child(_attachment_anchor, false, Node::INTERNAL_MODE_BACK);
+		_attachment_joint = memnew(PinJoint2D);
+		_attachment_joint->set_name("RopeAttachment");
+		_attachment_joint->set_position(_points[(size_t)point]);
+		add_child(_attachment_joint, false, Node::INTERNAL_MODE_BACK);
+	}
+	NodePath anchor_path = _attachment_joint->get_path_to(_attachment_anchor);
+	NodePath body_path = _attachment_joint->get_path_to(body);
+	if (_attachment_joint->get_node_a() != anchor_path) _attachment_joint->set_node_a(anchor_path);
+	if (_attachment_joint->get_node_b() != body_path) _attachment_joint->set_node_b(body_path);
+	_attachment_anchor->set_position(_points[(size_t)point]);
+}
+
 void SpriteRope2D::_simulate(double delta) {
 	if (_points.size() != (size_t)_segments) reset_simulation();
 	if (_previous.size() != _points.size()) reset_simulation();
@@ -236,10 +277,12 @@ void SpriteRope2D::_simulate(double delta) {
 }
 
 void SpriteRope2D::_physics_process(double delta) {
-	if (!_simulation_enabled || Engine::get_singleton()->is_editor_hint()) return;
-	if (!_line_mode && _texture.is_null()) return;
-	_simulate(delta);
-	queue_redraw();
+	if (Engine::get_singleton()->is_editor_hint()) return;
+	if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
+		_simulate(delta);
+		queue_redraw();
+	}
+	_sync_attachment();
 }
 
 void SpriteRope2D::_draw() {
@@ -277,7 +320,7 @@ void SpriteRope2D::_draw() {
 
 void SpriteRope2D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
 void SpriteRope2D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
-void SpriteRope2D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled); }
+void SpriteRope2D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled || !_attachment_body.is_empty()); }
 void SpriteRope2D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
 void SpriteRope2D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
 void SpriteRope2D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
@@ -289,6 +332,20 @@ void SpriteRope2D::set_gravity_scale(double value) { _gravity_scale = std::isfin
 void SpriteRope2D::set_gravity(const Vector2 &value) { _gravity = value; }
 void SpriteRope2D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.1, value) : 4.0; queue_redraw(); }
 void SpriteRope2D::set_line_color(const Color &value) { _line_color = value; queue_redraw(); }
+void SpriteRope2D::set_attachment_body(const NodePath &path) {
+	if (_attachment_body == path) return;
+	_clear_attachment();
+	_attachment_body = path;
+	set_physics_process(_simulation_enabled || !_attachment_body.is_empty());
+	_sync_attachment();
+}
+void SpriteRope2D::set_attachment_point(int value) {
+	value = std::clamp(value, -1, 255);
+	if (_attachment_point == value) return;
+	_attachment_point = value;
+	_clear_attachment();
+	_sync_attachment();
+}
 
 PackedVector2Array SpriteRope2D::get_rope_points() const {
 	PackedVector2Array out;
@@ -329,6 +386,10 @@ void SpriteRope2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_line_width"), &SpriteRope2D::get_line_width);
 	ClassDB::bind_method(D_METHOD("set_line_color", "color"), &SpriteRope2D::set_line_color);
 	ClassDB::bind_method(D_METHOD("get_line_color"), &SpriteRope2D::get_line_color);
+	ClassDB::bind_method(D_METHOD("set_attachment_body", "path"), &SpriteRope2D::set_attachment_body);
+	ClassDB::bind_method(D_METHOD("get_attachment_body"), &SpriteRope2D::get_attachment_body);
+	ClassDB::bind_method(D_METHOD("set_attachment_point", "point"), &SpriteRope2D::set_attachment_point);
+	ClassDB::bind_method(D_METHOD("get_attachment_point"), &SpriteRope2D::get_attachment_point);
 	ClassDB::bind_method(D_METHOD("reset_simulation"), &SpriteRope2D::reset_simulation);
 	ClassDB::bind_method(D_METHOD("get_rope_points"), &SpriteRope2D::get_rope_points);
 	ClassDB::bind_method(D_METHOD("get_simulation_backend"), &SpriteRope2D::get_simulation_backend);
@@ -345,6 +406,9 @@ void SpriteRope2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "gravity_scale", PROPERTY_HINT_RANGE, "-100,100,0.01,or_less,or_greater"), "set_gravity_scale", "get_gravity_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "gravity"), "set_gravity", "get_gravity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "constraint_iterations", PROPERTY_HINT_RANGE, "1,64,1"), "set_constraint_iterations", "get_constraint_iterations");
+	ADD_GROUP("Attachment", "attachment_");
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "attachment_body", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "PhysicsBody2D"), "set_attachment_body", "get_attachment_body");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "attachment_point", PROPERTY_HINT_RANGE, "-1,255,1"), "set_attachment_point", "get_attachment_point");
 	ADD_GROUP("Line", "");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_width", PROPERTY_HINT_RANGE, "0.1,1000,0.1,or_greater"), "set_line_width", "get_line_width");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "line_color"), "set_line_color", "get_line_color");
@@ -427,6 +491,44 @@ void SpriteRope3D::reset_simulation() {
 
 void SpriteRope3D::_ready() { reset_simulation(); }
 
+void SpriteRope3D::_clear_attachment() {
+	_attachment_target_id = 0;
+	if (_attachment_joint != nullptr) _attachment_joint->queue_free();
+	if (_attachment_anchor != nullptr) _attachment_anchor->queue_free();
+	_attachment_joint = nullptr;
+	_attachment_anchor = nullptr;
+}
+
+void SpriteRope3D::_sync_attachment() {
+	if (_attachment_body.is_empty() || !is_inside_tree() || _points.empty()) return;
+	PhysicsBody3D *body = Object::cast_to<PhysicsBody3D>(ObjectDB::get_instance(_attachment_target_id));
+	if (body == nullptr || !body->is_inside_tree()) {
+		body = Object::cast_to<PhysicsBody3D>(get_node_or_null(_attachment_body));
+		_attachment_target_id = body == nullptr ? 0 : body->get_instance_id();
+	}
+	if (body == nullptr || !body->is_inside_tree()) {
+		if (_attachment_joint != nullptr) _attachment_joint->set_node_b(NodePath());
+		return;
+	}
+	int point = _attachment_point < 0 ? (int)_points.size() - 1 :
+			std::min(_attachment_point, (int)_points.size() - 1);
+	if (_attachment_joint == nullptr || _attachment_anchor == nullptr) {
+		_attachment_anchor = memnew(AnimatableBody3D);
+		_attachment_anchor->set_name("RopeAttachmentAnchor");
+		_attachment_anchor->set_position(_points[(size_t)point]);
+		add_child(_attachment_anchor, false, Node::INTERNAL_MODE_BACK);
+		_attachment_joint = memnew(PinJoint3D);
+		_attachment_joint->set_name("RopeAttachment");
+		_attachment_joint->set_position(_points[(size_t)point]);
+		add_child(_attachment_joint, false, Node::INTERNAL_MODE_BACK);
+	}
+	NodePath anchor_path = _attachment_joint->get_path_to(_attachment_anchor);
+	NodePath body_path = _attachment_joint->get_path_to(body);
+	if (_attachment_joint->get_node_a() != anchor_path) _attachment_joint->set_node_a(anchor_path);
+	if (_attachment_joint->get_node_b() != body_path) _attachment_joint->set_node_b(body_path);
+	_attachment_anchor->set_position(_points[(size_t)point]);
+}
+
 void SpriteRope3D::_simulate(double delta) {
 	if (_points.size() != (size_t)_segments) reset_simulation();
 	if (_previous.size() != _points.size()) reset_simulation();
@@ -486,15 +588,17 @@ void SpriteRope3D::_update_mesh() {
 }
 
 void SpriteRope3D::_physics_process(double delta) {
-	if (!_simulation_enabled || Engine::get_singleton()->is_editor_hint()) return;
-	if (!_line_mode && _texture.is_null()) return;
-	_simulate(delta);
-	_update_mesh();
+	if (Engine::get_singleton()->is_editor_hint()) return;
+	if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
+		_simulate(delta);
+		_update_mesh();
+	}
+	_sync_attachment();
 }
 
 void SpriteRope3D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
 void SpriteRope3D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
-void SpriteRope3D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled); }
+void SpriteRope3D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled || !_attachment_body.is_empty()); }
 void SpriteRope3D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
 void SpriteRope3D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
 void SpriteRope3D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
@@ -508,6 +612,20 @@ void SpriteRope3D::set_line_width(double value) { _line_width = std::isfinite(va
 void SpriteRope3D::set_line_color(const Color &value) { _line_color = value; _update_mesh(); }
 void SpriteRope3D::set_pixel_size(double value) { value = std::isfinite(value) ? std::max(0.0001, value) : 0.01; if (_pixel_size != value) { _pixel_size = value; reset_simulation(); } }
 void SpriteRope3D::set_modulate(const Color &value) { _modulate = value; _update_mesh(); }
+void SpriteRope3D::set_attachment_body(const NodePath &path) {
+	if (_attachment_body == path) return;
+	_clear_attachment();
+	_attachment_body = path;
+	set_physics_process(_simulation_enabled || !_attachment_body.is_empty());
+	_sync_attachment();
+}
+void SpriteRope3D::set_attachment_point(int value) {
+	value = std::clamp(value, -1, 255);
+	if (_attachment_point == value) return;
+	_attachment_point = value;
+	_clear_attachment();
+	_sync_attachment();
+}
 
 PackedVector3Array SpriteRope3D::get_rope_points() const {
 	PackedVector3Array out;
@@ -552,6 +670,10 @@ void SpriteRope3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_pixel_size"), &SpriteRope3D::get_pixel_size);
 	ClassDB::bind_method(D_METHOD("set_modulate", "color"), &SpriteRope3D::set_modulate);
 	ClassDB::bind_method(D_METHOD("get_modulate"), &SpriteRope3D::get_modulate);
+	ClassDB::bind_method(D_METHOD("set_attachment_body", "path"), &SpriteRope3D::set_attachment_body);
+	ClassDB::bind_method(D_METHOD("get_attachment_body"), &SpriteRope3D::get_attachment_body);
+	ClassDB::bind_method(D_METHOD("set_attachment_point", "point"), &SpriteRope3D::set_attachment_point);
+	ClassDB::bind_method(D_METHOD("get_attachment_point"), &SpriteRope3D::get_attachment_point);
 	ClassDB::bind_method(D_METHOD("reset_simulation"), &SpriteRope3D::reset_simulation);
 	ClassDB::bind_method(D_METHOD("get_rope_points"), &SpriteRope3D::get_rope_points);
 	ClassDB::bind_method(D_METHOD("get_simulation_backend"), &SpriteRope3D::get_simulation_backend);
@@ -568,6 +690,9 @@ void SpriteRope3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "gravity_scale", PROPERTY_HINT_RANGE, "-100,100,0.01,or_less,or_greater"), "set_gravity_scale", "get_gravity_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "gravity"), "set_gravity", "get_gravity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "constraint_iterations", PROPERTY_HINT_RANGE, "1,64,1"), "set_constraint_iterations", "get_constraint_iterations");
+	ADD_GROUP("Attachment", "attachment_");
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "attachment_body", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "PhysicsBody3D"), "set_attachment_body", "get_attachment_body");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "attachment_point", PROPERTY_HINT_RANGE, "-1,255,1"), "set_attachment_point", "get_attachment_point");
 	ADD_GROUP("Appearance", "");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pixel_size", PROPERTY_HINT_RANGE, "0.0001,10,0.0001,or_greater"), "set_pixel_size", "get_pixel_size");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "modulate"), "set_modulate", "get_modulate");

@@ -635,6 +635,29 @@ func check_ropes() -> void:
 	for i in 3:
 		await physics_frame
 	check(rope2.call("get_rope_points") == stopped2, "SVGRope2Dを停止しても計算を続けているよ")
+	# 指定粒子に標準PinJointを置き、RigidBodyを直接移動せずGodot物理へ接続する。
+	var load2 := RigidBody2D.new()
+	load2.name = "RopeLoad2D"
+	load2.freeze = true
+	view.add_child(load2)
+	rope2.set("attachment_point", 4)
+	rope2.set("attachment_body", rope2.get_path_to(load2))
+	await physics_frame
+	var joint2: PinJoint2D
+	var anchor2: AnimatableBody2D
+	for child in rope2.get_children(true):
+		if child is PinJoint2D:
+			joint2 = child
+		elif child is AnimatableBody2D:
+			anchor2 = child
+	check(joint2 != null and anchor2 != null and anchor2.position.distance_to(stopped2[4]) < 0.001
+		and not joint2.node_a.is_empty() and not joint2.node_b.is_empty(),
+		"SpriteRope2Dが指定粒子へPhysicsBody2Dを接続しないよ")
+	rope2.set("attachment_body", NodePath())
+	await process_frame
+	check(not rope2.get_children(true).any(func(child):
+		return child is PinJoint2D or child is AnimatableBody2D),
+		"SpriteRope2Dの物理接続を解除できないよ")
 	view.free()
 
 	var svg_view := SubViewport.new()
@@ -689,7 +712,27 @@ func check_ropes() -> void:
 	check(rope3.get_child_count(true) == 1 and rope3.get_child(0, true) is MeshInstance3D
 		and rope3.get_child(0, true).mesh.get_surface_count() == 1,
 		"SVGRope3DのLine Modeメッシュが作られないよ")
+	var load3 := RigidBody3D.new()
+	load3.name = "RopeLoad3D"
+	load3.freeze = true
+	root.add_child(load3)
+	rope3.set("attachment_point", 4)
+	rope3.set("attachment_body", rope3.get_path_to(load3))
+	await physics_frame
+	var joint3: PinJoint3D
+	var anchor3: AnimatableBody3D
+	for child in rope3.get_children(true):
+		if child is PinJoint3D:
+			joint3 = child
+		elif child is AnimatableBody3D:
+			anchor3 = child
+	var attached_points3: PackedVector3Array = rope3.call("get_rope_points")
+	check(joint3 != null and anchor3 != null
+		and anchor3.position.distance_to(attached_points3[4]) < 0.0001
+		and not joint3.node_a.is_empty() and not joint3.node_b.is_empty(),
+		"SpriteRope3Dが指定粒子へPhysicsBody3Dを接続しないよ")
 	rope3.free()
+	load3.free()
 	PhysicsServer3D.area_set_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY, old_gravity3)
 	PhysicsServer3D.area_set_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY_VECTOR, old_gravity_vector3)
 

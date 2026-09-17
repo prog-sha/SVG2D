@@ -2,7 +2,7 @@
 
 **English** | [日本語](README.ja.md)
 
-SVG2D is a lightweight GDExtension add-on that renders and edits SVG markup in Godot 2D and 3D scenes. `SVGAnimate2D` / `SVGAnimate3D` expose topology-preserving path anchors for editor manipulation and AnimationPlayer keyframes. It also provides `SpriteRope2D` / `SpriteRope3D` for arbitrary textures and separate SVG-source rope nodes.
+SVG2D is a lightweight GDExtension add-on that renders and edits SVG markup in Godot 2D and 3D scenes. `SVGAnimate2D` / `SVGAnimate3D` expose topology-preserving path anchors for editor manipulation and AnimationPlayer keyframes. It also provides `SpriteRope2D` / `SpriteRope3D` for arbitrary textures and separate SVG-source rope nodes. Rope particles can attach `PhysicsBody2D` / `PhysicsBody3D` nodes through native Godot pin joints.
 
 The packaged add-on supports Godot 4.7 or later on Windows x86_64, macOS Universal, Linux x86_64/arm64, Android arm64, and Web wasm32 without threads. See [`addons/svg2d/README.md`](addons/svg2d/README.md) for installation, usage, and supported SVG features.
 

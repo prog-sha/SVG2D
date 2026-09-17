@@ -40,6 +40,8 @@ Path overlays use the same rendered `viewBox`, `preserveAspectRatio`, nested gro
 
 `SpriteRope2D` and `SpriteRope3D` accept any standard `Texture2D`, including PNG, WebP, and Godot-imported SVG resources. `SVGRope2D` and `SVGRope3D` are separate SVG-source variants with the `src` picker and supersampled SVG rendering. Both use a PBD rope pinned at the node origin; rows from top to bottom follow the particle chain. Enable `line_mode` for a plain rope configured by `line_width` and `line_color`. `max_length` set to zero derives the length from the texture or SVG height. Ropes use their World's system gravity by default; `gravity_scale` adjusts its strength. Disable `use_system_gravity` only when the local `gravity` override is needed.
 
+Set `attachment_body` to a `PhysicsBody2D` or `PhysicsBody3D` to connect it through an internal moving `AnimatableBody` and Godot `PinJoint`. `attachment_point` selects the rope particle, with `-1` meaning the last particle. The physics engine remains responsible for the attached body's collision, mass, and rotation response; clearing the path removes the internal bodies, joint, and update work.
+
 Verlet integration uses NEON on ARM64 or SSE2 on x86_64. The ordered distance-constraint solver remains scalar because each link depends on the preceding correction. Unsupported CPUs, double-precision builds, and builds made with `SVG2D_SCALAR=yes` automatically use the equivalent scalar integration path.
 
 ```gdscript

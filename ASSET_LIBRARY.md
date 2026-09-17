@@ -5,14 +5,14 @@ Use these values when submitting SVG2D to the Godot Asset Library.
 | Field | Value |
 | --- | --- |
 | Asset Name | SVG2D |
-| Description | SVG2D adds lightweight SVG2D and SVG3D nodes that monitor their viewport drawing area, rasterize SVG markup at its integer pixel dimensions, and reuse the texture while those dimensions stay unchanged. Zoomed SVGs stay sharp without rasterizing every frame. Pixel conversion uses SSE2 on x86_64 and NEON on arm64. It supports shapes, paths, fills, strokes, gradients, clipping paths, use elements, nested SVG elements, viewBox, and basic CSS selectors. This release includes Windows x86_64, macOS Universal, Linux x86_64/arm64, Android arm64, and threadless Web wasm32 binaries and requires Godot 4.7 or later. |
+| Description | SVG2D adds lightweight SVG2D and SVG3D nodes, topology-safe path animation, and PBD texture/SVG ropes with PhysicsBody pin-joint attachments. Adaptive rendering keeps zoomed SVGs sharp without rasterizing every frame. Pixel conversion uses SSE2 on x86_64 and NEON on arm64. It supports shapes, paths, fills, strokes, gradients, clipping paths, use elements, nested SVG elements, viewBox, and basic CSS selectors. This release includes Windows x86_64, macOS Universal, Linux x86_64/arm64, Android arm64, and threadless Web wasm32 binaries and requires Godot 4.7 or later. |
 | Category | 2D Tools |
 | License | MIT |
 | Repository host | GitHub |
 | Repository URL | https://github.com/prog-sha/SVG2D |
 | Issues URL | https://github.com/prog-sha/SVG2D/issues |
 | Minimum Godot version | 4.7 |
-| Asset Version | 0.8.0 |
+| Asset Version | 0.9.0 |
 | Download Commit | Use the full commit SHA containing the release files. |
 | Icon URL | https://raw.githubusercontent.com/prog-sha/SVG2D/main/addons/svg2d/icon.png |
 

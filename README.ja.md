@@ -2,7 +2,7 @@
 
 [English](README.md) | **日本語**
 
-SVG2D は、SVG を Godot の 2D・3D シーンに表示・編集するための軽量な GDExtension アドオンだよ。`SVGAnimate2D` / `SVGAnimate3D` ではトポロジーを変えずに接点とカーブを編集し、AnimationPlayerへ点番号ごとのキーを登録できるよ。画像素材のPBD紐には `SpriteRope2D` / `SpriteRope3D`、SVG素材には別クラスの `SVGRope2D` / `SVGRope3D` を使おう。
+SVG2D は、SVG を Godot の 2D・3D シーンに表示・編集するための軽量な GDExtension アドオンだよ。`SVGAnimate2D` / `SVGAnimate3D` ではトポロジーを変えずに接点とカーブを編集し、AnimationPlayerへ点番号ごとのキーを登録できるよ。画像素材のPBD紐には `SpriteRope2D` / `SpriteRope3D`、SVG素材には別クラスの `SVGRope2D` / `SVGRope3D` を使おう。紐の粒子にはGodot標準のPinJointを通して `PhysicsBody2D` / `PhysicsBody3D` を接続できるよ。
 
 エディターではSVGの不透明な絵をクリックして2D・3Dノードをドラッグできるよ。Inspectorの **Create Hitbox** にある **Rect** はGodot標準の `StaticBody` + 矩形Collision子ノードを、**Shape** は透明な穴を除いたSVG外周から2Dポリゴンまたは薄い3D形状を自動生成するよ。
 
