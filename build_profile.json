@@ -13,11 +13,15 @@
 		"Node2D",
 		"Node3D",
 		"OS",
+		"PhysicsServer2D",
+		"PhysicsServer3D",
 		"RefCounted",
 		"Sprite3D",
 		"Texture2D",
 		"ResourceUID",
 		"Viewport",
+		"World2D",
+		"World3D",
 		"XMLParser"
 	]
 }

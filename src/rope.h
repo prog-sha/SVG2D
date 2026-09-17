@@ -19,11 +19,13 @@ protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector2> _points, _previous;
 	bool _line_mode = false, _simulation_enabled = true, _pin_start = true;
+	bool _use_system_gravity = true;
 	int _segments = 16, _constraint_iterations = 8;
-	double _max_length = 0.0, _elasticity = 0.9, _damping = 0.02, _line_width = 4.0;
+	double _max_length = 0.0, _elasticity = 0.9, _damping = 0.02, _gravity_scale = 1.0, _line_width = 4.0;
 	godot::Vector2 _gravity = godot::Vector2(0, 980);
 	godot::Color _line_color = godot::Color(1, 1, 1, 1);
 	double _effective_length() const;
+	godot::Vector2 _effective_gravity() const;
 	void _simulate(double delta);
 	virtual godot::Vector2 _visual_size() const;
 	static void _bind_methods();
@@ -43,7 +45,10 @@ public:
 	void set_max_length(double value); double get_max_length() const { return _max_length; }
 	void set_elasticity(double value); double get_elasticity() const { return _elasticity; }
 	void set_damping(double value); double get_damping() const { return _damping; }
+	void set_use_system_gravity(bool enabled); bool is_using_system_gravity() const { return _use_system_gravity; }
+	void set_gravity_scale(double value); double get_gravity_scale() const { return _gravity_scale; }
 	void set_gravity(const godot::Vector2 &value); godot::Vector2 get_gravity() const { return _gravity; }
+	godot::Vector2 get_effective_gravity() const { return _effective_gravity(); }
 	void set_line_width(double value); double get_line_width() const { return _line_width; }
 	void set_line_color(const godot::Color &value); godot::Color get_line_color() const { return _line_color; }
 	godot::PackedVector2Array get_rope_points() const;
@@ -72,12 +77,14 @@ protected:
 	godot::Ref<godot::ArrayMesh> _mesh;
 	godot::Ref<godot::StandardMaterial3D> _material;
 	bool _line_mode = false, _simulation_enabled = true, _pin_start = true;
+	bool _use_system_gravity = true;
 	int _segments = 16, _constraint_iterations = 8;
-	double _max_length = 0.0, _elasticity = 0.9, _damping = 0.02;
+	double _max_length = 0.0, _elasticity = 0.9, _damping = 0.02, _gravity_scale = 1.0;
 	double _line_width = 0.04, _pixel_size = 0.01;
 	godot::Vector3 _gravity = godot::Vector3(0, -9.8, 0);
 	godot::Color _line_color = godot::Color(1, 1, 1, 1), _modulate = godot::Color(1, 1, 1, 1);
 	double _effective_length() const;
+	godot::Vector3 _effective_gravity() const;
 	void _ensure_mesh(); void _update_mesh(); void _simulate(double delta);
 	virtual godot::Vector2 _visual_size() const;
 	static void _bind_methods();
@@ -96,7 +103,10 @@ public:
 	void set_max_length(double value); double get_max_length() const { return _max_length; }
 	void set_elasticity(double value); double get_elasticity() const { return _elasticity; }
 	void set_damping(double value); double get_damping() const { return _damping; }
+	void set_use_system_gravity(bool enabled); bool is_using_system_gravity() const { return _use_system_gravity; }
+	void set_gravity_scale(double value); double get_gravity_scale() const { return _gravity_scale; }
 	void set_gravity(const godot::Vector3 &value); godot::Vector3 get_gravity() const { return _gravity; }
+	godot::Vector3 get_effective_gravity() const { return _effective_gravity(); }
 	void set_line_width(double value); double get_line_width() const { return _line_width; }
 	void set_line_color(const godot::Color &value); godot::Color get_line_color() const { return _line_color; }
 	virtual void set_pixel_size(double value); double get_pixel_size() const { return _pixel_size; }

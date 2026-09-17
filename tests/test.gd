@@ -579,6 +579,11 @@ func check_ropes() -> void:
 	view.size = Vector2i(256, 128)
 	view.transparent_bg = true
 	root.add_child(view)
+	# RopeはProjectSettingsの写しではなく、所属Worldの既定物理空間を読む。
+	# 方向を横へ変えて、実際のPBD結果までシステム重力で動くことを確認する。
+	var space2 := view.world_2d.space
+	PhysicsServer2D.area_set_param(space2, PhysicsServer2D.AREA_PARAM_GRAVITY, 800.0)
+	PhysicsServer2D.area_set_param(space2, PhysicsServer2D.AREA_PARAM_GRAVITY_VECTOR, Vector2.RIGHT)
 	var rope2: Node2D = ClassDB.instantiate("SpriteRope2D")
 	rope2.set("line_mode", true)
 	rope2.set("line_width", 6.0)
@@ -586,10 +591,26 @@ func check_ropes() -> void:
 	rope2.set("segments", 9)
 	rope2.set("max_length", 80.0)
 	rope2.set("elasticity", 1.0)
-	rope2.set("gravity", Vector2(800, 0))
 	rope2.set("simulation_enabled", false)
 	rope2.position = Vector2(128, 8)
 	view.add_child(rope2)
+	check(rope2.get("use_system_gravity") == true,
+		"SpriteRope2Dがシステム重力を既定で使わないよ")
+	check(rope2.call("get_effective_gravity").is_equal_approx(Vector2(800, 0)),
+		"SpriteRope2DがWorld2Dの重力を読まないよ: %s" % rope2.call("get_effective_gravity"))
+	rope2.rotation = PI * 0.5
+	var rotated_gravity2: Vector2 = rope2.call("get_effective_gravity")
+	check(rotated_gravity2.distance_to(Vector2(0, -800)) < 0.01,
+		"SpriteRope2Dがワールド重力をローカル座標へ変換しないよ: %s" % rotated_gravity2)
+	rope2.rotation = 0.0
+	rope2.scale = Vector2(2, 4)
+	check(rope2.call("get_effective_gravity").is_equal_approx(Vector2(400, 0)),
+		"SpriteRope2Dが拡大率を含めてワールド重力をローカル変換しないよ")
+	rope2.scale = Vector2.ONE
+	rope2.set("gravity_scale", 0.5)
+	check(rope2.call("get_effective_gravity").is_equal_approx(Vector2(400, 0)),
+		"SpriteRope2Dのgravity_scaleが反映されないよ")
+	rope2.set("gravity_scale", 1.0)
 	view.render_target_update_mode = SubViewport.UPDATE_ONCE
 	await process_frame
 	await RenderingServer.frame_post_draw
@@ -622,6 +643,7 @@ func check_ropes() -> void:
 	root.add_child(svg_view)
 	var svg_rope2: Node2D = ClassDB.instantiate("SVGRope2D")
 	svg_rope2.set("src", sample())
+	svg_rope2.set("use_system_gravity", false)
 	svg_rope2.set("gravity", Vector2(500, 200))
 	svg_rope2.position = Vector2(128, 8)
 	svg_view.add_child(svg_rope2)
@@ -637,6 +659,11 @@ func check_ropes() -> void:
 		"SVGRope2DがSVGを粒子中心線に沿って変形描画しないよ")
 	svg_view.free()
 
+	var space3 := root.world_3d.space
+	var old_gravity3 = PhysicsServer3D.area_get_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY)
+	var old_gravity_vector3 = PhysicsServer3D.area_get_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY_VECTOR)
+	PhysicsServer3D.area_set_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY, 10.0)
+	PhysicsServer3D.area_set_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY_VECTOR, Vector3.RIGHT)
 	var rope3: Node3D = ClassDB.instantiate("SpriteRope3D")
 	rope3.set("line_mode", true)
 	rope3.set("line_width", 0.08)
@@ -644,8 +671,11 @@ func check_ropes() -> void:
 	rope3.set("segments", 9)
 	rope3.set("max_length", 2.0)
 	rope3.set("elasticity", 1.0)
-	rope3.set("gravity", Vector3(10, 0, 0))
 	root.add_child(rope3)
+	check(rope3.get("use_system_gravity") == true,
+		"SpriteRope3Dがシステム重力を既定で使わないよ")
+	check(rope3.call("get_effective_gravity").is_equal_approx(Vector3(10, 0, 0)),
+		"SpriteRope3DがWorld3Dの重力を読まないよ: %s" % rope3.call("get_effective_gravity"))
 	for i in 12:
 		await physics_frame
 	var points3: PackedVector3Array = rope3.call("get_rope_points")
@@ -660,6 +690,8 @@ func check_ropes() -> void:
 		and rope3.get_child(0, true).mesh.get_surface_count() == 1,
 		"SVGRope3DのLine Modeメッシュが作られないよ")
 	rope3.free()
+	PhysicsServer3D.area_set_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY, old_gravity3)
+	PhysicsServer3D.area_set_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY_VECTOR, old_gravity_vector3)
 
 	var svg_rope3: Node3D = ClassDB.instantiate("SVGRope3D")
 	svg_rope3.set("src", sample())

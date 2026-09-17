@@ -3,6 +3,10 @@
 #include <godot_cpp/classes/base_material3d.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/mesh.hpp>
+#include <godot_cpp/classes/physics_server2d.hpp>
+#include <godot_cpp/classes/physics_server3d.hpp>
+#include <godot_cpp/classes/world2d.hpp>
+#include <godot_cpp/classes/world3d.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
@@ -186,6 +190,25 @@ double SpriteRope2D::_effective_length() const {
 	return size.y > 0.0f ? size.y : 200.0;
 }
 
+Vector2 SpriteRope2D::_effective_gravity() const {
+	Vector2 world_gravity(0, 980);
+	if (_use_system_gravity && is_inside_tree()) {
+		Ref<World2D> world = get_world_2d();
+		PhysicsServer2D *server = PhysicsServer2D::get_singleton();
+		if (world.is_valid() && server != nullptr) {
+			double amount = server->area_get_param(world->get_space(), PhysicsServer2D::AREA_PARAM_GRAVITY);
+			Vector2 direction = server->area_get_param(world->get_space(), PhysicsServer2D::AREA_PARAM_GRAVITY_VECTOR);
+			world_gravity = direction * (float)amount;
+		}
+	} else if (!_use_system_gravity) {
+		return _gravity * (float)_gravity_scale;
+	}
+	Transform2D transform = get_global_transform();
+	if (std::abs(transform.determinant()) > 1e-9)
+		world_gravity = transform.affine_inverse().basis_xform(world_gravity);
+	return world_gravity * (float)_gravity_scale;
+}
+
 void SpriteRope2D::reset_simulation() {
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
@@ -206,7 +229,7 @@ void SpriteRope2D::_simulate(double delta) {
 	Vector2 anchor = _points[0];
 	double dt = std::min(std::max(delta, 0.0), 1.0 / 30.0);
 	float keep = (float)(1.0 - _damping);
-	integrate_rope(_points, _previous, _gravity * (float)(dt * dt), keep,
+	integrate_rope(_points, _previous, _effective_gravity() * (float)(dt * dt), keep,
 			_pin_start ? 1u : 0u);
 	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
 			_effective_length());
@@ -261,6 +284,8 @@ void SpriteRope2D::set_constraint_iterations(int value) { _constraint_iterations
 void SpriteRope2D::set_max_length(double value) { value = std::isfinite(value) ? std::max(0.0, value) : 0.0; if (_max_length != value) { _max_length = value; reset_simulation(); } }
 void SpriteRope2D::set_elasticity(double value) { _elasticity = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.9; }
 void SpriteRope2D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
+void SpriteRope2D::set_use_system_gravity(bool enabled) { _use_system_gravity = enabled; }
+void SpriteRope2D::set_gravity_scale(double value) { _gravity_scale = std::isfinite(value) ? value : 1.0; }
 void SpriteRope2D::set_gravity(const Vector2 &value) { _gravity = value; }
 void SpriteRope2D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.1, value) : 4.0; queue_redraw(); }
 void SpriteRope2D::set_line_color(const Color &value) { _line_color = value; queue_redraw(); }
@@ -293,8 +318,13 @@ void SpriteRope2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_elasticity"), &SpriteRope2D::get_elasticity);
 	ClassDB::bind_method(D_METHOD("set_damping", "damping"), &SpriteRope2D::set_damping);
 	ClassDB::bind_method(D_METHOD("get_damping"), &SpriteRope2D::get_damping);
+	ClassDB::bind_method(D_METHOD("set_use_system_gravity", "enabled"), &SpriteRope2D::set_use_system_gravity);
+	ClassDB::bind_method(D_METHOD("is_using_system_gravity"), &SpriteRope2D::is_using_system_gravity);
+	ClassDB::bind_method(D_METHOD("set_gravity_scale", "scale"), &SpriteRope2D::set_gravity_scale);
+	ClassDB::bind_method(D_METHOD("get_gravity_scale"), &SpriteRope2D::get_gravity_scale);
 	ClassDB::bind_method(D_METHOD("set_gravity", "gravity"), &SpriteRope2D::set_gravity);
 	ClassDB::bind_method(D_METHOD("get_gravity"), &SpriteRope2D::get_gravity);
+	ClassDB::bind_method(D_METHOD("get_effective_gravity"), &SpriteRope2D::get_effective_gravity);
 	ClassDB::bind_method(D_METHOD("set_line_width", "width"), &SpriteRope2D::set_line_width);
 	ClassDB::bind_method(D_METHOD("get_line_width"), &SpriteRope2D::get_line_width);
 	ClassDB::bind_method(D_METHOD("set_line_color", "color"), &SpriteRope2D::set_line_color);
@@ -311,6 +341,8 @@ void SpriteRope2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "max_length", PROPERTY_HINT_RANGE, "0,100000,0.1,or_greater"), "set_max_length", "get_max_length");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "elasticity", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_elasticity", "get_elasticity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "damping", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_damping", "get_damping");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_system_gravity"), "set_use_system_gravity", "is_using_system_gravity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "gravity_scale", PROPERTY_HINT_RANGE, "-100,100,0.01,or_less,or_greater"), "set_gravity_scale", "get_gravity_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "gravity"), "set_gravity", "get_gravity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "constraint_iterations", PROPERTY_HINT_RANGE, "1,64,1"), "set_constraint_iterations", "get_constraint_iterations");
 	ADD_GROUP("Line", "");
@@ -348,6 +380,25 @@ double SpriteRope3D::_effective_length() const {
 	return size.y > 0.0f ? size.y * _pixel_size : 2.0;
 }
 
+Vector3 SpriteRope3D::_effective_gravity() const {
+	Vector3 world_gravity(0, -9.8f, 0);
+	if (_use_system_gravity && is_inside_tree()) {
+		Ref<World3D> world = get_world_3d();
+		PhysicsServer3D *server = PhysicsServer3D::get_singleton();
+		if (world.is_valid() && server != nullptr) {
+			double amount = server->area_get_param(world->get_space(), PhysicsServer3D::AREA_PARAM_GRAVITY);
+			Vector3 direction = server->area_get_param(world->get_space(), PhysicsServer3D::AREA_PARAM_GRAVITY_VECTOR);
+			world_gravity = direction * (float)amount;
+		}
+	} else if (!_use_system_gravity) {
+		return _gravity * (float)_gravity_scale;
+	}
+	Basis basis = get_global_transform().basis;
+	if (std::abs(basis.determinant()) > 1e-9)
+		world_gravity = basis.inverse().xform(world_gravity);
+	return world_gravity * (float)_gravity_scale;
+}
+
 void SpriteRope3D::_ensure_mesh() {
 	if (_mesh_instance != nullptr) return;
 	_mesh.instantiate();
@@ -382,7 +433,7 @@ void SpriteRope3D::_simulate(double delta) {
 	Vector3 anchor = _points[0];
 	double dt = std::min(std::max(delta, 0.0), 1.0 / 30.0);
 	float keep = (float)(1.0 - _damping);
-	integrate_rope(_points, _previous, _gravity * (float)(dt * dt), keep,
+	integrate_rope(_points, _previous, _effective_gravity() * (float)(dt * dt), keep,
 			_pin_start ? 1u : 0u);
 	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
 			_effective_length());
@@ -450,6 +501,8 @@ void SpriteRope3D::set_constraint_iterations(int value) { _constraint_iterations
 void SpriteRope3D::set_max_length(double value) { value = std::isfinite(value) ? std::max(0.0, value) : 0.0; if (_max_length != value) { _max_length = value; reset_simulation(); } }
 void SpriteRope3D::set_elasticity(double value) { _elasticity = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.9; }
 void SpriteRope3D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
+void SpriteRope3D::set_use_system_gravity(bool enabled) { _use_system_gravity = enabled; }
+void SpriteRope3D::set_gravity_scale(double value) { _gravity_scale = std::isfinite(value) ? value : 1.0; }
 void SpriteRope3D::set_gravity(const Vector3 &value) { _gravity = value; }
 void SpriteRope3D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.0001, value) : 0.04; _update_mesh(); }
 void SpriteRope3D::set_line_color(const Color &value) { _line_color = value; _update_mesh(); }
@@ -484,8 +537,13 @@ void SpriteRope3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_elasticity"), &SpriteRope3D::get_elasticity);
 	ClassDB::bind_method(D_METHOD("set_damping", "damping"), &SpriteRope3D::set_damping);
 	ClassDB::bind_method(D_METHOD("get_damping"), &SpriteRope3D::get_damping);
+	ClassDB::bind_method(D_METHOD("set_use_system_gravity", "enabled"), &SpriteRope3D::set_use_system_gravity);
+	ClassDB::bind_method(D_METHOD("is_using_system_gravity"), &SpriteRope3D::is_using_system_gravity);
+	ClassDB::bind_method(D_METHOD("set_gravity_scale", "scale"), &SpriteRope3D::set_gravity_scale);
+	ClassDB::bind_method(D_METHOD("get_gravity_scale"), &SpriteRope3D::get_gravity_scale);
 	ClassDB::bind_method(D_METHOD("set_gravity", "gravity"), &SpriteRope3D::set_gravity);
 	ClassDB::bind_method(D_METHOD("get_gravity"), &SpriteRope3D::get_gravity);
+	ClassDB::bind_method(D_METHOD("get_effective_gravity"), &SpriteRope3D::get_effective_gravity);
 	ClassDB::bind_method(D_METHOD("set_line_width", "width"), &SpriteRope3D::set_line_width);
 	ClassDB::bind_method(D_METHOD("get_line_width"), &SpriteRope3D::get_line_width);
 	ClassDB::bind_method(D_METHOD("set_line_color", "color"), &SpriteRope3D::set_line_color);
@@ -506,6 +564,8 @@ void SpriteRope3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "max_length", PROPERTY_HINT_RANGE, "0,100000,0.01,or_greater"), "set_max_length", "get_max_length");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "elasticity", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_elasticity", "get_elasticity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "damping", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_damping", "get_damping");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_system_gravity"), "set_use_system_gravity", "is_using_system_gravity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "gravity_scale", PROPERTY_HINT_RANGE, "-100,100,0.01,or_less,or_greater"), "set_gravity_scale", "get_gravity_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "gravity"), "set_gravity", "get_gravity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "constraint_iterations", PROPERTY_HINT_RANGE, "1,64,1"), "set_constraint_iterations", "get_constraint_iterations");
 	ADD_GROUP("Appearance", "");

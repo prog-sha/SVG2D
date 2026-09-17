@@ -4,6 +4,7 @@
 	<description>Divides a Texture2D vertically and bends its rows along a 3D PBD particle chain.</description>
 	<methods>
 		<method name="get_rope_points" qualifiers="const"><return type="PackedVector3Array" /><description>Returns local-space PBD particle positions.</description></method>
+		<method name="get_effective_gravity" qualifiers="const"><return type="Vector3" /><description>Returns the acceleration currently used by the solver in rope-local coordinates.</description></method>
 		<method name="get_simulation_backend" qualifiers="const"><return type="String" /><description>Returns neon, sse2, or scalar for the active Verlet integration backend.</description></method>
 		<method name="reset_simulation"><return type="void" /><description>Restores a straight rope.</description></method>
 	</methods>
@@ -16,7 +17,9 @@
 		<member name="max_length" type="float" setter="set_max_length" getter="get_max_length" default="0.0">Maximum rope length. Zero uses texture height times pixel_size.</member>
 		<member name="elasticity" type="float" setter="set_elasticity" getter="get_elasticity" default="0.9">Distance-constraint strength.</member>
 		<member name="damping" type="float" setter="set_damping" getter="get_damping" default="0.02">Velocity damping.</member>
-		<member name="gravity" type="Vector3" setter="set_gravity" getter="get_gravity" default="Vector3(0, -9.8, 0)">Local acceleration.</member>
+		<member name="use_system_gravity" type="bool" setter="set_use_system_gravity" getter="is_using_system_gravity" default="true">Uses the gravity magnitude and direction from this node's World3D default physics space.</member>
+		<member name="gravity_scale" type="float" setter="set_gravity_scale" getter="get_gravity_scale" default="1.0">Multiplier applied to system or custom gravity.</member>
+		<member name="gravity" type="Vector3" setter="set_gravity" getter="get_gravity" default="Vector3(0, -9.8, 0)">Custom local acceleration used when use_system_gravity is false.</member>
 		<member name="constraint_iterations" type="int" setter="set_constraint_iterations" getter="get_constraint_iterations" default="8">PBD solver passes.</member>
 		<member name="pixel_size" type="float" setter="set_pixel_size" getter="get_pixel_size" default="0.01">World units per texture pixel.</member>
 		<member name="modulate" type="Color" setter="set_modulate" getter="get_modulate" default="Color(1, 1, 1, 1)">Texture tint.</member>
