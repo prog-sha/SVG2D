@@ -149,6 +149,10 @@ func run_checks() -> void:
 			+ "<path d='M10 20 C20 5 50 5 60 20 C70 35 75 50 80 70 Z' fill='#fff' stroke='#fff' stroke-width='4'/></svg>")
 		scene_root.add_child(animate)
 		animate.owner = scene_root
+		animate.position = Vector2(137, 83)
+		check(Transform2D(svg_plugin.call("screen_transform", animate)).is_equal_approx(
+			animate.get_global_transform_with_canvas()),
+			"2Dパスオーバーレイが実描画Viewportのノード変換を使っていないよ")
 		var animate_texture := animate.call("get_texture") as Texture2D
 		check(animate_texture != null and animate_texture.get_image().get_used_rect().has_area(),
 			"SVGAnimate2Dの編集用画像を描けないよ: size=%s src=%d" %
@@ -239,6 +243,22 @@ func run_checks() -> void:
 			.distance_to(anchor_after) < 0.01,
 			"横反転したSVGAnimate2Dの接点表示とドラッグ座標が一致しないよ")
 		animate.set("flip_h", false)
+		# viewBox、親group、path自身のtransformが重なっても表示点と逆変換を一致させる。
+		var transformed2: Node2D = ClassDB.instantiate("SVGAnimate2D")
+		transformed2.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='200' " \
+			+ "viewBox='10 20 100 50' preserveAspectRatio='none'><g transform='translate(5 3)'>" \
+			+ "<path transform='scale(2 1.5)' d='M10 20 L20 25' stroke='white'/></g></svg>")
+		transformed2.position = Vector2(91, 47)
+		scene_root.add_child(transformed2)
+		transformed2.owner = scene_root
+		var transformed_screen: Vector2 = svg_plugin.call("path_screen_2d", transformed2, Vector2(10, 20), 0)
+		var expected_screen := transformed2.get_global_transform_with_canvas() * Vector2(36, 52)
+		check(transformed_screen.distance_to(expected_screen) < 0.01
+			and Vector2(svg_plugin.call("path_point_from_screen_2d", transformed2, transformed_screen, 0))
+				.distance_to(Vector2(10, 20)) < 0.01,
+			"2DのviewBox/transform適用後の表示とパス点が一致しないよ: %s != %s" %
+			[transformed_screen, expected_screen])
+		transformed2.free()
 		var path_control := SVGPathControl.new()
 		add_child(path_control)
 		path_control.setup(animate)
@@ -350,8 +370,9 @@ func run_checks() -> void:
 		check(moved3 != Vector3.ZERO and node3.position == moved3,
 			"SVG3Dを不透明画素からドラッグ移動できないよ")
 		var animate3: Node3D = ClassDB.instantiate("SVGAnimate3D")
-		animate3.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>" \
-			+ "<path d='M20 20 C30 5 60 5 70 20 C78 35 80 55 80 80 Z' fill='#fff'/></svg>")
+		animate3.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='200' " \
+			+ "viewBox='10 20 100 50' preserveAspectRatio='none'><g transform='translate(5 3)'>" \
+			+ "<path transform='scale(2 1.5)' d='M20 20 C30 5 60 5 70 20 C78 35 80 55 80 80 Z' fill='#fff'/></g></svg>")
 		scene_root.add_child(animate3)
 		animate3.owner = scene_root
 		animate3.position.z = 0.2
@@ -359,7 +380,7 @@ func run_checks() -> void:
 			"SVGAnimate3Dが標準3D選択ギズモの対象でないよ")
 		EditorInterface.get_selection().clear()
 		var animate3_inside := test_camera.unproject_position(
-			Vector3(svg_plugin.call("svg_world_3d", animate3, Vector2(50, 35))))
+			Vector3(svg_plugin.call("svg_world_3d", animate3, Vector2(50, 35), 0)))
 		var animate3_press := InputEventMouseButton.new()
 		animate3_press.button_index = MOUSE_BUTTON_LEFT
 		animate3_press.pressed = true
@@ -374,7 +395,13 @@ func run_checks() -> void:
 		svg_plugin.call("_forward_3d_gui_input", test_camera, animate3_release)
 		EditorInterface.get_selection().clear()
 		EditorInterface.get_selection().add_node(animate3)
-		var point_world: Vector3 = svg_plugin.call("svg_world_3d", animate3, Vector2(70, 20))
+		var point_world: Vector3 = svg_plugin.call("svg_world_3d", animate3, Vector2(70, 20), 0)
+		var transformed_document3 := Vector2(animate3.call("path_to_document", 0, Vector2(70, 20)))
+		var expected_world3 := animate3.to_global(ShapeUtils.displayed_point_3d(animate3, transformed_document3))
+		check(point_world.distance_to(expected_world3) < 0.0001
+			and Vector2(svg_plugin.call("svg_point_from_world_3d", animate3, point_world, 0))
+				.distance_to(Vector2(70, 20)) < 0.01,
+			"3DのviewBox/transform適用後の表示とパス点が一致しないよ")
 		var point_screen := test_camera.unproject_position(point_world)
 		var path_hit3: Dictionary = svg_plugin.call("pick_path_control_3d", animate3, test_camera, point_screen)
 		check(path_hit3.path == 0 and path_hit3.point == 1,
@@ -399,7 +426,7 @@ func run_checks() -> void:
 			"3D接点ドラッグが座標を更新しないかトポロジーを変えたよ")
 		var handle3_before: Vector2 = animate3.call("get_in_handle", 0, 1)
 		var handle3_screen: Vector2 = test_camera.unproject_position(
-			Vector3(svg_plugin.call("svg_world_3d", animate3, handle3_before)))
+			Vector3(svg_plugin.call("svg_world_3d", animate3, handle3_before, 0)))
 		var handle3_press := InputEventMouseButton.new()
 		handle3_press.button_index = MOUSE_BUTTON_LEFT
 		handle3_press.pressed = true
@@ -417,8 +444,8 @@ func run_checks() -> void:
 		check(not animate3.call("get_in_handle", 0, 1).is_equal_approx(handle3_before),
 			"SVGAnimate3DのBezierハンドルを移動できないよ")
 		animate3.set("flip_v", true)
-		var flipped_world3: Vector3 = svg_plugin.call("svg_world_3d", animate3, moved_path3)
-		check(Vector2(svg_plugin.call("svg_point_from_world_3d", animate3, flipped_world3))
+		var flipped_world3: Vector3 = svg_plugin.call("svg_world_3d", animate3, moved_path3, 0)
+		check(Vector2(svg_plugin.call("svg_point_from_world_3d", animate3, flipped_world3, 0))
 			.distance_to(moved_path3) < 0.01,
 			"縦反転したSVGAnimate3Dの接点表示とドラッグ座標が一致しないよ")
 		animate3.set("flip_v", false)

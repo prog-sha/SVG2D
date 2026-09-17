@@ -5,6 +5,7 @@
 
 #include <godot_cpp/templates/list.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
+#include <godot_cpp/variant/transform2d.hpp>
 #include <memory>
 
 namespace svg2d {
@@ -30,6 +31,8 @@ public:
 	godot::Vector2 get_out_handle(int path, int point) const;
 	void set_out_handle(int path, int point, const godot::Vector2 &value);
 	godot::PackedVector2Array get_path_points(int path) const;
+	godot::Vector2 path_to_document(int path, const godot::Vector2 &point) const;
+	godot::Vector2 document_to_path(int path, const godot::Vector2 &point) const;
 	bool _set(const godot::StringName &name, const godot::Variant &value);
 	bool _get(const godot::StringName &name, godot::Variant &value) const;
 	void _get_property_list(godot::List<godot::PropertyInfo> *list) const;
@@ -54,6 +57,8 @@ public:
 	godot::Vector2 get_out_handle(int path, int point) const;
 	void set_out_handle(int path, int point, const godot::Vector2 &value);
 	godot::PackedVector2Array get_path_points(int path) const;
+	godot::Vector2 path_to_document(int path, const godot::Vector2 &point) const;
+	godot::Vector2 document_to_path(int path, const godot::Vector2 &point) const;
 	bool _set(const godot::StringName &name, const godot::Variant &value);
 	bool _get(const godot::StringName &name, godot::Variant &value) const;
 	void _get_property_list(godot::List<godot::PropertyInfo> *list) const;

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="SVGAnimate3D" inherits="SVG3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/tools/doc_classes.xsd">
 	<brief_description>Editable and keyframeable SVG path node for 3D.</brief_description>
-	<description>Provides the same topology-preserving, scene-persistent numbered anchor and cubic-handle editing API as SVGAnimate2D on the local XY plane.</description>
+	<description>Provides the same topology-preserving, scene-persistent numbered anchor and cubic-handle editing API as SVGAnimate2D on the local XY plane, including rendered viewBox and nested SVG transforms.</description>
 	<methods>
 		<method name="get_path_count" qualifiers="const"><return type="int" /></method>
 		<method name="get_point_count" qualifiers="const"><return type="int" /><param index="0" name="path" type="int" /></method>

@@ -33,6 +33,8 @@ add_child(picture)
 
 既存SVGパスをアニメにするときは `SVGAnimate2D` / `SVGAnimate3D` を使おう。選択すると2D・3Dエディターへ全パスの番号付き接点と、選択接点のBezierハンドルが出るよ。接点またはハンドルをドラッグし、Shiftで縦横へ制限できる。通常のハンドル移動は反対側の接線を滑らかに保ち、Altを押すと片側だけを折れる。`A`（または`V`）、`I`、`O`で接点・入ハンドル・出ハンドルを切り替え、Tab / Shift+Tabで接点、`[` / `]`でパス番号を移動するよ。Inspectorの **Path Editor** から番号を直接選べ、**Insert Point Key** または`K`で現在のAnimationPlayerへ接点の値トラックとキーを登録できる。Inspectorの各接点 `paths/path_N/point_N` にあるGodot標準の鍵ボタンも使える。パス・接点・セグメントの追加削除はせず、円弧は円弧、直線は直線のまま保つよ。
 
+パス点のオーバーレイは、実描画と同じ `viewBox`、`preserveAspectRatio`、入れ子のグループとパスの `transform` を通して表示・逆変換する。ノードの移動、エディターのパン、2D/3Dのどちらでも絵と接点が一致するよ。
+
 `SpriteRope2D` と `SpriteRope3D` はPNG・WebP・GodotでインポートしたSVGなど、標準の `Texture2D` を受け取るPBD紐だよ。`SVGRope2D` と `SVGRope3D` は `src` 選択と高解像度SVG生成を持つ別のSVG専用クラスだよ。どちらも上から下の各段を粒子列へ追従させる。`line_mode` をONにすれば素材なしで `line_width` と `line_color` の普通の紐になるよ。`max_length` が0なら素材の高さから長さを自動算出するよ。
 
 Verlet積分はARM64ならNEON、x86_64ならSSE2を使うよ。隣の補正結果へ依存する距離制約は順序を壊さない通常CPU計算のままだよ。非対応CPU・倍精度ビルド・`SVG2D_SCALAR=yes` では、同じ式のscalar経路へ自動で切り替わるよ。

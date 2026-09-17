@@ -128,12 +128,14 @@ func canvas_transform() -> Transform2D:
 	return viewport.get_canvas_transform() if viewport else Transform2D.IDENTITY
 
 func screen_transform(node: Node2D) -> Transform2D:
-	return canvas_transform() * node.global_transform
+	# 編集シーンが実際に登録されているViewportの変換を使う。EditorInterfaceから
+	# 別途取得したViewportと合成すると、パンやノード位置が二重化・欠落しうる。
+	return node.get_global_transform_with_canvas()
 
 func screen_to_parent(node: Node2D, point: Vector2) -> Vector2:
-	var canvas_point := canvas_transform().affine_inverse() * point
 	var parent := node.get_parent() as CanvasItem
-	return parent.global_transform.affine_inverse() * canvas_point if parent else canvas_point
+	return parent.get_global_transform_with_canvas().affine_inverse() * point \
+		if parent else node.get_canvas_transform().affine_inverse() * point
 
 func collect_svg2d(node: Node, found: Array[Node2D]) -> void:
 	if node.is_class("SVG2D") and node is Node2D and node.is_visible_in_tree():
@@ -175,15 +177,16 @@ func _forward_canvas_draw_over_viewport(viewport_control: Control) -> void:
 		if selected.is_class("SVGAnimate2D"):
 			draw_path_controls_2d(viewport_control, selected)
 
-func path_screen_2d(node: Node2D, point: Vector2) -> Vector2:
-	return screen_transform(node) * ShapeUtils.displayed_point_2d(node, point)
+func path_screen_2d(node: Node2D, point: Vector2, path := -1) -> Vector2:
+	var document := Vector2(node.call("path_to_document", path, point)) if path >= 0 else point
+	return screen_transform(node) * ShapeUtils.displayed_point_2d(node, document)
 
-func path_point_from_screen_2d(node: Node2D, screen_point: Vector2) -> Vector2:
+func path_point_from_screen_2d(node: Node2D, screen_point: Vector2, path := -1) -> Vector2:
 	var displayed := screen_transform(node).affine_inverse() * screen_point - Vector2(node.get("offset"))
 	var size: Vector2 = node.call("get_svg_size")
 	if bool(node.get("flip_h")): displayed.x = size.x - displayed.x
 	if bool(node.get("flip_v")): displayed.y = size.y - displayed.y
-	return displayed
+	return Vector2(node.call("document_to_path", path, displayed)) if path >= 0 else displayed
 
 func draw_path_controls_2d(control: Control, node: Node2D) -> void:
 	var count := int(node.call("get_path_count"))
@@ -193,7 +196,7 @@ func draw_path_controls_2d(control: Control, node: Node2D) -> void:
 	for path in count:
 		var path_points: PackedVector2Array = node.call("get_path_points", path)
 		for i in path_points.size():
-			var screen := path_screen_2d(node, path_points[i])
+			var screen := path_screen_2d(node, path_points[i], path)
 			var selected := path == path_index and i == point_index
 			control.draw_circle(screen, 5.0 if selected else 3.5,
 				Color("#ffb52e") if selected else Color("#ffffff"))
@@ -202,12 +205,12 @@ func draw_path_controls_2d(control: Control, node: Node2D) -> void:
 	var points: PackedVector2Array = node.call("get_path_points", path_index)
 	if points.is_empty(): return
 	point_index = clampi(point_index, 0, points.size() - 1)
-	var anchor := path_screen_2d(node, points[point_index])
+	var anchor := path_screen_2d(node, points[point_index], path_index)
 	for part in ["in", "out"]:
 		var handle: Vector2 = node.call("get_%s_handle" % part, path_index, point_index)
 		if handle.is_equal_approx(points[point_index]):
 			continue
-		var screen := path_screen_2d(node, handle)
+		var screen := path_screen_2d(node, handle, path_index)
 		control.draw_line(anchor, screen, Color("#62d7ff"), 1.5, true)
 		control.draw_circle(screen, 4.0, Color("#62d7ff"))
 
@@ -221,7 +224,7 @@ func pick_path_control_2d(node: Node2D, screen_point: Vector2) -> Dictionary:
 				var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
 				if part != "point" and value.is_equal_approx(anchor):
 					continue
-				var distance := path_screen_2d(node, value).distance_to(screen_point)
+				var distance := path_screen_2d(node, value, p).distance_to(screen_point)
 				if distance <= best:
 					best = distance
 					hit = {"path": p, "point": i, "part": part, "value": value}
@@ -378,7 +381,7 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 	if event is InputEventMouseMotion and path_dragging and path_node is Node2D \
 			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		var edit_node := path_node as Node2D
-		var local := path_point_from_screen_2d(edit_node, event.position)
+		var local := path_point_from_screen_2d(edit_node, event.position, path_index)
 		if event.shift_pressed:
 			var delta: Vector2 = local - path_drag_before
 			local = path_drag_before + (Vector2(delta.x, 0) if absf(delta.x) >= absf(delta.y) else Vector2(0, delta.y))
@@ -517,7 +520,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		var hit := intersect_drag_plane(camera, event.position)
 		if hit != null:
-			var value := svg_point_from_world_3d(path_node, hit)
+			var value := svg_point_from_world_3d(path_node, hit, path_index)
 			if event.shift_pressed:
 				var delta: Vector2 = value - path_drag_before
 				value = path_drag_before + (Vector2(delta.x, 0) \
@@ -534,10 +537,11 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		return EditorPlugin.AFTER_GUI_INPUT_STOP
 	return EditorPlugin.AFTER_GUI_INPUT_PASS
 
-func svg_world_3d(node: Node3D, point: Vector2) -> Vector3:
-	return node.to_global(ShapeUtils.displayed_point_3d(node, point))
+func svg_world_3d(node: Node3D, point: Vector2, path := -1) -> Vector3:
+	var document := Vector2(node.call("path_to_document", path, point)) if path >= 0 else point
+	return node.to_global(ShapeUtils.displayed_point_3d(node, document))
 
-func svg_point_from_world_3d(node: Node3D, world: Vector3) -> Vector2:
+func svg_point_from_world_3d(node: Node3D, world: Vector3, path := -1) -> Vector2:
 	var local := node.to_local(world)
 	var size: Vector2 = node.call("get_svg_size")
 	var pixel := float(node.get("pixel_size"))
@@ -545,7 +549,7 @@ func svg_point_from_world_3d(node: Node3D, world: Vector3) -> Vector2:
 		- Vector2(node.get("offset"))
 	if bool(node.get("flip_h")): point.x = size.x - point.x
 	if bool(node.get("flip_v")): point.y = size.y - point.y
-	return point
+	return Vector2(node.call("document_to_path", path, point)) if path >= 0 else point
 
 func pick_path_control_3d(node: Node3D, camera: Camera3D, screen_point: Vector2) -> Dictionary:
 	var best := PATH_HANDLE_RADIUS
@@ -556,7 +560,7 @@ func pick_path_control_3d(node: Node3D, camera: Camera3D, screen_point: Vector2)
 			for part in ["point", "in", "out"]:
 				var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
 				if part != "point" and value.is_equal_approx(anchor): continue
-				var distance := camera.unproject_position(svg_world_3d(node, value)).distance_to(screen_point)
+				var distance := camera.unproject_position(svg_world_3d(node, value, p)).distance_to(screen_point)
 				if distance <= best:
 					best = distance; hit = {"path": p, "point": i, "part": part, "value": value}
 	return hit
@@ -572,7 +576,7 @@ func _forward_3d_draw_over_viewport(control: Control) -> void:
 		for path in paths:
 			var path_points: PackedVector2Array = selected.call("get_path_points", path)
 			for i in path_points.size():
-				var screen := camera.unproject_position(svg_world_3d(selected, path_points[i]))
+				var screen := camera.unproject_position(svg_world_3d(selected, path_points[i], path))
 				var active := path == path_index and i == point_index
 				control.draw_circle(screen, 5.0 if active else 3.5,
 					Color("#ffb52e") if active else Color.WHITE)
@@ -581,11 +585,11 @@ func _forward_3d_draw_over_viewport(control: Control) -> void:
 		var points: PackedVector2Array = selected.call("get_path_points", path_index)
 		if points.is_empty(): continue
 		point_index = clampi(point_index, 0, points.size() - 1)
-		var anchor := camera.unproject_position(svg_world_3d(selected, points[point_index]))
+		var anchor := camera.unproject_position(svg_world_3d(selected, points[point_index], path_index))
 		for part in ["in", "out"]:
 			var handle: Vector2 = selected.call("get_%s_handle" % part, path_index, point_index)
 			if handle.is_equal_approx(points[point_index]): continue
-			var screen := camera.unproject_position(svg_world_3d(selected, handle))
+			var screen := camera.unproject_position(svg_world_3d(selected, handle, path_index))
 			control.draw_line(anchor, screen, Color("#62d7ff"), 1.5, true)
 			control.draw_circle(screen, 4.0, Color("#62d7ff"))
 

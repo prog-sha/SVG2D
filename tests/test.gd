@@ -705,6 +705,17 @@ func check_svg_animate() -> void:
 			and node.call("get_path_count") == 2 and node.call("get_point_count", 0) == 3,
 		"保存プロパティのカーブ編集でpathトポロジーが変わったよ")
 	check(node.get("src") == source, "接点編集でsrc素材参照を書き換えたよ")
+	# viewBoxと入れ子transformを通した実表示座標を、編集座標と相互変換する。
+	var transformed_source := "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='200' " \
+		+ "viewBox='10 20 100 50' preserveAspectRatio='none'><g transform='translate(5 3)'>" \
+		+ "<path transform='scale(2 1.5)' d='M10 20 L20 25' stroke='white'/></g></svg>"
+	var transformed: Node2D = ClassDB.instantiate("SVGAnimate2D")
+	transformed.set("src", transformed_source)
+	var document_point := Vector2(transformed.call("path_to_document", 0, Vector2(10, 20)))
+	check(document_point.distance_to(Vector2(36, 52)) < 0.001
+		and Vector2(transformed.call("document_to_path", 0, document_point)).distance_to(Vector2(10, 20)) < 0.001,
+		"viewBoxまたは親/path transformを接点の表示座標へ反映できないよ: %s" % document_point)
+	transformed.free()
 	var texture: Texture2D = node.call("get_texture")
 	check(texture != null and texture.get_image().get_used_rect().has_area(),
 		"編集したSVGAnimate2Dを再描画できないよ")
