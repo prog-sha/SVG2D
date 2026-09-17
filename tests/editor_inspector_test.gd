@@ -271,8 +271,12 @@ func run_checks() -> void:
 			[transformed_screen, expected_screen])
 		transformed2.free()
 		var path_control := SVGPathControl.new()
-		add_child(path_control)
+		# 本番Inspectorと同じく、SceneTreeへ追加される前にsetupされても
+		# get_tree()を呼ばず、安全にUIを構築できること。
 		path_control.setup(animate)
+		check(path_control.call("_plugin") == null,
+			"SceneTree追加前のPath EditorがEditorPluginを検索しているよ")
+		add_child(path_control)
 		check(path_control.get("path_select").item_count == 1
 			and int(path_control.get("point_select").max_value) == 2,
 			"Inspector Path Editorがパス番号と接点番号を列挙しないよ")

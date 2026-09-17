@@ -7,6 +7,12 @@ var path_select: OptionButton
 var point_select: SpinBox
 var mode_buttons: Array[Button] = []
 
+func _ready() -> void:
+	# InspectorPluginはsetup後にControlをSceneTreeへ追加する。
+	# 追加済みになった時点で初めてEditorPluginと状態を同期する。
+	if is_instance_valid(target):
+		_sync_plugin("point")
+
 func setup(node: Node) -> void:
 	target = node
 	var title := Label.new()
@@ -42,12 +48,20 @@ func setup(node: Node) -> void:
 	key.pressed.connect(_insert_key)
 	add_child(key)
 	_refresh_point_range()
-	_sync_plugin("point")
+	if is_inside_tree():
+		_sync_plugin("point")
 
 func _plugin() -> Node:
-	return get_tree().get_first_node_in_group("svg2d_editor_plugin")
+	# Inspectorの構築中と破棄中はControlがSceneTreeを持たない。
+	# get_tree()自体がその状態をエラーとして報告するため、先に判定する。
+	if not is_inside_tree():
+		return null
+	var tree := get_tree()
+	return tree.get_first_node_in_group("svg2d_editor_plugin") if tree != null else null
 
 func _refresh_point_range() -> void:
+	if not is_instance_valid(target) or path_select == null or point_select == null:
+		return
 	var path := path_select.get_selected_id() if path_select.item_count > 0 else 0
 	point_select.max_value = maxi(0, int(target.call("get_point_count", path)) - 1)
 	point_select.value = mini(int(point_select.value), int(point_select.max_value))
@@ -63,6 +77,8 @@ func _mode_pressed(mode: String) -> void:
 	_sync_plugin(mode)
 
 func _sync_plugin(mode: String) -> void:
+	if not is_instance_valid(target) or path_select == null or point_select == null:
+		return
 	var plugin := _plugin()
 	if plugin == null or path_select.item_count == 0:
 		return
@@ -72,6 +88,8 @@ func _sync_plugin(mode: String) -> void:
 		mode_buttons[index].button_pressed = ["point", "in", "out"][index] == active
 
 func _insert_key() -> void:
+	if not is_instance_valid(target) or path_select == null or point_select == null:
+		return
 	var plugin := _plugin()
 	if plugin != null and path_select.item_count > 0:
 		plugin.call("insert_path_key", target, path_select.get_selected_id(), int(point_select.value))
