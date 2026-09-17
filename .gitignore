@@ -2,6 +2,7 @@
 .godot/
 *.import
 .DS_Store
+__pycache__/
 .sconsign.dblite
 tmp/
 ログ/

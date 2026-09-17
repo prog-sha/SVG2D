@@ -905,7 +905,18 @@ func _run() -> void:
 	check(extension.load("res://addons/svg2d/svg2d.gdextension") == OK,
 		"svg2d.gdextensionを読めなかったよ")
 	var libraries := extension.get_section_keys("libraries")
-	check(libraries.size() == 4, "配布していない環境のGDExtensionパスがあるよ: %s" % [libraries])
+	var expected_libraries := PackedStringArray([
+		"macos.debug", "macos.release",
+		"windows.debug.x86_64", "windows.release.x86_64",
+		"linux.debug.x86_64", "linux.release.x86_64",
+		"linux.debug.arm64", "linux.release.arm64",
+		"android.debug.arm64", "android.release.arm64",
+		"web.debug.wasm32", "web.release.wasm32",
+	])
+	check(libraries.size() == expected_libraries.size(),
+		"GDExtensionバイナリ構成数が違うよ: %s" % [libraries])
+	for key in expected_libraries:
+		check(key in libraries, "GDExtensionバイナリ構成がないよ: %s" % key)
 	for key in libraries:
 		var relative := String(extension.get_value("libraries", key)).trim_prefix(".")
 		check(FileAccess.file_exists("res://addons/svg2d" + relative),

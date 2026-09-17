@@ -9,8 +9,11 @@ SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D an
 - Godot 4.7 or later
 - Windows x86_64
 - macOS Universal
+- Linux x86_64 and arm64
+- Android arm64
+- Web wasm32 (threadless)
 
-The packaged add-on includes precompiled debug and release binaries for Windows x86_64 and macOS Universal.
+The packaged add-on includes precompiled debug and release binaries for every platform listed above.
 
 ## Installation
 
