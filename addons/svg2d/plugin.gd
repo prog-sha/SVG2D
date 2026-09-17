@@ -13,11 +13,8 @@ var canvas_input_control: Control
 var drag_node: Node2D
 var drag_start := Vector2.ZERO
 var drag_offset := Vector2.ZERO
-var drag_node_3d: Node3D
-var drag_start_3d := Vector3.ZERO
 var drag_plane_point := Vector3.ZERO
 var drag_plane_normal := Vector3.FORWARD
-var drag_hit_3d := Vector3.ZERO
 var path_node: Node
 var path_index := 0
 var point_index := 0
@@ -92,7 +89,7 @@ func editor_pixel_ratio() -> float:
 	return maxf(EDITOR_OVERSAMPLE, display_scale if is_finite(display_scale) else 1.0)
 
 func svg2d_density(node: Node2D, editor_canvas: Transform2D, pixel_ratio: float) -> Vector2:
-	var transform := editor_canvas * node.global_transform
+	var transform := editor_canvas * node.get_screen_transform()
 	var ratio := maxf(EDITOR_OVERSAMPLE, pixel_ratio)
 	return Vector2(transform.x.length(), transform.y.length()) * ratio
 
@@ -102,7 +99,7 @@ func update_svg2d_editor_density(viewport: SubViewport) -> void:
 		return
 	var valid := viewport != null and viewport.get_visible_rect().size.x >= 64.0 \
 		and viewport.get_visible_rect().size.y >= 64.0
-	var editor_canvas := viewport.get_canvas_transform() if valid else Transform2D.IDENTITY
+	var editor_canvas := viewport.get_global_canvas_transform() if valid else Transform2D.IDENTITY
 	var pixel_ratio := editor_pixel_ratio()
 	for node in get_tree().get_nodes_in_group(&"_svg2d_editor_nodes"):
 		if node == root or root.is_ancestor_of(node):
@@ -125,17 +122,18 @@ func svg_rect(node: Node2D) -> Rect2:
 
 func canvas_transform() -> Transform2D:
 	var viewport := EditorInterface.get_editor_viewport_2d()
-	return viewport.get_canvas_transform() if viewport else Transform2D.IDENTITY
+	# CanvasItemEditorはパン／ズームをscene root SubViewportのglobal canvasへ設定する。
+	return viewport.get_global_canvas_transform() if viewport else Transform2D.IDENTITY
 
 func screen_transform(node: Node2D) -> Transform2D:
-	# 編集シーンが実際に登録されているViewportの変換を使う。EditorInterfaceから
-	# 別途取得したViewportと合成すると、パンやノード位置が二重化・欠落しうる。
-	return node.get_global_transform_with_canvas()
+	# Godot標準Path2Dエディタと同じ合成順序。
+	return canvas_transform() * node.get_screen_transform()
 
 func screen_to_parent(node: Node2D, point: Vector2) -> Vector2:
+	var canvas_point := canvas_transform().affine_inverse() * point
 	var parent := node.get_parent() as CanvasItem
-	return parent.get_global_transform_with_canvas().affine_inverse() * point \
-		if parent else node.get_canvas_transform().affine_inverse() * point
+	return parent.get_global_transform_with_canvas().affine_inverse() * canvas_point \
+		if parent else node.get_canvas_transform().affine_inverse() * canvas_point
 
 func collect_svg2d(node: Node, found: Array[Node2D]) -> void:
 	if node.is_class("SVG2D") and node is Node2D and node.is_visible_in_tree():
@@ -500,22 +498,11 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 					drag_plane_point = animate.global_position
 					drag_plane_normal = animate.global_transform.basis.z.normalized()
 					return EditorPlugin.AFTER_GUI_INPUT_STOP
-			var picked := pick_svg3d(camera, event.position)
-			if picked.is_empty():
-				return EditorPlugin.AFTER_GUI_INPUT_PASS
-			drag_node_3d = picked.node
-			drag_start_3d = drag_node_3d.position
-			drag_plane_point = drag_node_3d.global_position
-			drag_plane_normal = drag_node_3d.global_transform.basis.z.normalized()
-			drag_hit_3d = picked.point
-			EditorInterface.get_selection().clear()
-			EditorInterface.get_selection().add_node(drag_node_3d)
-			return EditorPlugin.AFTER_GUI_INPUT_STOP
+			# ノード本体の選択・移動は全面collisionを持つ標準3Dギズモへ渡す。
+			# 独自平面ドラッグと標準ギズモをクリック位置によって混在させない。
+			return EditorPlugin.AFTER_GUI_INPUT_PASS
 		if path_dragging:
 			finish_path_drag(); return EditorPlugin.AFTER_GUI_INPUT_STOP
-		if drag_node_3d:
-			finish_drag_3d()
-			return EditorPlugin.AFTER_GUI_INPUT_STOP
 	if event is InputEventMouseMotion and path_dragging and path_node is Node3D \
 			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		var hit := intersect_drag_plane(camera, event.position)
@@ -528,12 +515,6 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			set_path_control(path_node, value)
 			if not event.alt_pressed: mirror_opposite_handle(path_node, value)
 			update_overlays()
-		return EditorPlugin.AFTER_GUI_INPUT_STOP
-	if event is InputEventMouseMotion and drag_node_3d and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
-		var hit := intersect_drag_plane(camera, event.position)
-		if hit != null:
-			drag_node_3d.global_position += Vector3(hit) - drag_hit_3d
-			drag_hit_3d = hit
 		return EditorPlugin.AFTER_GUI_INPUT_STOP
 	return EditorPlugin.AFTER_GUI_INPUT_PASS
 
@@ -592,15 +573,3 @@ func _forward_3d_draw_over_viewport(control: Control) -> void:
 			var screen := camera.unproject_position(svg_world_3d(selected, handle, path_index))
 			control.draw_line(anchor, screen, Color("#62d7ff"), 1.5, true)
 			control.draw_circle(screen, 4.0, Color("#62d7ff"))
-
-func finish_drag_3d() -> void:
-	var moved := drag_node_3d
-	var finish := moved.position
-	drag_node_3d = null
-	if finish != drag_start_3d:
-		moved.position = drag_start_3d
-		var undo := EditorInterface.get_editor_undo_redo()
-		undo.create_action("Move SVG3D")
-		undo.add_do_property(moved, &"position", finish)
-		undo.add_undo_property(moved, &"position", drag_start_3d)
-		undo.commit_action()

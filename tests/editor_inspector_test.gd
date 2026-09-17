@@ -150,9 +150,20 @@ func run_checks() -> void:
 		scene_root.add_child(animate)
 		animate.owner = scene_root
 		animate.position = Vector2(137, 83)
+		var editor_view2 := EditorInterface.get_editor_viewport_2d()
+		var editor_canvas := editor_view2.get_global_canvas_transform()
 		check(Transform2D(svg_plugin.call("screen_transform", animate)).is_equal_approx(
-			animate.get_global_transform_with_canvas()),
+			editor_canvas * animate.get_screen_transform()),
 			"2Dパスオーバーレイが実描画Viewportのノード変換を使っていないよ")
+		# Viewport.canvas_transformでは見えないCanvasItemEditorのパン・ズームを再現する。
+		var saved_global_canvas := editor_view2.get_global_canvas_transform()
+		var forced_global_canvas := Transform2D(
+			Vector2(1.75, 0), Vector2(0, 1.75), Vector2(123, -57))
+		editor_view2.set_global_canvas_transform(forced_global_canvas)
+		check(Transform2D(svg_plugin.call("screen_transform", animate)).is_equal_approx(
+			forced_global_canvas * animate.get_screen_transform()),
+			"2Dエディターのパン／ズームをパス点へ反映していないよ")
+		editor_view2.set_global_canvas_transform(saved_global_canvas)
 		var animate_texture := animate.call("get_texture") as Texture2D
 		check(animate_texture != null and animate_texture.get_image().get_used_rect().has_area(),
 			"SVGAnimate2Dの編集用画像を描けないよ: size=%s src=%d" %
@@ -356,19 +367,9 @@ func run_checks() -> void:
 		press3.button_index = MOUSE_BUTTON_LEFT
 		press3.pressed = true
 		press3.position = opaque_3d
-		check(svg_plugin.call("_forward_3d_gui_input", test_camera, press3) == EditorPlugin.AFTER_GUI_INPUT_STOP,
-			"SVG3Dの絵をクリックして選択できないよ")
-		var motion3 := InputEventMouseMotion.new()
-		motion3.button_mask = MOUSE_BUTTON_MASK_LEFT
-		motion3.position = opaque_3d + Vector2(48, 30)
-		svg_plugin.call("_forward_3d_gui_input", test_camera, motion3)
-		var moved3 := node3.position
-		var release3 := InputEventMouseButton.new()
-		release3.button_index = MOUSE_BUTTON_LEFT
-		release3.position = motion3.position
-		svg_plugin.call("_forward_3d_gui_input", test_camera, release3)
-		check(moved3 != Vector3.ZERO and node3.position == moved3,
-			"SVG3Dを不透明画素からドラッグ移動できないよ")
+		check(svg_plugin.call("_forward_3d_gui_input", test_camera, press3) == EditorPlugin.AFTER_GUI_INPUT_PASS
+			and node3.position == Vector3.ZERO,
+			"SVG3Dノード移動を標準3Dギズモではなく独自ドラッグが奪っているよ")
 		var animate3: Node3D = ClassDB.instantiate("SVGAnimate3D")
 		animate3.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='200' " \
 			+ "viewBox='10 20 100 50' preserveAspectRatio='none'><g transform='translate(5 3)'>" \
@@ -386,13 +387,8 @@ func run_checks() -> void:
 		animate3_press.pressed = true
 		animate3_press.position = animate3_inside
 		check(svg_plugin.call("_forward_3d_gui_input", test_camera, animate3_press)
-			== EditorPlugin.AFTER_GUI_INPUT_STOP
-			and EditorInterface.get_selection().get_selected_nodes().has(animate3),
-			"未選択のSVGAnimate3Dを絵のクリックで選択できないよ")
-		var animate3_release := InputEventMouseButton.new()
-		animate3_release.button_index = MOUSE_BUTTON_LEFT
-		animate3_release.position = animate3_inside
-		svg_plugin.call("_forward_3d_gui_input", test_camera, animate3_release)
+			== EditorPlugin.AFTER_GUI_INPUT_PASS,
+			"未選択SVGAnimate3Dのクリックを標準選択ギズモへ渡していないよ")
 		EditorInterface.get_selection().clear()
 		EditorInterface.get_selection().add_node(animate3)
 		var point_world: Vector3 = svg_plugin.call("svg_world_3d", animate3, Vector2(70, 20), 0)
@@ -412,6 +408,12 @@ func run_checks() -> void:
 		path_press3.position = point_screen
 		check(svg_plugin.call("_forward_3d_gui_input", test_camera, path_press3)
 			== EditorPlugin.AFTER_GUI_INPUT_STOP, "3Dパス接点のドラッグを開始できないよ")
+		var stationary_motion3 := InputEventMouseMotion.new()
+		stationary_motion3.button_mask = MOUSE_BUTTON_MASK_LEFT
+		stationary_motion3.position = point_screen
+		svg_plugin.call("_forward_3d_gui_input", test_camera, stationary_motion3)
+		check(Vector2(animate3.call("get_path_point", 0, 1)).distance_to(Vector2(70, 20)) < 0.001,
+			"3Dパス接点を押しただけで表示位置からずれたよ")
 		var path_motion3 := InputEventMouseMotion.new()
 		path_motion3.button_mask = MOUSE_BUTTON_MASK_LEFT
 		path_motion3.position = point_screen + Vector2(15, 10)
