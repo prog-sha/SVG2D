@@ -1,0 +1,3 @@
+interface:
+  display_name: "Godot GDExtension Cross Build"
+  short_description: "Godot拡張を各OS向けにクロスビルドし、配布バイナリを検証する"
