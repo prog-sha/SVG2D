@@ -2,6 +2,7 @@
 // 責務: 連続した座標をSIMDで更新し、描画側には必要な頂点だけ渡す。
 #include "rope.h"
 #include "rope_math.h"
+#include <godot_cpp/classes/class_db_singleton.hpp>
 
 #include <godot_cpp/classes/base_material3d.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -81,6 +82,7 @@ Vector2 SpriteRope2D::_effective_gravity() const {
 }
 
 void SpriteRope2D::reset_simulation() {
+	_clear_attachment();
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
 	double length = _effective_length();
@@ -92,44 +94,28 @@ void SpriteRope2D::reset_simulation() {
 	queue_redraw();
 }
 
-void SpriteRope2D::_ready() { reset_simulation(); }
+void SpriteRope2D::_ready() { if (!_preserve_state) reset_simulation(); _preserve_state = false; }
 
+// 作り直すときだけ内部剛体を解放する。
 void SpriteRope2D::_clear_attachment() {
 	_attachment_target_id = 0;
-	if (_attachment_joint != nullptr) _attachment_joint->queue_free();
-	if (_attachment_anchor != nullptr) _attachment_anchor->queue_free();
-	_attachment_joint = nullptr;
-	_attachment_anchor = nullptr;
+	if (_physics) { _physics->clear_nodes(); _physics.reset(); }
 }
 
+// 接続物があるとき、ロープも質量を持つ剛体として同じソルバーへ参加する。
 void SpriteRope2D::_sync_attachment() {
-	if (_attachment_body.is_empty() || !is_inside_tree() || _points.empty()) return;
+	if (!is_inside_tree() || Engine::get_singleton()->is_editor_hint() || _points.size() < 2) return;
 	PhysicsBody2D *body = Object::cast_to<PhysicsBody2D>(ObjectDB::get_instance(_attachment_target_id));
-	if (body == nullptr || !body->is_inside_tree()) {
+	if (!_attachment_body.is_empty() && (body == nullptr || !body->is_inside_tree()))
 		body = Object::cast_to<PhysicsBody2D>(get_node_or_null(_attachment_body));
-		_attachment_target_id = body == nullptr ? 0 : body->get_instance_id();
+	if (_attachment_body.is_empty() || (body && (!body->is_inside_tree() || body->is_queued_for_deletion()))) body = nullptr;
+	_attachment_target_id = body ? body->get_instance_id() : 0;
+	int point = _attachment_point < 0 ? (int)_points.size() - 1 : std::min(_attachment_point, (int)_points.size() - 1);
+	if (body && !_physics) {
+		_physics = std::make_unique<RopePhysics2D>();
+		_physics->build(this, _points, _previous, _last_delta, _pin_start, _rope_mass);
 	}
-	if (body == nullptr || !body->is_inside_tree()) {
-		if (_attachment_joint != nullptr) _attachment_joint->set_node_b(NodePath());
-		return;
-	}
-	int point = _attachment_point < 0 ? (int)_points.size() - 1 :
-			std::min(_attachment_point, (int)_points.size() - 1);
-	if (_attachment_joint == nullptr || _attachment_anchor == nullptr) {
-		_attachment_anchor = memnew(AnimatableBody2D);
-		_attachment_anchor->set_name("RopeAttachmentAnchor");
-		_attachment_anchor->set_position(_points[(size_t)point]);
-		add_child(_attachment_anchor, false, Node::INTERNAL_MODE_BACK);
-		_attachment_joint = memnew(PinJoint2D);
-		_attachment_joint->set_name("RopeAttachment");
-		_attachment_joint->set_position(_points[(size_t)point]);
-		add_child(_attachment_joint, false, Node::INTERNAL_MODE_BACK);
-	}
-	NodePath anchor_path = _attachment_joint->get_path_to(_attachment_anchor);
-	NodePath body_path = _attachment_joint->get_path_to(body);
-	if (_attachment_joint->get_node_a() != anchor_path) _attachment_joint->set_node_a(anchor_path);
-	if (_attachment_joint->get_node_b() != body_path) _attachment_joint->set_node_b(body_path);
-	_attachment_anchor->set_position(_points[(size_t)point]);
+	if (_physics) _physics->connect(this, body, point, _points);
 }
 
 void SpriteRope2D::_simulate(double delta) {
@@ -138,7 +124,7 @@ void SpriteRope2D::_simulate(double delta) {
 	if (_previous.size() != _points.size()) reset_simulation();
 	Vector2 anchor = _points[0];
 	double dt = std::min(std::max(delta, 0.0), 1.0 / 30.0);
-	float keep = (float)(1.0 - _damping);
+	float keep = (float)std::pow(1.0 - _damping, dt * 60.0);
 	integrate_rope(_points, _previous, _effective_gravity() * (float)(dt * dt), keep,
 			_pin_start ? 1u : 0u);
 	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
@@ -146,12 +132,18 @@ void SpriteRope2D::_simulate(double delta) {
 }
 
 void SpriteRope2D::_physics_process(double delta) {
-	if (Engine::get_singleton()->is_editor_hint()) return;
-	if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
+	if (Engine::get_singleton()->is_editor_hint() || !std::isfinite(delta) || delta <= 0.0) return;
+	_sync_attachment();
+	if (_physics) {
+		Vector2 world_gravity = to_global(_effective_gravity()) - to_global(Vector2());
+		_physics->configure(_rope_mass, _damping, world_gravity, _simulation_enabled, delta);
+		_physics->read(this, _points, _previous, delta);
+		queue_redraw();
+	} else if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
 		_simulate(delta);
 		queue_redraw();
 	}
-	_sync_attachment();
+	_last_delta = _physics ? delta : std::min(delta, 1.0 / 30.0);
 }
 
 // 隣接する帯の三角形を1回の描画命令へまとめる。
@@ -184,7 +176,7 @@ void SpriteRope2D::_draw() {
 		Vector2 side = rope_side_2d(_points, (size_t)i) * half;
 		v[i * 2] = _points[(size_t)i] + side;
 		v[i * 2 + 1] = _points[(size_t)i] - side;
-		float t = (float)i / (float)(count - 1);
+		float t = _uv_range.x + (_uv_range.y - _uv_range.x) * ((float)i / (count - 1));
 		uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
 	}
 	PackedColorArray colors;
@@ -195,7 +187,7 @@ void SpriteRope2D::_draw() {
 
 void SpriteRope2D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
 void SpriteRope2D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
-void SpriteRope2D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled || !_attachment_body.is_empty()); }
+void SpriteRope2D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled || !_attachment_body.is_empty() || _physics != nullptr); }
 void SpriteRope2D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
 void SpriteRope2D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
 void SpriteRope2D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
@@ -209,17 +201,81 @@ void SpriteRope2D::set_line_width(double value) { _line_width = std::isfinite(va
 void SpriteRope2D::set_line_color(const Color &value) { _line_color = value; queue_redraw(); }
 void SpriteRope2D::set_attachment_body(const NodePath &path) {
 	if (_attachment_body == path) return;
-	_clear_attachment();
+	_attachment_target_id = 0;
 	_attachment_body = path;
-	set_physics_process(_simulation_enabled || !_attachment_body.is_empty());
+	set_physics_process(_simulation_enabled || !_attachment_body.is_empty() || _physics != nullptr);
 	_sync_attachment();
 }
 void SpriteRope2D::set_attachment_point(int value) {
 	value = std::clamp(value, -1, 255);
 	if (_attachment_point == value) return;
 	_attachment_point = value;
-	_clear_attachment();
+	_attachment_target_id = 0;
 	_sync_attachment();
+}
+
+// 質量は区間数で配分し、切断後も合計を保存する。
+void SpriteRope2D::set_rope_mass(double value) { _rope_mass = std::isfinite(value) ? std::max(0.001, value) : 1.0; }
+void SpriteRope2D::set_uv_range(const Vector2 &value) {
+	if (!value.is_finite()) return;
+	_uv_range = value;
+
+	queue_redraw();
+}
+
+// 現在の粒子速度をロープのローカル座標で返す。
+PackedVector2Array SpriteRope2D::get_rope_velocities() const {
+	PackedVector2Array out; out.resize((int)_points.size());
+	auto *data = out.ptrw();
+	for (size_t i = 0; i < _points.size(); i++) data[i] = (_points[i] - _previous[i]) / _last_delta;
+	return out;
+}
+
+// 接点で二分し、新しい同型ノードを同じ親へ置く。位置・速度は初期化しない。
+SpriteRope2D *SpriteRope2D::cut_at(int point) {
+	if (!is_inside_tree() || get_parent() == nullptr || point <= 0 || point >= (int)_points.size() - 1 ||
+			Engine::get_singleton()->is_editor_hint()) return nullptr;
+	if (_physics) _physics->read(this, _points, _previous, _last_delta);
+	Object *object = ClassDBSingleton::get_singleton()->instantiate(get_class());
+	auto *tail = Object::cast_to<SpriteRope2D>(object);
+	if (!tail) return nullptr;
+	TypedArray<Dictionary> properties = get_property_list();
+	for (int i = 0; i < properties.size(); i++) {
+		Dictionary property = properties[i];
+		StringName name = property["name"];
+		if (((int64_t)property["usage"] & PROPERTY_USAGE_STORAGE) && name != StringName("attachment_body") &&
+				name != StringName("script")) tail->set(name, get(name));
+	}
+	tail->set_name(String(get_name()) + "Cut");
+	int count = (int)_points.size();
+	float ratio = (float)point / (count - 1);
+	double length = _effective_length();
+	int attached = _attachment_point < 0 ? count - 1 : std::min(_attachment_point, count - 1);
+	Node *target = _attachment_body.is_empty() ? nullptr : get_node_or_null(_attachment_body);
+	tail->_points.assign(_points.begin() + point, _points.end());
+	tail->_previous.assign(_previous.begin() + point, _previous.end());
+	tail->_segments = count - point; tail->_max_length = length * (1.0 - ratio);
+	tail->_rope_mass = _rope_mass * (1.0 - ratio); tail->_last_delta = _last_delta;
+	tail->_pin_start = false; tail->_preserve_state = true;
+	float uv_cut = _uv_range.x + (_uv_range.y - _uv_range.x) * ratio;
+	tail->_uv_range = Vector2(uv_cut, _uv_range.y); _uv_range.y = uv_cut;
+	_points.resize(point + 1); _previous.resize(point + 1);
+	_segments = point + 1; _max_length = length * ratio; _rope_mass *= ratio;
+	get_parent()->add_child(tail, true);
+	if (get_owner()) tail->set_owner(get_owner());
+	if (_physics) tail->_physics = _physics->split(point, tail);
+	if (attached >= point && !_attachment_body.is_empty()) {
+		tail->_attachment_body = target ? tail->get_path_to(target) : _attachment_body;
+		tail->_attachment_point = _attachment_point < 0 ? -1 : attached - point;
+		tail->_attachment_target_id = _attachment_target_id;
+		_attachment_body = NodePath(); _attachment_target_id = 0;
+	}
+	_sync_attachment(); tail->_sync_attachment();
+	tail->set_physics_process(_simulation_enabled || tail->_physics != nullptr || !tail->_attachment_body.is_empty());
+
+	queue_redraw();
+	tail->queue_redraw();
+	return tail;
 }
 
 PackedVector2Array SpriteRope2D::get_rope_points() const {
@@ -232,6 +288,14 @@ PackedVector2Array SpriteRope2D::get_rope_points() const {
 String SpriteRope2D::get_simulation_backend() const { return rope_backend_name(); }
 
 void SpriteRope2D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("cut_at", "point"), &SpriteRope2D::cut_at);
+	ClassDB::bind_method(D_METHOD("get_rope_velocities"), &SpriteRope2D::get_rope_velocities);
+	ClassDB::bind_method(D_METHOD("set_rope_mass", "mass"), &SpriteRope2D::set_rope_mass);
+	ClassDB::bind_method(D_METHOD("get_rope_mass"), &SpriteRope2D::get_rope_mass);
+	ClassDB::bind_method(D_METHOD("set_uv_range", "range"), &SpriteRope2D::set_uv_range);
+	ClassDB::bind_method(D_METHOD("get_uv_range"), &SpriteRope2D::get_uv_range);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rope_mass", PROPERTY_HINT_RANGE, "0.001,1000,0.001,or_greater"), "set_rope_mass", "get_rope_mass");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "uv_range"), "set_uv_range", "get_uv_range");
 	ClassDB::bind_method(D_METHOD("set_texture", "texture"), &SpriteRope2D::set_texture);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SpriteRope2D::get_texture);
 	ClassDB::bind_method(D_METHOD("set_line_mode", "enabled"), &SpriteRope2D::set_line_mode);
@@ -353,6 +417,7 @@ void SpriteRope3D::_ensure_mesh() {
 }
 
 void SpriteRope3D::reset_simulation() {
+	_clear_attachment();
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
 	double length = _effective_length();
@@ -364,44 +429,28 @@ void SpriteRope3D::reset_simulation() {
 	if (is_inside_tree()) _update_mesh();
 }
 
-void SpriteRope3D::_ready() { reset_simulation(); }
+void SpriteRope3D::_ready() { if (!_preserve_state) reset_simulation(); _preserve_state = false; }
 
+// 作り直すときだけ内部剛体を解放する。
 void SpriteRope3D::_clear_attachment() {
 	_attachment_target_id = 0;
-	if (_attachment_joint != nullptr) _attachment_joint->queue_free();
-	if (_attachment_anchor != nullptr) _attachment_anchor->queue_free();
-	_attachment_joint = nullptr;
-	_attachment_anchor = nullptr;
+	if (_physics) { _physics->clear_nodes(); _physics.reset(); }
 }
 
+// 接続物があるとき、ロープも質量を持つ剛体として同じソルバーへ参加する。
 void SpriteRope3D::_sync_attachment() {
-	if (_attachment_body.is_empty() || !is_inside_tree() || _points.empty()) return;
+	if (!is_inside_tree() || Engine::get_singleton()->is_editor_hint() || _points.size() < 2) return;
 	PhysicsBody3D *body = Object::cast_to<PhysicsBody3D>(ObjectDB::get_instance(_attachment_target_id));
-	if (body == nullptr || !body->is_inside_tree()) {
+	if (!_attachment_body.is_empty() && (body == nullptr || !body->is_inside_tree()))
 		body = Object::cast_to<PhysicsBody3D>(get_node_or_null(_attachment_body));
-		_attachment_target_id = body == nullptr ? 0 : body->get_instance_id();
+	if (_attachment_body.is_empty() || (body && (!body->is_inside_tree() || body->is_queued_for_deletion()))) body = nullptr;
+	_attachment_target_id = body ? body->get_instance_id() : 0;
+	int point = _attachment_point < 0 ? (int)_points.size() - 1 : std::min(_attachment_point, (int)_points.size() - 1);
+	if (body && !_physics) {
+		_physics = std::make_unique<RopePhysics3D>();
+		_physics->build(this, _points, _previous, _last_delta, _pin_start, _rope_mass);
 	}
-	if (body == nullptr || !body->is_inside_tree()) {
-		if (_attachment_joint != nullptr) _attachment_joint->set_node_b(NodePath());
-		return;
-	}
-	int point = _attachment_point < 0 ? (int)_points.size() - 1 :
-			std::min(_attachment_point, (int)_points.size() - 1);
-	if (_attachment_joint == nullptr || _attachment_anchor == nullptr) {
-		_attachment_anchor = memnew(AnimatableBody3D);
-		_attachment_anchor->set_name("RopeAttachmentAnchor");
-		_attachment_anchor->set_position(_points[(size_t)point]);
-		add_child(_attachment_anchor, false, Node::INTERNAL_MODE_BACK);
-		_attachment_joint = memnew(PinJoint3D);
-		_attachment_joint->set_name("RopeAttachment");
-		_attachment_joint->set_position(_points[(size_t)point]);
-		add_child(_attachment_joint, false, Node::INTERNAL_MODE_BACK);
-	}
-	NodePath anchor_path = _attachment_joint->get_path_to(_attachment_anchor);
-	NodePath body_path = _attachment_joint->get_path_to(body);
-	if (_attachment_joint->get_node_a() != anchor_path) _attachment_joint->set_node_a(anchor_path);
-	if (_attachment_joint->get_node_b() != body_path) _attachment_joint->set_node_b(body_path);
-	_attachment_anchor->set_position(_points[(size_t)point]);
+	if (_physics) _physics->connect(this, body, point, _points);
 }
 
 void SpriteRope3D::_simulate(double delta) {
@@ -410,7 +459,7 @@ void SpriteRope3D::_simulate(double delta) {
 	if (_previous.size() != _points.size()) reset_simulation();
 	Vector3 anchor = _points[0];
 	double dt = std::min(std::max(delta, 0.0), 1.0 / 30.0);
-	float keep = (float)(1.0 - _damping);
+	float keep = (float)std::pow(1.0 - _damping, dt * 60.0);
 	integrate_rope(_points, _previous, _effective_gravity() * (float)(dt * dt), keep,
 			_pin_start ? 1u : 0u);
 	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
@@ -466,7 +515,7 @@ void SpriteRope3D::_update_mesh() {
 	uvs.resize(count * 2);
 	Vector2 *uv = uvs.ptrw();
 	for (int i = 0; i < count; i++) {
-		float t = (float)i / (float)(count - 1);
+		float t = _uv_range.x + (_uv_range.y - _uv_range.x) * ((float)i / (count - 1));
 		uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
 	}
 	Array arrays;
@@ -481,12 +530,18 @@ void SpriteRope3D::_update_mesh() {
 }
 
 void SpriteRope3D::_physics_process(double delta) {
-	if (Engine::get_singleton()->is_editor_hint()) return;
-	if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
-		_simulate(delta);
-		_update_mesh();
-	}
+	if (Engine::get_singleton()->is_editor_hint() || !std::isfinite(delta) || delta <= 0.0) return;
 	_sync_attachment();
+	if (_physics) {
+		Vector3 world_gravity = to_global(_effective_gravity()) - to_global(Vector3());
+		_physics->configure(_rope_mass, _damping, world_gravity, _simulation_enabled, delta);
+		_physics->read(this, _points, _previous, delta);
+		if (is_inside_tree()) _update_mesh();
+	} else if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
+		_simulate(delta);
+		if (is_inside_tree()) _update_mesh();
+	}
+	_last_delta = _physics ? delta : std::min(delta, 1.0 / 30.0);
 }
 
 // 動的更新の切り替え時は面を作り直し、GPUと設定を揃える。
@@ -498,7 +553,7 @@ void SpriteRope3D::set_dynamic_mesh(bool enabled) {
 
 void SpriteRope3D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
 void SpriteRope3D::set_line_mode(bool enabled) { if (_line_mode != enabled) { _line_mode = enabled; reset_simulation(); } }
-void SpriteRope3D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled || !_attachment_body.is_empty()); }
+void SpriteRope3D::set_simulation_enabled(bool enabled) { _simulation_enabled = enabled; set_physics_process(enabled || !_attachment_body.is_empty() || _physics != nullptr); }
 void SpriteRope3D::set_pin_start(bool enabled) { if (_pin_start != enabled) { _pin_start = enabled; reset_simulation(); } }
 void SpriteRope3D::set_segments(int value) { value = std::clamp(value, 2, 256); if (_segments != value) { _segments = value; reset_simulation(); } }
 void SpriteRope3D::set_constraint_iterations(int value) { _constraint_iterations = std::clamp(value, 1, 64); }
@@ -514,17 +569,81 @@ void SpriteRope3D::set_pixel_size(double value) { value = std::isfinite(value) ?
 void SpriteRope3D::set_modulate(const Color &value) { _modulate = value; _update_mesh(); }
 void SpriteRope3D::set_attachment_body(const NodePath &path) {
 	if (_attachment_body == path) return;
-	_clear_attachment();
+	_attachment_target_id = 0;
 	_attachment_body = path;
-	set_physics_process(_simulation_enabled || !_attachment_body.is_empty());
+	set_physics_process(_simulation_enabled || !_attachment_body.is_empty() || _physics != nullptr);
 	_sync_attachment();
 }
 void SpriteRope3D::set_attachment_point(int value) {
 	value = std::clamp(value, -1, 255);
 	if (_attachment_point == value) return;
 	_attachment_point = value;
-	_clear_attachment();
+	_attachment_target_id = 0;
 	_sync_attachment();
+}
+
+// 質量は区間数で配分し、切断後も合計を保存する。
+void SpriteRope3D::set_rope_mass(double value) { _rope_mass = std::isfinite(value) ? std::max(0.001, value) : 1.0; }
+void SpriteRope3D::set_uv_range(const Vector2 &value) {
+	if (!value.is_finite()) return;
+	_uv_range = value;
+	_mesh_points = 0;
+	if (is_inside_tree()) _update_mesh();
+}
+
+// 現在の粒子速度をロープのローカル座標で返す。
+PackedVector3Array SpriteRope3D::get_rope_velocities() const {
+	PackedVector3Array out; out.resize((int)_points.size());
+	auto *data = out.ptrw();
+	for (size_t i = 0; i < _points.size(); i++) data[i] = (_points[i] - _previous[i]) / _last_delta;
+	return out;
+}
+
+// 接点で二分し、新しい同型ノードを同じ親へ置く。位置・速度は初期化しない。
+SpriteRope3D *SpriteRope3D::cut_at(int point) {
+	if (!is_inside_tree() || get_parent() == nullptr || point <= 0 || point >= (int)_points.size() - 1 ||
+			Engine::get_singleton()->is_editor_hint()) return nullptr;
+	if (_physics) _physics->read(this, _points, _previous, _last_delta);
+	Object *object = ClassDBSingleton::get_singleton()->instantiate(get_class());
+	auto *tail = Object::cast_to<SpriteRope3D>(object);
+	if (!tail) return nullptr;
+	TypedArray<Dictionary> properties = get_property_list();
+	for (int i = 0; i < properties.size(); i++) {
+		Dictionary property = properties[i];
+		StringName name = property["name"];
+		if (((int64_t)property["usage"] & PROPERTY_USAGE_STORAGE) && name != StringName("attachment_body") &&
+				name != StringName("script")) tail->set(name, get(name));
+	}
+	tail->set_name(String(get_name()) + "Cut");
+	int count = (int)_points.size();
+	float ratio = (float)point / (count - 1);
+	double length = _effective_length();
+	int attached = _attachment_point < 0 ? count - 1 : std::min(_attachment_point, count - 1);
+	Node *target = _attachment_body.is_empty() ? nullptr : get_node_or_null(_attachment_body);
+	tail->_points.assign(_points.begin() + point, _points.end());
+	tail->_previous.assign(_previous.begin() + point, _previous.end());
+	tail->_segments = count - point; tail->_max_length = length * (1.0 - ratio);
+	tail->_rope_mass = _rope_mass * (1.0 - ratio); tail->_last_delta = _last_delta;
+	tail->_pin_start = false; tail->_preserve_state = true;
+	float uv_cut = _uv_range.x + (_uv_range.y - _uv_range.x) * ratio;
+	tail->_uv_range = Vector2(uv_cut, _uv_range.y); _uv_range.y = uv_cut;
+	_points.resize(point + 1); _previous.resize(point + 1);
+	_segments = point + 1; _max_length = length * ratio; _rope_mass *= ratio;
+	get_parent()->add_child(tail, true);
+	if (get_owner()) tail->set_owner(get_owner());
+	if (_physics) tail->_physics = _physics->split(point, tail);
+	if (attached >= point && !_attachment_body.is_empty()) {
+		tail->_attachment_body = target ? tail->get_path_to(target) : _attachment_body;
+		tail->_attachment_point = _attachment_point < 0 ? -1 : attached - point;
+		tail->_attachment_target_id = _attachment_target_id;
+		_attachment_body = NodePath(); _attachment_target_id = 0;
+	}
+	_sync_attachment(); tail->_sync_attachment();
+	tail->set_physics_process(_simulation_enabled || tail->_physics != nullptr || !tail->_attachment_body.is_empty());
+	_mesh_points = 0; tail->_mesh_points = 0;
+	if (is_inside_tree()) _update_mesh();
+	tail->_update_mesh();
+	return tail;
 }
 
 PackedVector3Array SpriteRope3D::get_rope_points() const {
@@ -537,6 +656,14 @@ PackedVector3Array SpriteRope3D::get_rope_points() const {
 String SpriteRope3D::get_simulation_backend() const { return rope_backend_name(); }
 
 void SpriteRope3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("cut_at", "point"), &SpriteRope3D::cut_at);
+	ClassDB::bind_method(D_METHOD("get_rope_velocities"), &SpriteRope3D::get_rope_velocities);
+	ClassDB::bind_method(D_METHOD("set_rope_mass", "mass"), &SpriteRope3D::set_rope_mass);
+	ClassDB::bind_method(D_METHOD("get_rope_mass"), &SpriteRope3D::get_rope_mass);
+	ClassDB::bind_method(D_METHOD("set_uv_range", "range"), &SpriteRope3D::set_uv_range);
+	ClassDB::bind_method(D_METHOD("get_uv_range"), &SpriteRope3D::get_uv_range);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rope_mass", PROPERTY_HINT_RANGE, "0.001,1000,0.001,or_greater"), "set_rope_mass", "get_rope_mass");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "uv_range"), "set_uv_range", "get_uv_range");
 	ClassDB::bind_method(D_METHOD("set_dynamic_mesh", "enabled"), &SpriteRope3D::set_dynamic_mesh);
 	ClassDB::bind_method(D_METHOD("is_dynamic_mesh"), &SpriteRope3D::is_dynamic_mesh);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dynamic_mesh"), "set_dynamic_mesh", "is_dynamic_mesh");

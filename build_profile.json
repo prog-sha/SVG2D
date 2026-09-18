@@ -29,6 +29,13 @@
 		"Viewport",
 		"World2D",
 		"World3D",
-		"XMLParser"
+		"XMLParser",
+		"RigidBody2D",
+		"RigidBody3D",
+		"CollisionShape2D",
+		"CollisionShape3D",
+		"CapsuleShape2D",
+		"CapsuleShape3D",
+		"ClassDB"
 	]
 }

@@ -62,3 +62,16 @@ SVGAnimateの **Animation Cache → Animation Cache Mode** は **Exact Frames** 
 **Animation Cache Limit Mb** は履歴の上限（既定32 MiB、1〜256）。最大512枚まで保持し、上限を超えたら最近使っていない画像から解放する。1枚だけで上限を超える画像は保持しない。表示中の画像や通常の描画用バッファはこの上限とは別。`src` の再設定、モード変更、`clear_animation_cache()` で履歴を消せる。
 
 `get_animation_cache_hits()`、`get_animation_cache_misses()`、`get_animation_cache_bytes()`、`get_animation_cache_frame_count()` で利用状況を確認できる。`cache_animation_frames` は現在の形の揺れ4パターン、**Exact Frames** は過去の接点形状も含む履歴を扱う。どちらも編集点・ハンドルの位置には影響しない。
+
+### ロープの切断と物理接続
+
+`cut_at(point_index)` は途中の接点でロープを切り、同じクラスの新しいノードを `ClassDB.instantiate` で作って同じ親に追加し、返す。元のロープは上側、新しいロープは開始点が自由な下側になる。現在の形・速度・回転速度・素材の切れ目を引き継ぎ、長さと質量を分配する。切断点以降の接続物も下側へ移る。切れる範囲は `1` から `segments - 2` で、端点・範囲外・ツリー外では変更せず `null` を返す。実行中専用で、スクリプト・子ノード・シグナル接続は複製しない。衝突通知から呼ぶ場合は `call_deferred` を使おう。
+
+```gdscript
+var fallen_rope = $Rope.cut_at(3)
+# fallen_rope.get_parent() == $Rope.get_parent()
+```
+
+未接続のロープはSIMD Verlet計算、接続済みロープはGodotの剛体計算を使う。`elasticity` と `constraint_iterations` はVerlet用で、剛体経路の反復設定はプロジェクトの物理設定に従う。`damping` は60Hzの1ステップあたりの速度減衰率で、更新頻度に応じて換算する。接続物自身の減衰はRigidBody側で設定する。接続を外しても区間の運動を保ち、`reset_simulation()` で内部剛体を解放して初期形状へ戻す。
+
+双方向接続は [Verlet Ropeの剛体方式](https://github.com/Tshmofen/verlet-rope-4/blob/master/addons/verlet_rope_4/Physics/VerletRopeRigid.cs)を参考に、C++で実装している。

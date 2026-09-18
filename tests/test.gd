@@ -643,21 +643,12 @@ func check_ropes() -> void:
 	rope2.set("attachment_point", 4)
 	rope2.set("attachment_body", rope2.get_path_to(load2))
 	await physics_frame
-	var joint2: PinJoint2D
-	var anchor2: AnimatableBody2D
-	for child in rope2.get_children(true):
-		if child is PinJoint2D:
-			joint2 = child
-		elif child is AnimatableBody2D:
-			anchor2 = child
-	check(joint2 != null and anchor2 != null and anchor2.position.distance_to(stopped2[4]) < 0.001
-		and not joint2.node_a.is_empty() and not joint2.node_b.is_empty(),
-		"SpriteRope2Dが指定粒子へPhysicsBody2Dを接続しないよ")
+	var segments2 := rope2.get_children(true).filter(func(child): return child is RigidBody2D)
+	check(segments2.size() == 8 and segments2[0].freeze,
+		"SpriteRope2Dの停止中接続で区間剛体を生成・固定できないよ")
 	rope2.set("attachment_body", NodePath())
 	await process_frame
-	check(not rope2.get_children(true).any(func(child):
-		return child is PinJoint2D or child is AnimatableBody2D),
-		"SpriteRope2Dの物理接続を解除できないよ")
+	check(rope2.get("attachment_body").is_empty(), "SpriteRope2Dの接続を解除できないよ")
 	view.free()
 
 	var svg_view := SubViewport.new()
@@ -719,18 +710,9 @@ func check_ropes() -> void:
 	rope3.set("attachment_point", 4)
 	rope3.set("attachment_body", rope3.get_path_to(load3))
 	await physics_frame
-	var joint3: PinJoint3D
-	var anchor3: AnimatableBody3D
-	for child in rope3.get_children(true):
-		if child is PinJoint3D:
-			joint3 = child
-		elif child is AnimatableBody3D:
-			anchor3 = child
-	var attached_points3: PackedVector3Array = rope3.call("get_rope_points")
-	check(joint3 != null and anchor3 != null
-		and anchor3.position.distance_to(attached_points3[4]) < 0.0001
-		and not joint3.node_a.is_empty() and not joint3.node_b.is_empty(),
-		"SpriteRope3Dが指定粒子へPhysicsBody3Dを接続しないよ")
+	var segments3 := rope3.get_children(true).filter(func(child): return child is RigidBody3D)
+	check(segments3.size() == 8 and segments3[0].mass > 0.0,
+		"SpriteRope3Dの接続が質量を持つ区間剛体を作らないよ")
 	rope3.free()
 	load3.free()
 	PhysicsServer3D.area_set_param(space3, PhysicsServer3D.AREA_PARAM_GRAVITY, old_gravity3)
@@ -786,7 +768,7 @@ func check_stickman_rope_scene() -> void:
 	var start_tip := rope.to_global(start_points[-1])
 	for i in 30:
 		await physics_frame
-	var joint_found := rope.get_children(true).any(func(child): return child is PinJoint2D)
+	var joint_found := rope.get_children(true).any(func(child): return child is RigidBody2D)
 	var anchor_found := rope.get_children(true).any(func(child): return child is AnimatableBody2D)
 	var end_points: PackedVector2Array = rope.call("get_rope_points")
 	var end_tip := rope.to_global(end_points[-1])
@@ -795,8 +777,8 @@ func check_stickman_rope_scene() -> void:
 	check(end_tip.distance_to(start_tip) > 3.0,
 		"傾けたロープがシステム重力で振れないよ: %.3f" % end_tip.distance_to(start_tip))
 	check(body.global_position.distance_to(start_position) > 3.0
-			and absf(angle_difference(body.global_rotation, start_rotation)) > 0.1,
-		"SVG棒人間がロープに拘束されて振り回されないよ")
+			and absf(angle_difference(body.global_rotation, start_rotation)) < 0.001 and body.lock_rotation,
+		"SVG棒人間が移動しない、または回転固定が効かないよ")
 	scene.free()
 	print("TSCN stickman rope swing passed")
 
@@ -984,6 +966,7 @@ func _run() -> void:
 	await check_appearance()
 	await check_ropes()
 	await check_stickman_rope_scene()
+	await preload("res://tests/rope_cut.gd").run(self)
 	await check_svg_animate()
 	await preload("res://tests/optimization.gd").run(self)
 	await preload("res://tests/animate_jitter.gd").run(self)

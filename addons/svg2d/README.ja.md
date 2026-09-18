@@ -41,7 +41,7 @@ add_child(picture)
 
 `SpriteRope2D` と `SpriteRope3D` はPNG・WebP・GodotでインポートしたSVGなど、標準の `Texture2D` を受け取るPBD紐だよ。`SVGRope2D` と `SVGRope3D` は `src` 選択と高解像度SVG生成を持つ別のSVG専用クラスだよ。どちらも上から下の各段を粒子列へ追従させる。`line_mode` をONにすれば素材なしで `line_width` と `line_color` の普通の紐になるよ。`max_length` が0なら素材の高さから長さを自動算出するよ。既定では所属するWorldのシステム重力を使い、`gravity_scale` で倍率を変えられるよ。独自のローカル重力を使う場合だけ `use_system_gravity` をOFFにして `gravity` を設定しよう。
 
-`attachment_body` に `PhysicsBody2D` または `PhysicsBody3D` を指定すると、粒子を追う内部 `AnimatableBody` とGodot標準の `PinJoint` で紐へ接続するよ。`attachment_point` が接続する粒子番号で、`-1` は末端だよ。接続物の衝突・質量・回転は物理エンジンが扱い、パスを空に戻すと内部Body・Joint・更新処理を取り除くよ。
+`attachment_body` に `PhysicsBody2D` / `PhysicsBody3D` を指定すると、ロープの各区間も内部 `RigidBody` と `PinJoint` で同じ物理空間へ参加するよ。接続物の重さ・慣性・衝突の反力がロープへ戻り、ロープも接続物を引く。`rope_mass` はロープ全体の質量、`attachment_point` は接続粒子番号で `-1` が末端。内部区間は衝突せず、外界との接触は接続物のCollisionShapeが担当するよ。回転を止める場合は接続物の `lock_rotation` をONにしよう。
 
 Verlet積分はARM64ならNEON、x86_64ならSSE2を使うよ。隣の補正結果へ依存する距離制約は順序を壊さない通常CPU計算のままだよ。非対応CPU・倍精度ビルド・`SVG2D_SCALAR=yes` では、同じ式のscalar経路へ自動で切り替わるよ。
 
@@ -101,3 +101,16 @@ SVGAnimateの **Animation Cache → Animation Cache Mode** は **Exact Frames** 
 **Animation Cache Limit Mb** は履歴の上限（既定32 MiB、1〜256）。最大512枚まで保持し、上限を超えたら最近使っていない画像から解放する。1枚だけで上限を超える画像は保持しない。表示中の画像や通常の描画用バッファはこの上限とは別。`src` の再設定、モード変更、`clear_animation_cache()` で履歴を消せる。
 
 `get_animation_cache_hits()`、`get_animation_cache_misses()`、`get_animation_cache_bytes()`、`get_animation_cache_frame_count()` で利用状況を確認できる。`cache_animation_frames` は現在の形の揺れ4パターン、**Exact Frames** は過去の接点形状も含む履歴を扱う。どちらも編集点・ハンドルの位置には影響しない。
+
+### ロープの切断と物理接続
+
+`cut_at(point_index)` は途中の接点でロープを切り、同じクラスの新しいノードを `ClassDB.instantiate` で作って同じ親に追加し、返す。元のロープは上側、新しいロープは開始点が自由な下側になる。現在の形・速度・回転速度・素材の切れ目を引き継ぎ、長さと質量を分配する。切断点以降の接続物も下側へ移る。切れる範囲は `1` から `segments - 2` で、端点・範囲外・ツリー外では変更せず `null` を返す。実行中専用で、スクリプト・子ノード・シグナル接続は複製しない。衝突通知から呼ぶ場合は `call_deferred` を使おう。
+
+```gdscript
+var fallen_rope = $Rope.cut_at(3)
+# fallen_rope.get_parent() == $Rope.get_parent()
+```
+
+未接続のロープはSIMD Verlet計算、接続済みロープはGodotの剛体計算を使う。`elasticity` と `constraint_iterations` はVerlet用で、剛体経路の反復設定はプロジェクトの物理設定に従う。`damping` は60Hzの1ステップあたりの速度減衰率で、更新頻度に応じて換算する。接続物自身の減衰はRigidBody側で設定する。接続を外しても区間の運動を保ち、`reset_simulation()` で内部剛体を解放して初期形状へ戻す。
+
+双方向接続は [Verlet Ropeの剛体方式](https://github.com/Tshmofen/verlet-rope-4/blob/master/addons/verlet_rope_4/Physics/VerletRopeRigid.cs)を参考に、C++で実装している。

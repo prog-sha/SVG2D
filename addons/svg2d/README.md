@@ -41,7 +41,7 @@ Path overlays use the same rendered `viewBox`, `preserveAspectRatio`, nested gro
 
 `SpriteRope2D` and `SpriteRope3D` accept any standard `Texture2D`, including PNG, WebP, and Godot-imported SVG resources. `SVGRope2D` and `SVGRope3D` are separate SVG-source variants with the `src` picker and supersampled SVG rendering. Both use a PBD rope pinned at the node origin; rows from top to bottom follow the particle chain. Enable `line_mode` for a plain rope configured by `line_width` and `line_color`. `max_length` set to zero derives the length from the texture or SVG height. Ropes use their World's system gravity by default; `gravity_scale` adjusts its strength. Disable `use_system_gravity` only when the local `gravity` override is needed.
 
-Set `attachment_body` to a `PhysicsBody2D` or `PhysicsBody3D` to connect it through an internal moving `AnimatableBody` and Godot `PinJoint`. `attachment_point` selects the rope particle, with `-1` meaning the last particle. The physics engine remains responsible for the attached body's collision, mass, and rotation response; clearing the path removes the internal bodies, joint, and update work.
+Set `attachment_body` to a `PhysicsBody2D` / `PhysicsBody3D` to create internal rigid segments and PinJoint constraints in the same physics space. Mass, inertia and collision reactions affect both the rope and the attached body. `rope_mass` sets the total rope mass; `attachment_point` selects a particle, with `-1` selecting the last. Internal segments have collision layers disabled; environment contact is handled by the attached body's CollisionShape. Enable that body's `lock_rotation` to prevent spinning.
 
 Verlet integration uses NEON on ARM64 or SSE2 on x86_64. The ordered distance-constraint solver remains scalar because each link depends on the preceding correction. Unsupported CPUs, double-precision builds, and builds made with `SVG2D_SCALAR=yes` automatically use the equivalent scalar integration path.
 
@@ -99,3 +99,16 @@ SVGAnimate's **Animation Cache → Animation Cache Mode** defaults to **Exact Fr
 **Animation Cache Limit Mb** sets the history budget (32 MiB by default, 1–256). Up to 512 frames are retained, evicting least recently used entries when either limit is reached. Oversized individual frames bypass retention. Current display references and renderer work buffers are separate from this budget. Replacing `src`, changing the mode or calling `clear_animation_cache()` clears history.
 
 Use `get_animation_cache_hits()`, `get_animation_cache_misses()`, `get_animation_cache_bytes()` and `get_animation_cache_frame_count()` to inspect usage. `cache_animation_frames` retains jitter patterns for the current shape; **Exact Frames** also retains previous path states. Neither changes editor anchor or handle coordinates.
+
+### Cutting ropes and two-way physics
+
+`cut_at(point_index)` splits at an interior particle, creates the same built-in rope class through `ClassDB.instantiate`, adds it to the same parent and returns it. The original keeps the upper part; the new rope has a free start. Current shape, linear/angular velocities and texture regions are preserved, and length and mass are divided. An attachment at or beyond the cut moves to the new rope. Valid indices are `1` through `segments - 2`. Endpoints, invalid indices and nodes outside the tree return `null` without changes. Runtime only; scripts, children and signal connections are not copied. Use `call_deferred` when cutting from physics query callbacks.
+
+```gdscript
+var fallen_rope = $Rope.cut_at(3)
+# fallen_rope.get_parent() == $Rope.get_parent()
+```
+
+Unattached ropes use SIMD Verlet integration. Attached ropes use Godot rigid-body physics: `elasticity` and `constraint_iterations` apply to Verlet, while rigid segments use the project's physics solver settings. `damping` is the fraction of velocity removed per 1/60 second, adjusted to the current timestep. Attached bodies keep their own damping settings. Clearing the attachment preserves the moving segments; `reset_simulation()` releases them and restores the initial shape.
+
+The two-way design draws on [Verlet Rope's rigid-body implementation](https://github.com/Tshmofen/verlet-rope-4/blob/master/addons/verlet_rope_4/Physics/VerletRopeRigid.cs), with a C++ implementation here.

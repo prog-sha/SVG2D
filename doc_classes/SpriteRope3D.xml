@@ -3,26 +3,30 @@
 	<brief_description>PBD ribbon rope for any Texture2D, or a plain line.</brief_description>
 	<description>Divides a Texture2D vertically and bends its rows along a 3D PBD particle chain.</description>
 	<methods>
-		<method name="get_rope_points" qualifiers="const"><return type="PackedVector3Array" /><description>Returns local-space PBD particle positions.</description></method>
+		<method name="get_rope_points" qualifiers="const"><return type="PackedVector3Array" /><description>Returns local-space rope particle positions.</description></method>
 		<method name="get_effective_gravity" qualifiers="const"><return type="Vector3" /><description>Returns the acceleration currently used by the solver in rope-local coordinates.</description></method>
 		<method name="get_simulation_backend" qualifiers="const"><return type="String" /><description>Returns neon, sse2, or scalar for the active Verlet integration backend.</description></method>
 		<method name="reset_simulation"><return type="void" /><description>Restores a straight rope.</description></method>
+		<method name="cut_at"><return type="SpriteRope3D" /><param index="0" name="point" type="int" /><description>Cuts at an interior particle (1 through segments - 2), creates the same built-in rope class with ClassDB.instantiate, adds it to the same parent and returns it. The original keeps particles 0 through point; the new rope keeps point through the last particle and has a free start. Both retain current positions, velocities and transforms. Length, mass and uv_range are split. An attachment at or beyond the cut moves to the new rope. Existing rigid segments retain their transforms and linear/angular velocities. Children, scripts and signal connections are not copied. Runtime only; invalid indices, endpoints or a node outside the tree return null without changes. Call deferred from physics query callbacks such as body_entered.</description></method>
+		<method name="get_rope_velocities" qualifiers="const"><return type="PackedVector3Array" /><description>Returns particle velocities in rope-local units per second.</description></method>
 	</methods>
 	<members>
+		<member name="rope_mass" type="float" setter="set_rope_mass" getter="get_rope_mass" default="1.0">Total mass in kilograms, distributed equally among rigid segments. Cutting divides the total proportionally to the number of links.</member>
+		<member name="uv_range" type="Vector2" setter="set_uv_range" getter="get_uv_range" default="Vector2(0, 1)">Vertical texture range used by this rope. Cutting splits the range so each piece retains the matching part of the image.</member>
 		<member name="dynamic_mesh" type="bool" setter="set_dynamic_mesh" getter="is_dynamic_mesh" default="true">Updates only GPU vertex positions and bounds while retaining UVs and triangle indices. Disable to rebuild the surface each time. Topology changes always rebuild the surface.</member>
 		<member name="texture" type="Texture2D" setter="set_texture" getter="get_texture">Image drawn along the rope.</member>
 		<member name="line_mode" type="bool" setter="set_line_mode" getter="is_line_mode" default="false">Draws a plain ribbon without a texture.</member>
-		<member name="simulation_enabled" type="bool" setter="set_simulation_enabled" getter="is_simulation_enabled" default="true">Runs PBD physics outside the editor.</member>
+		<member name="simulation_enabled" type="bool" setter="set_simulation_enabled" getter="is_simulation_enabled" default="true">Runs physics outside the editor. Disabling freezes internal segment bodies as well as the visual rope.</member>
 		<member name="pin_start" type="bool" setter="set_pin_start" getter="is_pin_start" default="true">Pins the top particle.</member>
 		<member name="segments" type="int" setter="set_segments" getter="get_segments" default="16">Number of PBD particles.</member>
 		<member name="max_length" type="float" setter="set_max_length" getter="get_max_length" default="0.0">Maximum rope length. Zero uses texture height times pixel_size.</member>
-		<member name="elasticity" type="float" setter="set_elasticity" getter="get_elasticity" default="0.9">Distance-constraint strength.</member>
-		<member name="damping" type="float" setter="set_damping" getter="get_damping" default="0.02">Velocity damping.</member>
+		<member name="elasticity" type="float" setter="set_elasticity" getter="get_elasticity" default="0.9">Distance-constraint strength for the unattached Verlet solver. Attached rigid segments use Godot Joint constraints.</member>
+		<member name="damping" type="float" setter="set_damping" getter="get_damping" default="0.02">Rope velocity damping fraction per 1/60 second, adjusted to the physics timestep. The attached body retains its own linear_damp and angular_damp settings.</member>
 		<member name="use_system_gravity" type="bool" setter="set_use_system_gravity" getter="is_using_system_gravity" default="true">Uses the gravity magnitude and direction from this node's World3D default physics space.</member>
 		<member name="gravity_scale" type="float" setter="set_gravity_scale" getter="get_gravity_scale" default="1.0">Multiplier applied to system or custom gravity.</member>
 		<member name="gravity" type="Vector3" setter="set_gravity" getter="get_gravity" default="Vector3(0, -9.8, 0)">Custom local acceleration used when use_system_gravity is false.</member>
-		<member name="constraint_iterations" type="int" setter="set_constraint_iterations" getter="get_constraint_iterations" default="8">PBD solver passes.</member>
-		<member name="attachment_body" type="NodePath" setter="set_attachment_body" getter="get_attachment_body" default="NodePath(\"\")">PhysicsBody3D connected to a particle through an internal AnimatableBody3D and PinJoint3D. An empty path disables the attachment.</member>
+		<member name="constraint_iterations" type="int" setter="set_constraint_iterations" getter="get_constraint_iterations" default="8">Iterations for the unattached Verlet solver. Attached rigid segments use the project physics solver settings.</member>
+		<member name="attachment_body" type="NodePath" setter="set_attachment_body" getter="get_attachment_body" default="NodePath(&quot;&quot;)">PhysicsBody3D connected to the selected particle. A valid attachment creates internal RigidBody3D segments and PinJoint3D constraints in the same physics space, allowing mass, inertia and collision reactions to affect both the rope and the body. Internal segments have no collision layers; environment contact is handled by the attached body. An empty path removes the attachment while preserving moving segments. reset_simulation releases the segment bodies and restarts the rope. With no attachment, a reset rope uses SIMD Verlet simulation.</member>
 		<member name="attachment_point" type="int" setter="set_attachment_point" getter="get_attachment_point" default="-1">Particle index used by attachment_body. -1 selects the last particle.</member>
 		<member name="pixel_size" type="float" setter="set_pixel_size" getter="get_pixel_size" default="0.01">World units per texture pixel.</member>
 		<member name="modulate" type="Color" setter="set_modulate" getter="get_modulate" default="Color(1, 1, 1, 1)">Texture tint.</member>

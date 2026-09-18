@@ -4,6 +4,7 @@
 #define SVG2D_ROPE_H
 
 #include "svg.h"
+#include "rope_physics.h"
 #include <godot_cpp/classes/animatable_body2d.hpp>
 #include <godot_cpp/classes/animatable_body3d.hpp>
 #include <godot_cpp/classes/array_mesh.hpp>
@@ -24,8 +25,10 @@ class SpriteRope2D : public godot::Node2D {
 protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector2> _points, _previous;
-	godot::AnimatableBody2D *_attachment_anchor = nullptr;
-	godot::PinJoint2D *_attachment_joint = nullptr;
+	std::unique_ptr<RopePhysics2D> _physics; // 接続物と同じ物理空間で解く区間剛体
+	double _rope_mass = 1.0, _last_delta = 1.0 / 60.0; // 合計質量と速度換算時間
+	godot::Vector2 _uv_range = godot::Vector2(0, 1); // 切断後も素材の対応範囲を保つ
+	bool _preserve_state = false; // 切断ノードのreadyで粒子を初期化しない
 	godot::NodePath _attachment_body;
 	uint64_t _attachment_target_id = 0;
 	bool _line_mode = false, _simulation_enabled = true, _pin_start = true;
@@ -43,6 +46,10 @@ protected:
 	static void _bind_methods();
 public:
 	SpriteRope2D();
+	SpriteRope2D *cut_at(int point);
+	void set_rope_mass(double value); double get_rope_mass() const { return _rope_mass; }
+	void set_uv_range(const godot::Vector2 &value); godot::Vector2 get_uv_range() const { return _uv_range; }
+	godot::PackedVector2Array get_rope_velocities() const;
 	void _ready() override;
 	void _draw() override;
 	void _physics_process(double delta) override;
@@ -88,8 +95,10 @@ protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector3> _points, _previous;
 	godot::MeshInstance3D *_mesh_instance = nullptr;
-	godot::AnimatableBody3D *_attachment_anchor = nullptr;
-	godot::PinJoint3D *_attachment_joint = nullptr;
+	std::unique_ptr<RopePhysics3D> _physics; // 接続物と同じ物理空間で解く区間剛体
+	double _rope_mass = 1.0, _last_delta = 1.0 / 60.0; // 合計質量と速度換算時間
+	godot::Vector2 _uv_range = godot::Vector2(0, 1); // 切断後も素材の対応範囲を保つ
+	bool _preserve_state = false; // 切断ノードのreadyで粒子を初期化しない
 	godot::NodePath _attachment_body;
 	uint64_t _attachment_target_id = 0;
 	godot::Ref<godot::ArrayMesh> _mesh;
@@ -111,6 +120,10 @@ protected:
 	static void _bind_methods();
 public:
 	SpriteRope3D();
+	SpriteRope3D *cut_at(int point);
+	void set_rope_mass(double value); double get_rope_mass() const { return _rope_mass; }
+	void set_uv_range(const godot::Vector2 &value); godot::Vector2 get_uv_range() const { return _uv_range; }
+	godot::PackedVector3Array get_rope_velocities() const;
 	void set_dynamic_mesh(bool enabled);
 	bool is_dynamic_mesh() const { return _dynamic_mesh; }
 	void _ready() override;
