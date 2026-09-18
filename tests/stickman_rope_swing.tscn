@@ -1,0 +1,60 @@
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_stickman"]
+radius = 28.0
+height = 96.0
+
+[node name="StickmanRopeSwing" type="Node2D"]
+editor_description = "A script-free physics test scene. SVGRope2D starts at an angle and swings an SVG2D stickman through a PinJoint2D attachment."
+
+[node name="Backdrop" type="Polygon2D" parent="."]
+z_index = -10
+polygon = PackedVector2Array(0, 0, 640, 0, 640, 360, 0, 360)
+color = Color(0.035, 0.047, 0.09, 1)
+
+[node name="GroundLine" type="Line2D" parent="."]
+z_index = -5
+points = PackedVector2Array(0, 334, 640, 334)
+width = 3.0
+default_color = Color(0.35, 0.43, 0.68, 1)
+
+[node name="Rope" type="SVGRope2D" parent="."]
+position = Vector2(320, 38)
+rotation = -0.95
+line_mode = true
+segments = 24
+constraint_iterations = 12
+max_length = 150.0
+elasticity = 1.0
+damping = 0.008
+line_width = 7.0
+line_color = Color(0.96, 0.75, 0.2, 1)
+attachment_body = NodePath("../StickmanBody")
+attachment_point = -1
+
+[node name="Pivot" type="Polygon2D" parent="Rope"]
+z_index = 2
+polygon = PackedVector2Array(-9, -6, 9, -6, 12, 0, 9, 6, -9, 6, -12, 0)
+color = Color(1, 0.36, 0.45, 1)
+
+[node name="StickmanBody" type="RigidBody2D" parent="."]
+position = Vector2(442.005, 167.756)
+mass = 1.4
+linear_velocity = Vector2(-90, -170)
+angular_velocity = 2.4
+linear_damp_mode = 1
+linear_damp = 0.08
+angular_damp_mode = 1
+angular_damp = 0.12
+
+[node name="Artwork" type="SVG2D" parent="StickmanBody"]
+position = Vector2(-48, -54)
+scale = Vector2(0.3, 0.3)
+src = "res://examples/stickman/stickman.svg"
+adaptive = false
+animation_enabled = false
+jitter_amount = 0.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StickmanBody"]
+position = Vector2(0, 2)
+shape = SubResource("CapsuleShape2D_stickman")

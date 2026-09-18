@@ -753,6 +753,53 @@ func check_ropes() -> void:
 	print("Rope simulation backend: %s" % rope_backend)
 	print("SVG rope PBD: 2D %.3f px/link, 3D %.4f units/link" % [max_link2, max_link3])
 
+# TSCNだけで組んだ作例が、SVG素材を物理ロープで実際に振り回すことを確かめる。
+func check_stickman_rope_scene() -> void:
+	var packed := load("res://tests/stickman_rope_swing.tscn") as PackedScene
+	check(packed != null, "棒人間ロープ試験シーンを読み込めないよ")
+	if packed == null:
+		return
+	var scene := packed.instantiate()
+	root.add_child(scene)
+	var rope := scene.get_node_or_null("Rope") as Node2D
+	var body := scene.get_node_or_null("StickmanBody") as RigidBody2D
+	var artwork := scene.get_node_or_null("StickmanBody/Artwork") as Node2D
+	var collision := scene.get_node_or_null("StickmanBody/CollisionShape2D") as CollisionShape2D
+	check(rope != null and rope.is_class("SVGRope2D"),
+		"棒人間ロープ試験シーンにSVGRope2Dがないよ")
+	check(body != null and artwork != null and artwork.is_class("SVG2D"),
+		"棒人間ロープ試験シーンがSVG2DをRigidBody2Dへ組んでいないよ")
+	check(collision != null and collision.shape != null,
+		"棒人間ロープ試験シーンに物理形状がないよ")
+	if rope == null or body == null or artwork == null:
+		scene.free()
+		return
+	check(artwork.get("src") == "res://examples/stickman/stickman.svg"
+			and artwork.call("get_texture") != null,
+		"棒人間のSVG素材を画像化できないよ")
+	check(rope.get_node_or_null(rope.get("attachment_body")) == body
+			and int(rope.get("attachment_point")) == -1,
+		"ロープ末端が棒人間のRigidBody2Dを参照していないよ")
+	var start_position := body.global_position
+	var start_rotation := body.global_rotation
+	var start_points: PackedVector2Array = rope.call("get_rope_points")
+	var start_tip := rope.to_global(start_points[-1])
+	for i in 30:
+		await physics_frame
+	var joint_found := rope.get_children(true).any(func(child): return child is PinJoint2D)
+	var anchor_found := rope.get_children(true).any(func(child): return child is AnimatableBody2D)
+	var end_points: PackedVector2Array = rope.call("get_rope_points")
+	var end_tip := rope.to_global(end_points[-1])
+	check(joint_found and anchor_found,
+		"棒人間とロープ末端を標準PinJoint2Dで接続できないよ")
+	check(end_tip.distance_to(start_tip) > 3.0,
+		"傾けたロープがシステム重力で振れないよ: %.3f" % end_tip.distance_to(start_tip))
+	check(body.global_position.distance_to(start_position) > 3.0
+			and absf(angle_difference(body.global_rotation, start_rotation)) > 0.1,
+		"SVG棒人間がロープに拘束されて振り回されないよ")
+	scene.free()
+	print("TSCN stickman rope swing passed")
+
 func check_svg_animate() -> void:
 	check(ClassDB.class_exists("SVGAnimate2D"), "SVGAnimate2Dが登録されていないよ")
 	check(ClassDB.class_exists("SVGAnimate3D"), "SVGAnimate3Dが登録されていないよ")
@@ -936,6 +983,7 @@ func _run() -> void:
 	await check_jitter_animation()
 	await check_appearance()
 	await check_ropes()
+	await check_stickman_rope_scene()
 	await check_svg_animate()
 	check_large_profile()
 	var config := ConfigFile.new()
