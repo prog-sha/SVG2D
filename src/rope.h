@@ -25,6 +25,7 @@ class SpriteRope2D : public godot::Node2D {
 protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector2> _points, _previous;
+	std::vector<double> _coords; // 素材に沿った位置。区間長・質量・UVの配分を共有する
 	std::unique_ptr<RopePhysics2D> _physics; // 接続物と同じ物理空間で解く区間剛体
 	double _rope_mass = 1.0, _last_delta = 1.0 / 60.0; // 合計質量と速度換算時間
 	godot::Vector2 _uv_range = godot::Vector2(0, 1); // 切断後も素材の対応範囲を保つ
@@ -47,6 +48,7 @@ protected:
 public:
 	SpriteRope2D();
 	SpriteRope2D *cut_at(int point);
+	SpriteRope2D *cut_segment(const godot::Vector2 &from, const godot::Vector2 &to);
 	void set_rope_mass(double value); double get_rope_mass() const { return _rope_mass; }
 	void set_uv_range(const godot::Vector2 &value); godot::Vector2 get_uv_range() const { return _uv_range; }
 	godot::PackedVector2Array get_rope_velocities() const;
@@ -95,6 +97,7 @@ protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector3> _points, _previous;
 	godot::MeshInstance3D *_mesh_instance = nullptr;
+	std::vector<double> _coords; // 素材に沿った位置。区間長・質量・UVの配分を共有する
 	std::unique_ptr<RopePhysics3D> _physics; // 接続物と同じ物理空間で解く区間剛体
 	double _rope_mass = 1.0, _last_delta = 1.0 / 60.0; // 合計質量と速度換算時間
 	godot::Vector2 _uv_range = godot::Vector2(0, 1); // 切断後も素材の対応範囲を保つ
@@ -121,6 +124,7 @@ protected:
 public:
 	SpriteRope3D();
 	SpriteRope3D *cut_at(int point);
+	SpriteRope3D *cut_segment(const godot::Vector3 &from, const godot::Vector3 &to, double tolerance = 0.001);
 	void set_rope_mass(double value); double get_rope_mass() const { return _rope_mass; }
 	void set_uv_range(const godot::Vector2 &value); godot::Vector2 get_uv_range() const { return _uv_range; }
 	godot::PackedVector3Array get_rope_velocities() const;

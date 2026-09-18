@@ -2,6 +2,7 @@
 // 責務: 粒子数・固定端・端数処理を変えてSIMDと通常処理を比較する。
 // 設計思想: 初期条件を固定し、実装の経路が違っても物理結果が揃うことを確かめる。
 #include "rope_math.h"
+#include "rope_cut.h"
 #include <cassert>
 #include <cstdio>
 
@@ -40,8 +41,29 @@ static void check_rope(const V &gravity, const V &step) {
 	}
 }
 
+// 配列順とは逆向きの切断線でも、入力始点から最初の交点を選ぶ。
+static void check_intersections() {
+	std::vector<Vector2> zigzag = {{0, -1}, {0, 1}, {2, -1}, {2, 1}};
+	auto identity = [](Vector2 p) { return p; };
+	auto hit = find_rope_cut(zigzag, Vector2(3, 0), Vector2(-1, 0), identity, 0);
+	assert(hit.edge == 2 && std::abs(hit.fraction - 0.5) < 1e-6);
+	hit = find_rope_cut(zigzag, Vector2(-1, 0), Vector2(3, 0), identity, 0);
+	assert(hit.edge == 0);
+	double t, u;
+	assert(!rope_intersection(Vector2(3, 0), Vector2(4, 0), Vector2(0, -1), Vector2(0, 1), 0, t, u));
+	assert(rope_intersection(Vector3(-1, 0, 0.0005), Vector3(1, 0, 0.0005),
+			Vector3(0, -1, 0), Vector3(0, 1, 0), 0.001, t, u));
+	assert(!rope_intersection(Vector3(-1, 0, 0.01), Vector3(1, 0, 0.01),
+			Vector3(0, -1, 0), Vector3(0, 1, 0), 0.001, t, u));
+	std::vector<Vector2> points = {{0, 0}, {0, 8}, {0, 16}};
+	double coords[] = {0, 0.25, 1};
+	solve_rope(points, Vector2(), true, 8, 1, 8, coords);
+	assert(points[1].length() <= 2.00001 && points[2].distance_to(points[1]) <= 6.00001);
+}
+
 // 両方の次元で重力の全軸を使う。
 int main() {
+	check_intersections();
 	check_rope(Vector2(0.0003f, -0.0007f), Vector2(0.01f, -0.02f));
 	check_rope(Vector3(0.0003f, -0.0007f, 0.0009f), Vector3(0.01f, -0.02f, 0.005f));
 	std::printf("Rope math scalar parity: %s, 40 cases x 32 steps\n", rope_backend_name());

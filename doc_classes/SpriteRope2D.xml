@@ -3,6 +3,7 @@
 	<brief_description>Rope for textures or plain lines, with two-way physics and cutting.</brief_description>
 	<description>Divides a Texture2D vertically and bends its rows along a PBD particle chain pinned at the node origin.</description>
 	<methods>
+		<method name="cut_segment"><return type="SpriteRope2D" /><param index="0" name="from" type="Vector2" /><param index="1" name="to" type="Vector2" /><description>Cuts at the first intersection along the input segment in global coordinates, inserting a new particle at the intersection when needed. Returns a new rope under the same parent, or null for a miss, parallel/overlapping segments, a rope endpoint or invalid input. Preserves current positions and velocities, and divides rest lengths, mass and texture coordinates proportionally. In 3D, tolerance is the maximum world-space distance between closest points; the cut point lies on the rope. Runtime only; call deferred from physics query callbacks. Reapply to both pieces to cut multiple intersections.</description></method>
 		<method name="get_rope_points" qualifiers="const"><return type="PackedVector2Array" /><description>Returns local-space rope particle positions.</description></method>
 		<method name="get_effective_gravity" qualifiers="const"><return type="Vector2" /><description>Returns the acceleration currently used by the solver in rope-local coordinates.</description></method>
 		<method name="get_simulation_backend" qualifiers="const"><return type="String" /><description>Returns neon, sse2, or scalar for the active Verlet integration backend.</description></method>
@@ -11,7 +12,7 @@
 		<method name="get_rope_velocities" qualifiers="const"><return type="PackedVector2Array" /><description>Returns particle velocities in rope-local units per second.</description></method>
 	</methods>
 	<members>
-		<member name="rope_mass" type="float" setter="set_rope_mass" getter="get_rope_mass" default="1.0">Total mass in kilograms, distributed equally among rigid segments. Cutting divides the total proportionally to the number of links.</member>
+		<member name="rope_mass" type="float" setter="set_rope_mass" getter="get_rope_mass" default="1.0">Total mass in kilograms, distributed by material length among rigid segments. Cutting preserves the mass of each remaining segment.</member>
 		<member name="uv_range" type="Vector2" setter="set_uv_range" getter="get_uv_range" default="Vector2(0, 1)">Vertical texture range used by this rope. Cutting splits the range so each piece retains the matching part of the image.</member>
 		<member name="texture" type="Texture2D" setter="set_texture" getter="get_texture">Image drawn along the rope. Imported SVG, PNG, WebP, and other Texture2D resources are supported.</member>
 		<member name="line_mode" type="bool" setter="set_line_mode" getter="is_line_mode" default="false">Draws a plain line without a texture.</member>

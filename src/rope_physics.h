@@ -101,28 +101,33 @@ struct RopePhysics {
 		segments.clear();
 		if (anchor) { anchor->queue_free(); anchor = nullptr; }
 	}
+	// 区間の形と質量を生成し、姿勢を物理サーバーへ渡す。
+	Segment make_segment(Node *owner, V a, V b, double mass) {
+		auto *body = memnew(Body);
+		body->set_name("RopeSegment"); body->set_as_top_level(true);
+		body->set_collision_layer(0); body->set_collision_mask(0);
+		body->set_gravity_scale(0); body->set_mass(mass);
+		body->set_linear_damp_mode(Body::DAMP_MODE_REPLACE);
+		body->set_angular_damp_mode(Body::DAMP_MODE_REPLACE);
+		auto *collision = memnew(typename Space::Collision);
+		Ref<typename Space::Shape> shape; shape.instantiate();
+		double length = std::max(0.0001, (double)a.distance_to(b));
+		shape->set_radius(length * 0.025); shape->set_height(length);
+		collision->set_shape(shape); body->add_child(collision, false, godot::Node::INTERNAL_MODE_BACK);
+		owner->add_child(body, false, godot::Node::INTERNAL_MODE_BACK);
+		Space::pose(body, a, b);
+		return {body, body->to_local(a), body->to_local(b)};
+	}
 	// 初回だけ区間剛体を生成し、以後の位置・回転はGodotに任せる。
 	void build(Node *owner, const std::vector<V> &points, const std::vector<V> &previous,
-			double dt, bool pinned, double mass) {
+			double dt, bool pinned, double mass, const std::vector<double> &coords) {
 		for (size_t i = 0; i + 1 < points.size(); i++) {
 			V a = owner->to_global(points[i]), b = owner->to_global(points[i + 1]);
-			auto *body = memnew(Body);
-			body->set_name("RopeSegment"); body->set_as_top_level(true);
-			body->set_collision_layer(0); body->set_collision_mask(0);
-			body->set_gravity_scale(0); body->set_mass(mass / (points.size() - 1));
-			body->set_linear_damp_mode(Body::DAMP_MODE_REPLACE);
-			body->set_angular_damp_mode(Body::DAMP_MODE_REPLACE);
-			auto *collision = memnew(typename Space::Collision);
-			Ref<typename Space::Shape> shape; shape.instantiate();
-			double length = std::max(0.0001, (double)a.distance_to(b));
-			shape->set_radius(length * 0.025); shape->set_height(length);
-			collision->set_shape(shape); body->add_child(collision, false, godot::Node::INTERNAL_MODE_BACK);
-			owner->add_child(body, false, godot::Node::INTERNAL_MODE_BACK);
-			Space::pose(body, a, b);
+			auto segment = make_segment(owner, a, b, mass * (coords[i + 1] - coords[i]));
 			V va = (a - owner->to_global(previous[i])) / dt;
 			V vb = (b - owner->to_global(previous[i + 1])) / dt;
-			body->set_linear_velocity((va + vb) * 0.5f); Space::angular(body, b - a, vb - va);
-			segments.push_back({body, body->to_local(a), body->to_local(b)});
+			segment.body->set_linear_velocity((va + vb) * 0.5f); Space::angular(segment.body, b - a, vb - va);
+			segments.push_back(segment);
 		}
 		if (pinned) {
 			anchor = memnew(typename Space::Anchor); anchor->set_name("RopeStart");
@@ -154,20 +159,41 @@ struct RopePhysics {
 		}
 	}
 	// 変化した設定だけ物理サーバーへ送る。停止時も剛体と表示を揃える。
-	void configure(double mass, double damping, V gravity, bool enabled, double dt) {
+	void configure(double mass, double damping, V gravity, bool enabled, double dt, const std::vector<double> &coords) {
 		double rate = (1.0 - std::pow(1.0 - damping, dt * 60.0)) / dt;
 		bool changed = mass != last_mass || rate != last_rate || gravity != last_gravity;
 		if (!changed && running == enabled) return;
-		for (auto &segment : segments) {
+		for (size_t i = 0; i < segments.size(); i++) {
+			auto &segment = segments[i];
+			double part_mass = mass * (coords[i + 1] - coords[i]);
 			if (changed) {
-				segment.body->set_mass(mass / segments.size());
-				segment.body->set_constant_force(gravity * (mass / segments.size()));
+				segment.body->set_mass(part_mass);
+				segment.body->set_constant_force(gravity * (part_mass));
 				segment.body->set_linear_damp(rate); segment.body->set_angular_damp(rate);
 				segment.body->set_sleeping(false);
 			}
 			if (running != enabled) segment.body->set_freeze_enabled(!enabled);
 		}
 		last_mass = mass; last_rate = rate; last_gravity = gravity; running = enabled;
+	}
+	// 切断区間だけを二分し、各重心の速度に元の回転成分を残す。
+	void insert_cut(Node *owner, size_t edge, V position, double fraction) {
+		clear_joints();
+		auto old = segments[edge];
+		V a = old.body->to_global(old.a), b = old.body->to_global(old.b);
+		auto first = make_segment(owner, a, position, old.body->get_mass() * fraction);
+		auto second = make_segment(owner, position, b, old.body->get_mass() * (1.0 - fraction));
+		for (auto part : {first, second}) {
+			part.body->set_linear_velocity(old.body->get_linear_velocity() +
+					Space::spin(old.body, part.body->get_global_position() - old.body->get_global_position()));
+			part.body->set_angular_velocity(old.body->get_angular_velocity());
+			part.body->set_freeze_enabled(!running);
+		}
+		old.body->set_freeze_enabled(true);
+		owner->remove_child(old.body); old.body->queue_free();
+		segments[edge] = first; segments.insert(segments.begin() + edge + 1, second);
+		if (target_point > (int)edge) target_point++;
+		last_mass = -1;
 	}
 	// Jointを解除してから区間剛体を移し、移動完了後に残る接点だけ再接続する。
 	std::unique_ptr<RopePhysics> split(size_t point, Node *owner) {

@@ -1,11 +1,14 @@
 [gd_scene format=3 uid="uid://d6vnwcfl4if7"]
 
+[ext_resource type="Script" path="res://tests/stickman_rope_swing.gd" id="1_input"]
+
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_stickman"]
 radius = 28.0
 height = 96.0
 
 [node name="StickmanRopeSwing" type="Node2D" unique_id=1319155477]
-editor_description = "A script-free physics test scene. SVGRope2D starts at an angle and swings an SVG2D stickman through a PinJoint2D attachment."
+editor_description = "Drag the stickman to pull the rope. Drag the background and release to cut along the line."
+script = ExtResource("1_input")
 
 [node name="Backdrop" type="Polygon2D" parent="." unique_id=1513315369]
 z_index = -10
@@ -51,3 +54,17 @@ scale = Vector2(0.3, 0.3)
 [node name="CollisionShape2D" type="CollisionShape2D" parent="StickmanBody" unique_id=1117672373]
 position = Vector2(0, 2)
 shape = SubResource("CapsuleShape2D_stickman")
+
+[node name="CutGuide" type="Line2D" parent="."]
+z_index = 10
+width = 2.0
+default_color = Color(0.3, 0.9, 1, 0.9)
+
+[node name="Instructions" type="Label" parent="."]
+offset_left = 18.0
+offset_top = 306.0
+offset_right = 622.0
+offset_bottom = 330.0
+mouse_filter = 2
+text = "Drag stickman to move  |  Drag background and release to cut"
+theme_override_font_sizes/font_size = 17

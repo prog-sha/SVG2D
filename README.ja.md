@@ -65,10 +65,14 @@ SVGAnimateの **Animation Cache → Animation Cache Mode** は **Exact Frames** 
 
 ### ロープの切断と物理接続
 
+`cut_segment(from, to)` は **グローバル座標**の線分と最初に交差する場所で切る。交点に端点を挿入し、区間ごとの長さ・質量・速度・画像範囲を保つ。3D版は許容距離 `tolerance`（既定 `0.001` ワールド単位）も指定できる。交差なし・平行な重なり・ロープ端点なら `null`。複数の交差を切る場合は両方の切断片へ繰り返し適用する。
+
+`tests/stickman_rope_swing.tscn` では棒人間をドラッグして引っ張り、背景をドラッグして離すと表示線に沿って切れる。棒人間は回転固定で、バネ接続を通してロープへ力が伝わる。
+
 `cut_at(point_index)` は途中の接点でロープを切り、同じクラスの新しいノードを `ClassDB.instantiate` で作って同じ親に追加し、返す。元のロープは上側、新しいロープは開始点が自由な下側になる。現在の形・速度・回転速度・素材の切れ目を引き継ぎ、長さと質量を分配する。切断点以降の接続物も下側へ移る。切れる範囲は `1` から `segments - 2` で、端点・範囲外・ツリー外では変更せず `null` を返す。実行中専用で、スクリプト・子ノード・シグナル接続は複製しない。衝突通知から呼ぶ場合は `call_deferred` を使おう。
 
 ```gdscript
-var fallen_rope = $Rope.cut_at(3)
+var fallen_rope = $Rope.cut_segment(Vector2(200, 100), Vector2(450, 100))
 # fallen_rope.get_parent() == $Rope.get_parent()
 ```
 

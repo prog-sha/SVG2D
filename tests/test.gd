@@ -967,6 +967,7 @@ func _run() -> void:
 	await check_ropes()
 	await check_stickman_rope_scene()
 	await preload("res://tests/rope_cut.gd").run(self)
+	await preload("res://tests/rope_segment_cut.gd").run(self)
 	await check_svg_animate()
 	await preload("res://tests/optimization.gd").run(self)
 	await preload("res://tests/animate_jitter.gd").run(self)

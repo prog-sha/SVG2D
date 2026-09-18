@@ -112,15 +112,16 @@ static const char *rope_backend_name() {
 // 伸びた辺だけ補正し、固定端から最大長を保証する。
 template <typename V>
 static void solve_rope(std::vector<V> &points, const V &anchor, bool pin_start,
-		int iterations, double elasticity, double length) {
+		int iterations, double elasticity, double length, const double *coords = nullptr) {
 	if (points.size() < 2) return;
-	double link = length / (double)(points.size() - 1);
+	double uniform = length / (double)(points.size() - 1);
 	float stiffness = (float)std::clamp(elasticity, 0.0, 1.0);
-	double link_squared = link * link; // 伸びていない辺の平方根を省く
 	for (int pass = 0; stiffness > 0.0f && pass < iterations; pass++) {
 		bool changed = false; // 制約を全て満たしたら反復を終える
 		if (pin_start) points[0] = anchor;
 		for (size_t i = 0; i + 1 < points.size(); i++) {
+			double link = coords ? length * (coords[i + 1] - coords[i]) : uniform;
+			double link_squared = link * link; // 伸びていない辺の平方根を省く
 			V delta_p = points[i + 1] - points[i];
 			double squared = delta_p.length_squared();
 			if (squared <= link_squared || squared <= 1e-18) continue;
@@ -141,6 +142,8 @@ static void solve_rope(std::vector<V> &points, const V &anchor, bool pin_start,
 	if (pin_start) {
 		points[0] = anchor;
 		for (size_t i = 0; i + 1 < points.size(); i++) {
+			double link = coords ? length * (coords[i + 1] - coords[i]) : uniform;
+			double link_squared = link * link; // 伸びていない辺の平方根を省く
 			V delta_p = points[i + 1] - points[i];
 			double squared = delta_p.length_squared();
 			if (squared > link_squared && squared > 1e-18)

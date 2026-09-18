@@ -57,10 +57,14 @@ Use `get_animation_cache_hits()`, `get_animation_cache_misses()`, `get_animation
 
 ### Cutting ropes and two-way physics
 
+`cut_segment(from, to)` cuts at the first intersection along a **global-coordinate** line segment. It inserts an endpoint at the intersection and preserves each piece's lengths, mass, velocities and texture region. `SpriteRope3D` / `SVGRope3D` also accept `tolerance` (default `0.001` world units). Misses, parallel overlaps and rope endpoints return `null`. Apply again to both pieces for multiple crossings.
+
+Run `tests/stickman_rope_swing.tscn`: drag the stickman to pull it through a spring joint; drag the background and release to cut along the displayed line. The stickman keeps its rotation locked.
+
 `cut_at(point_index)` splits at an interior particle, creates the same built-in rope class through `ClassDB.instantiate`, adds it to the same parent and returns it. The original keeps the upper part; the new rope has a free start. Current shape, linear/angular velocities and texture regions are preserved, and length and mass are divided. An attachment at or beyond the cut moves to the new rope. Valid indices are `1` through `segments - 2`. Endpoints, invalid indices and nodes outside the tree return `null` without changes. Runtime only; scripts, children and signal connections are not copied. Use `call_deferred` when cutting from physics query callbacks.
 
 ```gdscript
-var fallen_rope = $Rope.cut_at(3)
+var fallen_rope = $Rope.cut_segment(Vector2(200, 100), Vector2(450, 100))
 # fallen_rope.get_parent() == $Rope.get_parent()
 ```
 

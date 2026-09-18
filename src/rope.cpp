@@ -2,6 +2,7 @@
 // 責務: 連続した座標をSIMDで更新し、描画側には必要な頂点だけ渡す。
 #include "rope.h"
 #include "rope_math.h"
+#include "rope_cut.h"
 #include <godot_cpp/classes/class_db_singleton.hpp>
 
 #include <godot_cpp/classes/base_material3d.hpp>
@@ -85,9 +86,11 @@ void SpriteRope2D::reset_simulation() {
 	_clear_attachment();
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
+	_coords.resize((size_t)_segments);
 	double length = _effective_length();
 	for (int i = 0; i < _segments; i++) {
 		float t = (float)i / (float)(_segments - 1);
+		_coords[i] = (double)i / (_segments - 1);
 		_points[(size_t)i] = Vector2(0, (float)(length * t));
 		_previous[(size_t)i] = _points[(size_t)i];
 	}
@@ -113,7 +116,7 @@ void SpriteRope2D::_sync_attachment() {
 	int point = _attachment_point < 0 ? (int)_points.size() - 1 : std::min(_attachment_point, (int)_points.size() - 1);
 	if (body && !_physics) {
 		_physics = std::make_unique<RopePhysics2D>();
-		_physics->build(this, _points, _previous, _last_delta, _pin_start, _rope_mass);
+		_physics->build(this, _points, _previous, _last_delta, _pin_start, _rope_mass, _coords);
 	}
 	if (_physics) _physics->connect(this, body, point, _points);
 }
@@ -128,7 +131,7 @@ void SpriteRope2D::_simulate(double delta) {
 	integrate_rope(_points, _previous, _effective_gravity() * (float)(dt * dt), keep,
 			_pin_start ? 1u : 0u);
 	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
-			_effective_length());
+			_effective_length(), _coords.data());
 }
 
 void SpriteRope2D::_physics_process(double delta) {
@@ -136,7 +139,7 @@ void SpriteRope2D::_physics_process(double delta) {
 	_sync_attachment();
 	if (_physics) {
 		Vector2 world_gravity = to_global(_effective_gravity()) - to_global(Vector2());
-		_physics->configure(_rope_mass, _damping, world_gravity, _simulation_enabled, delta);
+		_physics->configure(_rope_mass, _damping, world_gravity, _simulation_enabled, delta, _coords);
 		_physics->read(this, _points, _previous, delta);
 		queue_redraw();
 	} else if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
@@ -176,7 +179,7 @@ void SpriteRope2D::_draw() {
 		Vector2 side = rope_side_2d(_points, (size_t)i) * half;
 		v[i * 2] = _points[(size_t)i] + side;
 		v[i * 2 + 1] = _points[(size_t)i] - side;
-		float t = _uv_range.x + (_uv_range.y - _uv_range.x) * ((float)i / (count - 1));
+		float t = _uv_range.x + (_uv_range.y - _uv_range.x) * _coords[i];
 		uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
 	}
 	PackedColorArray colors;
@@ -214,7 +217,7 @@ void SpriteRope2D::set_attachment_point(int value) {
 	_sync_attachment();
 }
 
-// 質量は区間数で配分し、切断後も合計を保存する。
+// 質量は素材の長さで配分し、切断後も合計を保存する。
 void SpriteRope2D::set_rope_mass(double value) { _rope_mass = std::isfinite(value) ? std::max(0.001, value) : 1.0; }
 void SpriteRope2D::set_uv_range(const Vector2 &value) {
 	if (!value.is_finite()) return;
@@ -248,7 +251,11 @@ SpriteRope2D *SpriteRope2D::cut_at(int point) {
 	}
 	tail->set_name(String(get_name()) + "Cut");
 	int count = (int)_points.size();
-	float ratio = (float)point / (count - 1);
+	double ratio = _coords[point];
+	tail->_coords.assign(_coords.begin() + point, _coords.end());
+	for (auto &coord : tail->_coords) coord = (coord - ratio) / (1.0 - ratio);
+	_coords.resize(point + 1);
+	for (auto &coord : _coords) coord /= ratio;
 	double length = _effective_length();
 	int attached = _attachment_point < 0 ? count - 1 : std::min(_attachment_point, count - 1);
 	Node *target = _attachment_body.is_empty() ? nullptr : get_node_or_null(_attachment_body);
@@ -278,6 +285,28 @@ SpriteRope2D *SpriteRope2D::cut_at(int point) {
 	return tail;
 }
 
+// 線分に沿って最初の交点を探し、区間内なら速度と素材座標も補間する。
+SpriteRope2D *SpriteRope2D::cut_segment(const Vector2 &from, const Vector2 &to) {
+	if (!is_inside_tree() || !get_parent() || Engine::get_singleton()->is_editor_hint() ||
+			!from.is_finite() || !to.is_finite()) return nullptr;
+	if (_physics) _physics->read(this, _points, _previous, _last_delta);
+	auto hit = find_rope_cut(_points, from, to, [this](const Vector2 &p) { return to_global(p); }, 0.0);
+	if (hit.edge < 0) return nullptr;
+	int point = hit.edge + 1;
+	if (hit.fraction == 0) return cut_at(hit.edge);
+	if (hit.fraction == 1) return cut_at(point);
+	Vector2 position = _points[hit.edge].lerp(_points[point], hit.fraction);
+	Vector2 previous = _previous[hit.edge].lerp(_previous[point], hit.fraction);
+	double coord = _coords[hit.edge] + (_coords[point] - _coords[hit.edge]) * hit.fraction;
+	if (_physics) _physics->insert_cut(this, hit.edge, to_global(position), hit.fraction);
+	_points.insert(_points.begin() + point, position);
+	_previous.insert(_previous.begin() + point, previous);
+	_coords.insert(_coords.begin() + point, coord);
+	_segments++;
+	if (_attachment_point >= point) _attachment_point++;
+	return cut_at(point);
+}
+
 PackedVector2Array SpriteRope2D::get_rope_points() const {
 	PackedVector2Array out;
 	out.resize((int)_points.size());
@@ -288,6 +317,7 @@ PackedVector2Array SpriteRope2D::get_rope_points() const {
 String SpriteRope2D::get_simulation_backend() const { return rope_backend_name(); }
 
 void SpriteRope2D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("cut_segment", "from", "to"), &SpriteRope2D::cut_segment);
 	ClassDB::bind_method(D_METHOD("cut_at", "point"), &SpriteRope2D::cut_at);
 	ClassDB::bind_method(D_METHOD("get_rope_velocities"), &SpriteRope2D::get_rope_velocities);
 	ClassDB::bind_method(D_METHOD("set_rope_mass", "mass"), &SpriteRope2D::set_rope_mass);
@@ -420,9 +450,11 @@ void SpriteRope3D::reset_simulation() {
 	_clear_attachment();
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
+	_coords.resize((size_t)_segments);
 	double length = _effective_length();
 	for (int i = 0; i < _segments; i++) {
 		float t = (float)i / (float)(_segments - 1);
+		_coords[i] = (double)i / (_segments - 1);
 		_points[(size_t)i] = Vector3(0, (float)(-length * t), 0);
 		_previous[(size_t)i] = _points[(size_t)i];
 	}
@@ -448,7 +480,7 @@ void SpriteRope3D::_sync_attachment() {
 	int point = _attachment_point < 0 ? (int)_points.size() - 1 : std::min(_attachment_point, (int)_points.size() - 1);
 	if (body && !_physics) {
 		_physics = std::make_unique<RopePhysics3D>();
-		_physics->build(this, _points, _previous, _last_delta, _pin_start, _rope_mass);
+		_physics->build(this, _points, _previous, _last_delta, _pin_start, _rope_mass, _coords);
 	}
 	if (_physics) _physics->connect(this, body, point, _points);
 }
@@ -463,7 +495,7 @@ void SpriteRope3D::_simulate(double delta) {
 	integrate_rope(_points, _previous, _effective_gravity() * (float)(dt * dt), keep,
 			_pin_start ? 1u : 0u);
 	solve_rope(_points, anchor, _pin_start, _constraint_iterations, _elasticity,
-			_effective_length());
+			_effective_length(), _coords.data());
 }
 
 void SpriteRope3D::_update_mesh() {
@@ -515,7 +547,7 @@ void SpriteRope3D::_update_mesh() {
 	uvs.resize(count * 2);
 	Vector2 *uv = uvs.ptrw();
 	for (int i = 0; i < count; i++) {
-		float t = _uv_range.x + (_uv_range.y - _uv_range.x) * ((float)i / (count - 1));
+		float t = _uv_range.x + (_uv_range.y - _uv_range.x) * _coords[i];
 		uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
 	}
 	Array arrays;
@@ -534,7 +566,7 @@ void SpriteRope3D::_physics_process(double delta) {
 	_sync_attachment();
 	if (_physics) {
 		Vector3 world_gravity = to_global(_effective_gravity()) - to_global(Vector3());
-		_physics->configure(_rope_mass, _damping, world_gravity, _simulation_enabled, delta);
+		_physics->configure(_rope_mass, _damping, world_gravity, _simulation_enabled, delta, _coords);
 		_physics->read(this, _points, _previous, delta);
 		if (is_inside_tree()) _update_mesh();
 	} else if (_simulation_enabled && (_line_mode || _texture.is_valid())) {
@@ -582,7 +614,7 @@ void SpriteRope3D::set_attachment_point(int value) {
 	_sync_attachment();
 }
 
-// 質量は区間数で配分し、切断後も合計を保存する。
+// 質量は素材の長さで配分し、切断後も合計を保存する。
 void SpriteRope3D::set_rope_mass(double value) { _rope_mass = std::isfinite(value) ? std::max(0.001, value) : 1.0; }
 void SpriteRope3D::set_uv_range(const Vector2 &value) {
 	if (!value.is_finite()) return;
@@ -616,7 +648,11 @@ SpriteRope3D *SpriteRope3D::cut_at(int point) {
 	}
 	tail->set_name(String(get_name()) + "Cut");
 	int count = (int)_points.size();
-	float ratio = (float)point / (count - 1);
+	double ratio = _coords[point];
+	tail->_coords.assign(_coords.begin() + point, _coords.end());
+	for (auto &coord : tail->_coords) coord = (coord - ratio) / (1.0 - ratio);
+	_coords.resize(point + 1);
+	for (auto &coord : _coords) coord /= ratio;
 	double length = _effective_length();
 	int attached = _attachment_point < 0 ? count - 1 : std::min(_attachment_point, count - 1);
 	Node *target = _attachment_body.is_empty() ? nullptr : get_node_or_null(_attachment_body);
@@ -646,6 +682,28 @@ SpriteRope3D *SpriteRope3D::cut_at(int point) {
 	return tail;
 }
 
+// 線分に沿って最初の交点を探し、区間内なら速度と素材座標も補間する。
+SpriteRope3D *SpriteRope3D::cut_segment(const Vector3 &from, const Vector3 &to, double tolerance) {
+	if (!is_inside_tree() || !get_parent() || Engine::get_singleton()->is_editor_hint() ||
+			!from.is_finite() || !to.is_finite() || !std::isfinite(tolerance) || tolerance < 0) return nullptr;
+	if (_physics) _physics->read(this, _points, _previous, _last_delta);
+	auto hit = find_rope_cut(_points, from, to, [this](const Vector3 &p) { return to_global(p); }, tolerance);
+	if (hit.edge < 0) return nullptr;
+	int point = hit.edge + 1;
+	if (hit.fraction == 0) return cut_at(hit.edge);
+	if (hit.fraction == 1) return cut_at(point);
+	Vector3 position = _points[hit.edge].lerp(_points[point], hit.fraction);
+	Vector3 previous = _previous[hit.edge].lerp(_previous[point], hit.fraction);
+	double coord = _coords[hit.edge] + (_coords[point] - _coords[hit.edge]) * hit.fraction;
+	if (_physics) _physics->insert_cut(this, hit.edge, to_global(position), hit.fraction);
+	_points.insert(_points.begin() + point, position);
+	_previous.insert(_previous.begin() + point, previous);
+	_coords.insert(_coords.begin() + point, coord);
+	_segments++;
+	if (_attachment_point >= point) _attachment_point++;
+	return cut_at(point);
+}
+
 PackedVector3Array SpriteRope3D::get_rope_points() const {
 	PackedVector3Array out;
 	out.resize((int)_points.size());
@@ -656,6 +714,7 @@ PackedVector3Array SpriteRope3D::get_rope_points() const {
 String SpriteRope3D::get_simulation_backend() const { return rope_backend_name(); }
 
 void SpriteRope3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("cut_segment", "from", "to", "tolerance"), &SpriteRope3D::cut_segment, DEFVAL(0.001));
 	ClassDB::bind_method(D_METHOD("cut_at", "point"), &SpriteRope3D::cut_at);
 	ClassDB::bind_method(D_METHOD("get_rope_velocities"), &SpriteRope3D::get_rope_velocities);
 	ClassDB::bind_method(D_METHOD("set_rope_mass", "mass"), &SpriteRope3D::set_rope_mass);
