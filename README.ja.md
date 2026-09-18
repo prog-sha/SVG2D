@@ -40,3 +40,17 @@ macOSで両方の画素がSHA-256まで一致するか確かめるときは、`s
 ```sh
 sh tests/test_movie.sh
 ```
+
+## 処理量とメモリの設定
+
+| Inspector設定 | 対象 | 効果 |
+| --- | --- | --- |
+| `deferred_updates` | SVGAnimate2D / 3D | 既定ON。同じ更新周期の接点編集をまとめ、SVGの再構築・再解析を1回にする。 |
+| `keep_render_cache` | SVG2D / 3Dとその派生 | OFFで画像化後の中間バッファを解放。再描画時の再計算は増える。表示テクスチャは残る。 |
+| `dynamic_mesh` | SpriteRope3D / SVGRope3D | 既定ON。頂点と境界だけ更新し、UV・三角形の再生成と転送を省く。 |
+
+接点の取得・シーン保存は常に最新の編集値を使う。遅延更新中に2Dテクスチャをすぐ取得する場合は `flush_paths()` を先に呼ぶ。3Dテクスチャの表示反映はidle時に行う。`get_render_cache_bytes()` で中間バッファの概算を確認できる。
+
+`SVGAnimate2D` / `SVGAnimate3D` でも、Inspectorの `animation_enabled` をONにすると、通常のSVGと同じうごメモ風の輪郭揺れを使える。`jitter_amount` が揺れ幅、`animation_interval` が切り替え間隔。接点をAnimationPlayerで動かしていても揺れの周期は続く。エディターの接点・ハンドル・選択位置と保存値は、揺れを加える前の座標を使う。
+
+`cache_animation_frames` は、ONなら4パターンを保持し、OFFなら画像1枚を更新する。SVGAnimateは連続変形向けにOFFが既定。通常のSVG2D / SVG3DはONが既定。静止した形を揺らし続ける場合はON、メモリを抑えて接点を頻繁に動かす場合はOFFを使う。どちらも同じ揺れを描く。

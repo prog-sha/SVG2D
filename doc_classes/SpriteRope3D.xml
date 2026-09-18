@@ -9,6 +9,7 @@
 		<method name="reset_simulation"><return type="void" /><description>Restores a straight rope.</description></method>
 	</methods>
 	<members>
+		<member name="dynamic_mesh" type="bool" setter="set_dynamic_mesh" getter="is_dynamic_mesh" default="true">Updates only GPU vertex positions and bounds while retaining UVs and triangle indices. Disable to rebuild the surface each time. Topology changes always rebuild the surface.</member>
 		<member name="texture" type="Texture2D" setter="set_texture" getter="get_texture">Image drawn along the rope.</member>
 		<member name="line_mode" type="bool" setter="set_line_mode" getter="is_line_mode" default="false">Draws a plain ribbon without a texture.</member>
 		<member name="simulation_enabled" type="bool" setter="set_simulation_enabled" getter="is_simulation_enabled" default="true">Runs PBD physics outside the editor.</member>

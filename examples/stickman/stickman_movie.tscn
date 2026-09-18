@@ -1,4 +1,4 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://v7gmcoudppwl"]
 
 [sub_resource type="Animation" id="Animation_dance"]
 resource_name = "dance"
@@ -58,28 +58,71 @@ _data = {
 &"dance": SubResource("Animation_dance")
 }
 
-[node name="StickmanMovie" type="Node2D"]
+[node name="StickmanMovie" type="Node2D" unique_id=1570620995]
 
-[node name="Background" type="Polygon2D" parent="."]
-polygon = PackedVector2Array(0, 0, 640, 0, 640, 360, 0, 360)
+[node name="Background" type="Polygon2D" parent="." unique_id=345779225]
 color = Color(0.0627451, 0.0784314, 0.14902, 1)
+polygon = PackedVector2Array(0, 0, 640, 0, 640, 360, 0, 360)
 
-[node name="Stage" type="Polygon2D" parent="."]
-polygon = PackedVector2Array(55, 324, 55, 270, 76, 191, 116, 126, 173, 82, 243, 64, 320, 68, 397, 64, 467, 82, 524, 126, 564, 191, 585, 270, 585, 324)
+[node name="Stage" type="Polygon2D" parent="." unique_id=1324552367]
 color = Color(0.0941176, 0.12549, 0.227451, 1)
+polygon = PackedVector2Array(55, 324, 55, 270, 76, 191, 116, 126, 173, 82, 243, 64, 320, 68, 397, 64, 467, 82, 524, 126, 564, 191, 585, 270, 585, 324)
 
-[node name="Floor" type="Line2D" parent="."]
+[node name="Floor" type="Line2D" parent="." unique_id=568335157]
 points = PackedVector2Array(76, 340, 564, 340)
 width = 2.0
 default_color = Color(0.458824, 0.509804, 0.658824, 1)
 
-[node name="Stickman" type="SVGAnimate2D" parent="."]
-position = Vector2(160, 0)
+[node name="Stickman" type="SVGAnimate2D" parent="." unique_id=1170763385]
+paths/path_0/point_0 = Vector2(160, 48)
+paths/path_0/point_0/in_handle = Vector2(160, 48)
+paths/path_0/point_0/out_handle = Vector2(184, 48)
+paths/path_0/point_1 = Vector2(198, 84)
+paths/path_0/point_1/in_handle = Vector2(198, 64)
+paths/path_0/point_1/out_handle = Vector2(198, 105)
+paths/path_0/point_2 = Vector2(160, 118)
+paths/path_0/point_2/in_handle = Vector2(182, 118)
+paths/path_0/point_2/out_handle = Vector2(138, 118)
+paths/path_0/point_3 = Vector2(122, 84)
+paths/path_0/point_3/in_handle = Vector2(122, 105)
+paths/path_0/point_3/out_handle = Vector2(122, 64)
+paths/path_0/point_4 = Vector2(160, 48)
+paths/path_0/point_4/in_handle = Vector2(136, 48)
+paths/path_0/point_4/out_handle = Vector2(160, 48)
+paths/path_1/point_0 = Vector2(160, 117)
+paths/path_1/point_0/in_handle = Vector2(160, 117)
+paths/path_1/point_0/out_handle = Vector2(160, 150)
+paths/path_1/point_1 = Vector2(160, 226)
+paths/path_1/point_1/in_handle = Vector2(160, 190)
+paths/path_1/point_1/out_handle = Vector2(160, 226)
+paths/path_2/point_0 = Vector2(158, 137)
+paths/path_2/point_0/in_handle = Vector2(158, 137)
+paths/path_2/point_0/out_handle = Vector2(139, 145)
+paths/path_2/point_1 = Vector2(91, 184)
+paths/path_2/point_1/in_handle = Vector2(116, 164)
+paths/path_2/point_1/out_handle = Vector2(91, 184)
+paths/path_3/point_0 = Vector2(162, 137)
+paths/path_3/point_0/in_handle = Vector2(162, 137)
+paths/path_3/point_0/out_handle = Vector2(181, 145)
+paths/path_3/point_1 = Vector2(231.98366, 145.18918)
+paths/path_3/point_1/in_handle = Vector2(206.98366, 125.18918)
+paths/path_3/point_1/out_handle = Vector2(231.98366, 145.18918)
+paths/path_4/point_0 = Vector2(158, 224)
+paths/path_4/point_0/in_handle = Vector2(158, 224)
+paths/path_4/point_0/out_handle = Vector2(143, 255)
+paths/path_4/point_1 = Vector2(108, 326)
+paths/path_4/point_1/in_handle = Vector2(127, 290)
+paths/path_4/point_1/out_handle = Vector2(108, 326)
+paths/path_5/point_0 = Vector2(167.37244, 223.4776)
+paths/path_5/point_0/in_handle = Vector2(167.37244, 223.4776)
+paths/path_5/point_0/out_handle = Vector2(179.8833, 185.94498)
+paths/path_5/point_1 = Vector2(289.7246, 220.08482)
+paths/path_5/point_1/in_handle = Vector2(270.7246, 184.08482)
+paths/path_5/point_1/out_handle = Vector2(289.7246, 220.08482)
 src = "res://examples/stickman/stickman.svg"
 adaptive = false
+position = Vector2(283.79346, 112.78577)
 
-[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
-libraries = {
-&"": SubResource("AnimationLibrary_stickman")
-}
-autoplay = "dance"
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=887029905]
+libraries/ = SubResource("AnimationLibrary_stickman")
+autoplay = &"dance"

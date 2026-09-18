@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene format=3 uid="uid://c2jqo5c342ju7"]
 
 [sub_resource type="Environment" id="Environment_stage"]
 background_mode = 1
@@ -94,28 +94,71 @@ _data = {
 &"jump_spin": SubResource("Animation_jump_spin")
 }
 
-[node name="StickmanMovie3D" type="Node3D"]
+[node name="StickmanMovie3D" type="Node3D" unique_id=2116437727]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=255270553]
 environment = SubResource("Environment_stage")
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=370870506]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 10)
 projection = 1
-size = 7.0
 current = true
+size = 7.0
 
-[node name="Floor" type="MeshInstance3D" parent="."]
-position = Vector3(0, -2.15, -0.2)
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=2092044187]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.15, -0.2)
 mesh = SubResource("QuadMesh_floor")
 
-[node name="Stickman3D" type="SVGAnimate3D" parent="."]
-position = Vector3(0, -0.3, 0)
+[node name="Stickman3D" type="SVGAnimate3D" parent="." unique_id=899156843]
+paths/path_0/point_0 = Vector2(160, 48)
+paths/path_0/point_0/in_handle = Vector2(160, 48)
+paths/path_0/point_0/out_handle = Vector2(184, 48)
+paths/path_0/point_1 = Vector2(198, 84)
+paths/path_0/point_1/in_handle = Vector2(198, 64)
+paths/path_0/point_1/out_handle = Vector2(198, 105)
+paths/path_0/point_2 = Vector2(160, 118)
+paths/path_0/point_2/in_handle = Vector2(182, 118)
+paths/path_0/point_2/out_handle = Vector2(138, 118)
+paths/path_0/point_3 = Vector2(122, 84)
+paths/path_0/point_3/in_handle = Vector2(122, 105)
+paths/path_0/point_3/out_handle = Vector2(122, 64)
+paths/path_0/point_4 = Vector2(160, 48)
+paths/path_0/point_4/in_handle = Vector2(136, 48)
+paths/path_0/point_4/out_handle = Vector2(160, 48)
+paths/path_1/point_0 = Vector2(160, 117)
+paths/path_1/point_0/in_handle = Vector2(160, 117)
+paths/path_1/point_0/out_handle = Vector2(160, 150)
+paths/path_1/point_1 = Vector2(160, 226)
+paths/path_1/point_1/in_handle = Vector2(160, 190)
+paths/path_1/point_1/out_handle = Vector2(160, 226)
+paths/path_2/point_0 = Vector2(158, 137)
+paths/path_2/point_0/in_handle = Vector2(158, 137)
+paths/path_2/point_0/out_handle = Vector2(139, 145)
+paths/path_2/point_1 = Vector2(91, 184)
+paths/path_2/point_1/in_handle = Vector2(116, 164)
+paths/path_2/point_1/out_handle = Vector2(91, 184)
+paths/path_3/point_0 = Vector2(162, 137)
+paths/path_3/point_0/in_handle = Vector2(162, 137)
+paths/path_3/point_0/out_handle = Vector2(181, 145)
+paths/path_3/point_1 = Vector2(253.13307, 153.85272)
+paths/path_3/point_1/in_handle = Vector2(228.13307, 133.85272)
+paths/path_3/point_1/out_handle = Vector2(253.13307, 153.85272)
+paths/path_4/point_0 = Vector2(158, 224)
+paths/path_4/point_0/in_handle = Vector2(158, 224)
+paths/path_4/point_0/out_handle = Vector2(143, 255)
+paths/path_4/point_1 = Vector2(108, 326)
+paths/path_4/point_1/in_handle = Vector2(127, 290)
+paths/path_4/point_1/out_handle = Vector2(108, 326)
+paths/path_5/point_0 = Vector2(162, 224)
+paths/path_5/point_0/in_handle = Vector2(162, 224)
+paths/path_5/point_0/out_handle = Vector2(177, 255)
+paths/path_5/point_1 = Vector2(212, 326)
+paths/path_5/point_1/in_handle = Vector2(193, 290)
+paths/path_5/point_1/out_handle = Vector2(212, 326)
 src = "res://examples/stickman/stickman.svg"
 adaptive = false
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0075945854, -0.2961075, 0.0017575026)
 
-[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
-libraries = {
-&"": SubResource("AnimationLibrary_stickman3d")
-}
-autoplay = "jump_spin"
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1213832215]
+libraries/ = SubResource("AnimationLibrary_stickman3d")
+autoplay = &"jump_spin"

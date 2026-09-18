@@ -179,6 +179,7 @@ func _forward_canvas_draw_over_viewport(viewport_control: Control) -> void:
 		if selected.is_class("SVGAnimate2D"):
 			draw_path_controls_2d(viewport_control, selected)
 
+# 編集点は元の文書座標を使い、画像化だけに適用する揺れへ追従させない。
 func path_screen_2d(node: Node2D, point: Vector2, path := -1) -> Vector2:
 	var document := Vector2(node.call("path_to_document", path, point)) if path >= 0 else point
 	return screen_transform(node) * ShapeUtils.displayed_point_2d(node, document)
@@ -532,6 +533,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		return EditorPlugin.AFTER_GUI_INPUT_STOP
 	return EditorPlugin.AFTER_GUI_INPUT_PASS
 
+# 3Dの編集点も元のパス座標を投影し、揺れた輪郭とは独立させる。
 func svg_world_3d(node: Node3D, point: Vector2, path := -1) -> Vector3:
 	var document := Vector2(node.call("path_to_document", path, point)) if path >= 0 else point
 	return node.to_global(ShapeUtils.displayed_point_3d(node, document))

@@ -22,6 +22,7 @@
 		"PinJoint2D",
 		"PinJoint3D",
 		"RefCounted",
+		"RenderingServer",
 		"Sprite3D",
 		"Texture2D",
 		"ResourceUID",

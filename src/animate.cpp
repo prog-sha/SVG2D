@@ -1,10 +1,14 @@
+// SVGの接点と曲線ハンドルを編集する実装。
+// 責務: パス構造を保ち、変更した道だけ文字列化して表示更新をまとめる。
 #include "animate.h"
+#include "svg/xml.h"
 
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/resource_uid.hpp>
 #include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/classes/xml_parser.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -28,7 +32,7 @@ struct EditSegment {
 
 struct EditPoint {
 	Vector2 anchor, in_handle, out_handle;
-	int incoming = -1, outgoing = -1;
+	int incoming = -1, outgoing = -1, move = -1; // 接続先と始点命令を直接引く
 };
 
 struct EditPath {
@@ -39,6 +43,8 @@ struct EditPath {
 struct PathSlot {
 	size_t begin = 0, end = 0;
 	EditPath path;
+	std::string text; // 編集済みパスの文字列。未編集なら元の範囲を使う
+	bool dirty = false; // 再文字列化が必要な道
 	// path自身の座標から、実際に描かれるSVG文書座標への変換。
 	Transform2D display;
 };
@@ -136,9 +142,10 @@ static std::vector<Transform2D> path_display_transforms(const String &markup) {
 	std::vector<Transform2D> result;
 	Ref<XMLParser> parser;
 	parser.instantiate();
-	if (parser->open_buffer(markup.to_utf8_buffer()) != OK) return result;
+	PackedByteArray buffer = markup.to_utf8_buffer();
+	if (parser->open_buffer(buffer) != OK) return result;
 	std::vector<EditTransformState> stack;
-	while (parser->read() == OK) {
+	while (read_svg_node(parser, buffer) == OK) {
 		int type = parser->get_node_type();
 		if (type == XMLParser::NODE_ELEMENT_END) {
 			if (!stack.empty()) stack.pop_back();
@@ -211,11 +218,11 @@ public:
 		skip(p);
 		char *end = nullptr;
 		out = std::strtod(p, &end);
-		if (end == p) return false;
+		if (end == p || !std::isfinite(out) || !std::isfinite((real_t)out)) return false;
 		p = end;
 		return true;
 	}
-	static Vector2 pair(const std::vector<double> &v, int at, bool relative, const Vector2 &base) {
+	static Vector2 pair(const double *v, int at, bool relative, const Vector2 &base) {
 		Vector2 q((float)v[(size_t)at], (float)v[(size_t)at + 1]);
 		return relative ? base + q : q;
 	}
@@ -245,23 +252,32 @@ public:
 			else if (!command) break;
 			bool relative = std::islower((unsigned char)command);
 			char kind = (char)std::toupper((unsigned char)command);
+			if (current_point < 0 && kind != 'M') break; // 始点なしの曲線は参照できない
 			if (kind == 'Z') {
 				EditSegment z; z.kind = 'Z'; z.from = current_point; z.point = sub_point; z.end = sub_start;
 				add_segment(z); current = sub_start; current_point = sub_point; previous_kind = kind; command = 0; continue;
 			}
 			int count = kind == 'H' || kind == 'V' ? 1 : kind == 'M' || kind == 'L' || kind == 'T' ? 2
 					: kind == 'S' || kind == 'Q' ? 4 : kind == 'C' ? 6 : kind == 'A' ? 7 : 0;
-			if (!count) { command = 0; continue; }
-			std::vector<double> v((size_t)count);
+			if (!count) break;
+			double v[7]; // SVGの1命令は最大7値。命令ごとの動的確保を避ける
 			bool ok = true;
-			for (double &n : v) if (!number(p, n)) { ok = false; break; }
+			for (int i = 0; i < count; i++) {
+				if (kind == 'A' && (i == 3 || i == 4)) {
+					skip(p);
+					if (*p != '0' && *p != '1') { ok = false; break; }
+					v[i] = *p++ - '0'; // 隣り合う円弧フラグも1文字ずつ読む
+				} else if (!number(p, v[i])) { ok = false; break; }
+			}
 			if (!ok) break;
 			Vector2 base = current, end;
 			if (kind == 'H') end = Vector2((float)(relative ? current.x + v[0] : v[0]), current.y);
 			else if (kind == 'V') end = Vector2(current.x, (float)(relative ? current.y + v[0] : v[0]));
 			else end = pair(v, count - 2, relative, base);
+			if (!end.is_finite()) break;
 			if (kind == 'M') {
 				current_point = add_point(end); sub_point = current_point; sub_start = end;
+				out.points[(size_t)current_point].move = (int)out.segments.size();
 				EditSegment m; m.kind = 'M'; m.end = end; m.point = current_point; add_segment(m);
 				command = relative ? 'l' : 'L';
 			} else {
@@ -281,6 +297,7 @@ public:
 						segment.c2 = end + (q - end) * (2.0f / 3.0f);
 						previous_quad = q;
 					}
+					if (!segment.c1.is_finite() || !segment.c2.is_finite()) { out.points.pop_back(); break; }
 					out.points[(size_t)current_point].out_handle = segment.c1;
 					out.points[(size_t)next_point].in_handle = segment.c2;
 				} else if (kind == 'A') {
@@ -317,36 +334,79 @@ public:
 		if ((path.begins_with("res://") || path.begins_with("user://")) && path.get_extension().to_lower() == "svg")
 			text = FileAccess::file_exists(path) ? FileAccess::get_file_as_string(path) : String();
 		markup = std::string(text.utf8().get_data());
+		if (text.strip_edges().is_empty()) return;
 		std::vector<Transform2D> displays = path_display_transforms(text);
 		size_t display_index = 0;
+		// 引用符・コメント・CDATA内のpath文字列を編集対象へ混ぜない。
 		size_t at = 0;
-		while ((at = markup.find("<path", at)) != std::string::npos) {
-			size_t tag_end = markup.find('>', at + 5); if (tag_end == std::string::npos) break;
-			Transform2D display;
-			if (display_index < displays.size()) display = displays[display_index];
-			display_index++;
-			size_t d = at + 5;
-			while ((d = markup.find('d', d)) != std::string::npos && d < tag_end) {
-				bool left = d == at + 5 || std::isspace((unsigned char)markup[d - 1]);
-				size_t eq = d + 1; while (eq < tag_end && std::isspace((unsigned char)markup[eq])) eq++;
-				if (!left || eq >= tag_end || markup[eq] != '=') { d++; continue; }
-				eq++; while (eq < tag_end && std::isspace((unsigned char)markup[eq])) eq++;
-				if (eq >= tag_end || (markup[eq] != '\'' && markup[eq] != '"')) { d++; continue; }
-				char quote = markup[eq]; size_t end = markup.find(quote, eq + 1);
-				if (end == std::string::npos || end > tag_end) break;
-				PathSlot slot; slot.begin = eq + 1; slot.end = end;
-				slot.display = display;
-				slot.path = parse_path(markup.substr(slot.begin, slot.end - slot.begin));
-				if (!slot.path.points.empty()) slots.push_back(std::move(slot));
-				break;
+		while ((at = markup.find('<', at)) != std::string::npos) {
+			const char *closing = markup.compare(at, 4, "<!--") == 0 ? "-->"
+					: markup.compare(at, 9, "<![CDATA[") == 0 ? "]]>" : nullptr;
+			if (markup.compare(at, 2, "<?") == 0) {
+				size_t end = markup.find("?>", at + 2);
+				if (end == std::string::npos) break;
+				at = end + 2; continue;
 			}
-			at = tag_end + 1;
+			if (!closing && markup.compare(at, 2, "<!") == 0) {
+				int depth = 0; char quote = 0; // 文書宣言の内部集合と引用符を飛ばす
+				for (at += 2; at < markup.size(); at++) {
+					char c = markup[at];
+					if (quote) { if (c == quote) quote = 0; continue; }
+					if (c == '\'' || c == '"') quote = c;
+					else if (c == '[') depth++;
+					else if (c == ']') depth = std::max(0, depth - 1);
+					else if (c == '>' && depth == 0) { at++; break; }
+				}
+				continue;
+			}
+			if (closing) {
+				size_t end = markup.find(closing, at + 1);
+				if (end == std::string::npos) break;
+				at = end + 3; continue;
+			}
+			size_t name = ++at;
+			while (at < markup.size() && !std::isspace((unsigned char)markup[at]) && markup[at] != '/' && markup[at] != '>') at++;
+			bool is_path = markup.compare(name, at - name, "path") == 0;
+			Transform2D display;
+			if (is_path) {
+				if (display_index < displays.size()) display = displays[display_index];
+				display_index++;
+			}
+			while (at < markup.size() && markup[at] != '>') {
+				if (std::isspace((unsigned char)markup[at]) || markup[at] == '/') { at++; continue; }
+				size_t key = at;
+				while (at < markup.size() && !std::isspace((unsigned char)markup[at]) && markup[at] != '=' && markup[at] != '>') at++;
+				bool is_d = at - key == 1 && markup[key] == 'd';
+				while (at < markup.size() && std::isspace((unsigned char)markup[at])) at++;
+				if (at >= markup.size() || markup[at] == '>') break;
+				if (markup[at++] != '=') continue;
+				while (at < markup.size() && std::isspace((unsigned char)markup[at])) at++;
+				if (at >= markup.size()) break;
+				char quote = markup[at++];
+				if (quote != '\'' && quote != '"') continue;
+				size_t end = markup.find(quote, at);
+				if (end == std::string::npos) { at = markup.size(); break; }
+				if (is_path && is_d) {
+					PathSlot slot; slot.begin = at; slot.end = end; slot.display = display;
+					slot.path = parse_path(markup.substr(at, end - at));
+					if (!slot.path.points.empty()) slots.push_back(std::move(slot));
+				}
+				at = end + 1;
+			}
+			if (at < markup.size()) at++;
 		}
 	}
 
-	String rebuilt() const {
-		std::string out; size_t at = 0;
-		for (const PathSlot &slot : slots) { out.append(markup, at, slot.begin - at); out += serialize(slot.path); at = slot.end; }
+	// 未編集の道は元の文字列を使い、変更した道だけ組み直す。
+	String rebuilt() {
+		std::string out; out.reserve(markup.size()); size_t at = 0;
+		for (PathSlot &slot : slots) {
+			out.append(markup, at, slot.begin - at);
+			if (slot.dirty) { slot.text = serialize(slot.path); slot.dirty = false; }
+			if (slot.text.empty()) out.append(markup, slot.begin, slot.end - slot.begin);
+			else out += slot.text;
+			at = slot.end;
+		}
 		out.append(markup, at, std::string::npos);
 		return String::utf8(out.c_str());
 	}
@@ -355,20 +415,28 @@ public:
 	Vector2 from_document(int path, const Vector2 &point) const { return path >= 0 && path < (int)slots.size() ? slots[(size_t)path].display.affine_inverse().xform(point) : point; }
 	EditPoint *point(int path, int point) { return valid(path, point) ? &slots[(size_t)path].path.points[(size_t)point] : nullptr; }
 	const EditPoint *point(int path, int point) const { return valid(path, point) ? &slots[(size_t)path].path.points[(size_t)point] : nullptr; }
-	void move_point(int path, int index, Vector2 value) {
-		EditPoint *p = point(path, index); if (!p) return;
-		Vector2 delta = value - p->anchor; p->anchor = value; p->in_handle += delta; p->out_handle += delta;
+	bool move_point(int path, int index, Vector2 value) {
+		EditPoint *p = point(path, index);
+		if (!p || !value.is_finite() || p->anchor == value) return false;
+		Vector2 delta = value - p->anchor;
+		if (!delta.is_finite() || !(p->in_handle + delta).is_finite() || !(p->out_handle + delta).is_finite()) return false;
+		slots[(size_t)path].dirty = true;
+		p->anchor = value; p->in_handle += delta; p->out_handle += delta;
 		EditPath &ep = slots[(size_t)path].path;
 		if (p->incoming >= 0) { EditSegment &s = ep.segments[(size_t)p->incoming]; s.end = value; if (s.kind == 'C') s.c2 = p->in_handle; }
-		for (EditSegment &s : ep.segments) if (s.kind == 'M' && s.point == index) s.end = value;
+		if (p->move >= 0) ep.segments[(size_t)p->move].end = value;
 		if (p->outgoing >= 0 && ep.segments[(size_t)p->outgoing].kind == 'C') ep.segments[(size_t)p->outgoing].c1 = p->out_handle;
+		return true;
 	}
-	void set_handle(int path, int index, Vector2 value, bool incoming) {
-		EditPoint *p = point(path, index); if (!p) return;
+	bool set_handle(int path, int index, Vector2 value, bool incoming) {
+		EditPoint *p = point(path, index);
+		if (!p || !value.is_finite() || (incoming ? p->in_handle : p->out_handle) == value) return false;
 		EditPath &ep = slots[(size_t)path].path; int si = incoming ? p->incoming : p->outgoing;
-		if (si < 0) return; EditSegment &s = ep.segments[(size_t)si];
-		if (s.kind != 'C') return; // 円弧・直線を曲線へ変えてトポロジーを変えない。
+		if (si < 0) return false; EditSegment &s = ep.segments[(size_t)si];
+		if (s.kind != 'C') return false; // 円弧・直線を曲線へ変えてトポロジーを変えない。
 		if (incoming) { p->in_handle = value; s.c2 = value; } else { p->out_handle = value; s.c1 = value; }
+		slots[(size_t)path].dirty = true;
+		return true;
 	}
 };
 
@@ -379,7 +447,12 @@ static bool property_indices(const StringName &name, int &path, int &point, Path
 	if (!s.begins_with("paths/path_")) return false;
 	PackedStringArray parts = s.split("/");
 	if ((parts.size() != 3 && parts.size() != 4) || !parts[1].begins_with("path_") || !parts[2].begins_with("point_")) return false;
-	path = parts[1].trim_prefix("path_").to_int(); point = parts[2].trim_prefix("point_").to_int();
+	String p = parts[1].trim_prefix("path_"), i = parts[2].trim_prefix("point_");
+	if (p.is_empty() || i.is_empty()) return false;
+	for (int n = 0; n < p.length(); n++) if (p[n] < '0' || p[n] > '9') return false;
+	for (int n = 0; n < i.length(); n++) if (i[n] < '0' || i[n] > '9') return false;
+	if (p.length() > 9 || i.length() > 9) return false;
+	path = p.to_int(); point = i.to_int();
 	part = PATH_ANCHOR;
 	if (parts.size() == 4) {
 		if (parts[3] == "in_handle") part = PATH_IN_HANDLE;
@@ -390,25 +463,34 @@ static bool property_indices(const StringName &name, int &path, int &point, Path
 }
 
 #define ANIMATE_IMPL(CLASS, BASE) \
-CLASS::CLASS() : _paths(new SVGPathAnimationData()) {} \
+CLASS::CLASS() : _paths(new SVGPathAnimationData()) { set_cache_animation_frames(false); } \
 CLASS::~CLASS() = default; \
-void CLASS::set_src(const String &src) { _paths->parse(src); bool restored = false; for (const auto &entry : _paths->pending) { int path, point; PathPropertyPart part; if (!property_indices(entry.first, path, point, part) || !_paths->valid(path, point)) continue; if (part == PATH_ANCHOR) _paths->move_point(path, point, entry.second); else _paths->set_handle(path, point, entry.second, part == PATH_IN_HANDLE); restored = true; } _paths->pending.clear(); BASE::set_src(restored ? _paths->rebuilt() : src); notify_property_list_changed(); } \
+void CLASS::_queue_paths() { _path_dirty = true; if (!_deferred_updates) { flush_paths(); return; } if (_path_queued) return; _path_queued = true; callable_mp(this, &CLASS::_flush_paths).call_deferred(); } \
+void CLASS::_flush_paths() { _path_queued = false; flush_paths(); } \
+void CLASS::flush_paths() { if (!_path_dirty) return; _path_dirty = false; BASE::_set_path_src(_paths->rebuilt()); } \
+void CLASS::set_deferred_updates(bool enabled) { _deferred_updates = enabled; if (!enabled) flush_paths(); } \
+void CLASS::set_src(const String &src) { _path_dirty = false; _paths->parse(src); bool restored = false; for (const auto &entry : _paths->pending) { int path, point; PathPropertyPart part; if (!property_indices(entry.first, path, point, part) || !_paths->valid(path, point)) continue; if (part == PATH_ANCHOR) _paths->move_point(path, point, entry.second); else _paths->set_handle(path, point, entry.second, part == PATH_IN_HANDLE); restored = true; } _paths->pending.clear(); BASE::set_src(restored ? _paths->rebuilt() : src); notify_property_list_changed(); } \
 String CLASS::get_src() const { return _paths->source; } \
 int CLASS::get_path_count() const { return (int)_paths->slots.size(); } \
 int CLASS::get_point_count(int path) const { return path >= 0 && path < get_path_count() ? (int)_paths->slots[(size_t)path].path.points.size() : 0; } \
 Vector2 CLASS::get_path_point(int path, int point) const { const EditPoint *p = _paths->point(path, point); return p ? p->anchor : Vector2(); } \
 Vector2 CLASS::get_in_handle(int path, int point) const { const EditPoint *p = _paths->point(path, point); return p ? p->in_handle : Vector2(); } \
 Vector2 CLASS::get_out_handle(int path, int point) const { const EditPoint *p = _paths->point(path, point); return p ? p->out_handle : Vector2(); } \
-void CLASS::set_path_point(int path, int point, const Vector2 &value) { if (!_paths->valid(path, point)) return; _paths->move_point(path, point, value); BASE::set_src(_paths->rebuilt()); } \
-void CLASS::set_in_handle(int path, int point, const Vector2 &value) { if (!_paths->valid(path, point)) return; _paths->set_handle(path, point, value, true); BASE::set_src(_paths->rebuilt()); } \
-void CLASS::set_out_handle(int path, int point, const Vector2 &value) { if (!_paths->valid(path, point)) return; _paths->set_handle(path, point, value, false); BASE::set_src(_paths->rebuilt()); } \
-PackedVector2Array CLASS::get_path_points(int path) const { PackedVector2Array out; int n = get_point_count(path); out.resize(n); for (int i = 0; i < n; i++) out.set(i, get_path_point(path, i)); return out; } \
+void CLASS::set_path_point(int path, int point, const Vector2 &value) { if (_paths->move_point(path, point, value)) _queue_paths(); } \
+void CLASS::set_in_handle(int path, int point, const Vector2 &value) { if (_paths->set_handle(path, point, value, true)) _queue_paths(); } \
+void CLASS::set_out_handle(int path, int point, const Vector2 &value) { if (_paths->set_handle(path, point, value, false)) _queue_paths(); } \
+PackedVector2Array CLASS::get_path_points(int path) const { PackedVector2Array out; int n = get_point_count(path); out.resize(n); Vector2 *data = out.ptrw(); for (int i = 0; i < n; i++) data[i] = _paths->slots[(size_t)path].path.points[(size_t)i].anchor; return out; } \
 Vector2 CLASS::path_to_document(int path, const Vector2 &point) const { return _paths->to_document(path, point); } \
 Vector2 CLASS::document_to_path(int path, const Vector2 &point) const { return _paths->from_document(path, point); } \
 bool CLASS::_set(const StringName &name, const Variant &value) { int path, point; PathPropertyPart part; if (!property_indices(name, path, point, part) || value.get_type() != Variant::VECTOR2) return false; Vector2 v = value; if (!_paths->valid(path, point)) { _paths->pending.push_back({name, v}); return true; } if (part == PATH_ANCHOR) set_path_point(path, point, v); else if (part == PATH_IN_HANDLE) set_in_handle(path, point, v); else set_out_handle(path, point, v); return true; } \
 bool CLASS::_get(const StringName &name, Variant &value) const { int path, point; PathPropertyPart part; if (!property_indices(name, path, point, part) || !_paths->valid(path, point)) return false; value = part == PATH_ANCHOR ? get_path_point(path, point) : part == PATH_IN_HANDLE ? get_in_handle(path, point) : get_out_handle(path, point); return true; } \
 void CLASS::_get_property_list(List<PropertyInfo> *list) const { for (int p = 0; p < get_path_count(); p++) for (int i = 0; i < get_point_count(p); i++) { String base = "paths/path_" + itos(p) + "/point_" + itos(i); list->push_back(PropertyInfo(Variant::VECTOR2, base, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_KEYING_INCREMENTS)); list->push_back(PropertyInfo(Variant::VECTOR2, base + "/in_handle", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT)); list->push_back(PropertyInfo(Variant::VECTOR2, base + "/out_handle", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT)); } } \
 void CLASS::_bind_methods() { \
+	ClassDB::bind_method(D_METHOD("set_deferred_updates", "enabled"), &CLASS::set_deferred_updates); \
+	ClassDB::bind_method(D_METHOD("is_deferred_updates"), &CLASS::is_deferred_updates); \
+	ClassDB::bind_method(D_METHOD("flush_paths"), &CLASS::flush_paths); \
+	ADD_GROUP("Path Updates", ""); \
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "deferred_updates"), "set_deferred_updates", "is_deferred_updates"); \
 	ClassDB::bind_method(D_METHOD("get_path_count"), &CLASS::get_path_count); ClassDB::bind_method(D_METHOD("get_point_count", "path"), &CLASS::get_point_count); \
 	ClassDB::bind_method(D_METHOD("get_path_point", "path", "point"), &CLASS::get_path_point); ClassDB::bind_method(D_METHOD("set_path_point", "path", "point", "value"), &CLASS::set_path_point); \
 	ClassDB::bind_method(D_METHOD("get_in_handle", "path", "point"), &CLASS::get_in_handle); ClassDB::bind_method(D_METHOD("set_in_handle", "path", "point", "value"), &CLASS::set_in_handle); \

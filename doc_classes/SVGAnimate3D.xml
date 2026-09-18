@@ -12,5 +12,9 @@
 		<method name="get_out_handle" qualifiers="const"><return type="Vector2" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /></method>
 		<method name="set_out_handle"><return type="void" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /><param index="2" name="value" type="Vector2" /></method>
 		<method name="get_path_points" qualifiers="const"><return type="PackedVector2Array" /><param index="0" name="path" type="int" /></method>
+		<method name="flush_paths"><return type="void" /><description>Applies pending path edits immediately. Call before reading a texture when deferred_updates is enabled. SVGAnimate3D still refreshes its displayed texture at idle time.</description></method>
 	</methods>
+	<members>
+		<member name="deferred_updates" type="bool" setter="set_deferred_updates" getter="is_deferred_updates" default="true">Combines path edits until idle time, serializing and parsing the SVG once per batch. Point getters and scene saving always see current edits. Disable for immediate SVG parsing.</member>
+	</members>
 </class>

@@ -1,8 +1,12 @@
+// 粒子列でロープを動かし、帯として描く実装。
+// 責務: 連続した座標をSIMDで更新し、描画側には必要な頂点だけ渡す。
 #include "rope.h"
+#include "rope_math.h"
 
 #include <godot_cpp/classes/base_material3d.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/mesh.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/physics_server2d.hpp>
 #include <godot_cpp/classes/physics_server3d.hpp>
 #include <godot_cpp/classes/physics_body2d.hpp>
@@ -20,146 +24,10 @@
 #include <algorithm>
 #include <cmath>
 
-#if !defined(SVG2D_SCALAR) && !defined(REAL_T_IS_DOUBLE) && \
-		(defined(__SSE2__) || defined(_M_X64) || defined(_M_AMD64))
-#define SVG2D_ROPE_SSE2
-#include <emmintrin.h>
-#elif !defined(SVG2D_SCALAR) && !defined(REAL_T_IS_DOUBLE) && \
-		defined(__aarch64__) && defined(__ARM_NEON)
-#define SVG2D_ROPE_NEON
-#include <arm_neon.h>
-#endif
 
 using namespace godot;
 
 namespace svg2d {
-
-template <typename V>
-static void integrate_scalar(std::vector<V> &points, std::vector<V> &previous,
-		const V &gravity_step, float keep, size_t begin) {
-	for (size_t i = begin; i < points.size(); i++) {
-		V current = points[i];
-		points[i] += (points[i] - previous[i]) * keep + gravity_step;
-		previous[i] = current;
-	}
-}
-
-static void integrate_rope(std::vector<Vector2> &points, std::vector<Vector2> &previous,
-		const Vector2 &gravity_step, float keep, size_t begin) {
-	size_t i = begin;
-#if defined(SVG2D_ROPE_SSE2)
-	const __m128 k = _mm_set1_ps(keep);
-	const __m128 g = _mm_set_ps(gravity_step.y, gravity_step.x,
-			gravity_step.y, gravity_step.x);
-	for (; i + 1 < points.size(); i += 2) {
-		__m128 p = _mm_loadu_ps(&points[i].x);
-		__m128 old = _mm_loadu_ps(&previous[i].x);
-		__m128 next = _mm_add_ps(p, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(p, old), k), g));
-		_mm_storeu_ps(&previous[i].x, p);
-		_mm_storeu_ps(&points[i].x, next);
-	}
-#elif defined(SVG2D_ROPE_NEON)
-	const float32x4_t k = vdupq_n_f32(keep);
-	const float32_t gv[4] = { gravity_step.x, gravity_step.y,
-			gravity_step.x, gravity_step.y };
-	const float32x4_t g = vld1q_f32(gv);
-	for (; i + 1 < points.size(); i += 2) {
-		float32x4_t p = vld1q_f32(&points[i].x);
-		float32x4_t old = vld1q_f32(&previous[i].x);
-		float32x4_t next = vaddq_f32(p, vaddq_f32(vmulq_f32(vsubq_f32(p, old), k), g));
-		vst1q_f32(&previous[i].x, p);
-		vst1q_f32(&points[i].x, next);
-	}
-#endif
-	integrate_scalar(points, previous, gravity_step, keep, i);
-}
-
-static void integrate_rope(std::vector<Vector3> &points, std::vector<Vector3> &previous,
-		const Vector3 &gravity_step, float keep, size_t begin) {
-	size_t i = begin;
-#if defined(SVG2D_ROPE_NEON)
-	const float32x4_t k = vdupq_n_f32(keep);
-	const float32x4_t gx = vdupq_n_f32(gravity_step.x);
-	const float32x4_t gy = vdupq_n_f32(gravity_step.y);
-	const float32x4_t gz = vdupq_n_f32(gravity_step.z);
-	for (; i + 3 < points.size(); i += 4) {
-		float32x4x3_t p = vld3q_f32(&points[i].x);
-		float32x4x3_t old = vld3q_f32(&previous[i].x);
-		float32x4x3_t next;
-		next.val[0] = vaddq_f32(p.val[0], vaddq_f32(vmulq_f32(vsubq_f32(p.val[0], old.val[0]), k), gx));
-		next.val[1] = vaddq_f32(p.val[1], vaddq_f32(vmulq_f32(vsubq_f32(p.val[1], old.val[1]), k), gy));
-		next.val[2] = vaddq_f32(p.val[2], vaddq_f32(vmulq_f32(vsubq_f32(p.val[2], old.val[2]), k), gz));
-		vst3q_f32(&previous[i].x, p);
-		vst3q_f32(&points[i].x, next);
-	}
-#elif defined(SVG2D_ROPE_SSE2)
-	const __m128 k = _mm_set1_ps(keep);
-	const __m128 gx = _mm_set1_ps(gravity_step.x), gy = _mm_set1_ps(gravity_step.y);
-	const __m128 gz = _mm_set1_ps(gravity_step.z);
-	for (; i + 3 < points.size(); i += 4) {
-		__m128 px = _mm_set_ps(points[i + 3].x, points[i + 2].x, points[i + 1].x, points[i].x);
-		__m128 py = _mm_set_ps(points[i + 3].y, points[i + 2].y, points[i + 1].y, points[i].y);
-		__m128 pz = _mm_set_ps(points[i + 3].z, points[i + 2].z, points[i + 1].z, points[i].z);
-		__m128 ox = _mm_set_ps(previous[i + 3].x, previous[i + 2].x, previous[i + 1].x, previous[i].x);
-		__m128 oy = _mm_set_ps(previous[i + 3].y, previous[i + 2].y, previous[i + 1].y, previous[i].y);
-		__m128 oz = _mm_set_ps(previous[i + 3].z, previous[i + 2].z, previous[i + 1].z, previous[i].z);
-		__m128 nx = _mm_add_ps(px, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(px, ox), k), gx));
-		__m128 ny = _mm_add_ps(py, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(py, oy), k), gy));
-		__m128 nz = _mm_add_ps(pz, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(pz, oz), k), gz));
-		float xs[4], ys[4], zs[4];
-		_mm_storeu_ps(xs, nx); _mm_storeu_ps(ys, ny); _mm_storeu_ps(zs, nz);
-		for (int lane = 0; lane < 4; lane++) {
-			previous[i + (size_t)lane] = points[i + (size_t)lane];
-			points[i + (size_t)lane] = Vector3(xs[lane], ys[lane], zs[lane]);
-		}
-	}
-#endif
-	integrate_scalar(points, previous, gravity_step, keep, i);
-}
-
-static const char *rope_backend_name() {
-#if defined(SVG2D_ROPE_NEON)
-	return "neon";
-#elif defined(SVG2D_ROPE_SSE2)
-	return "sse2";
-#else
-	return "scalar";
-#endif
-}
-
-template <typename V>
-static void solve_rope(std::vector<V> &points, const V &anchor, bool pin_start,
-		int iterations, double elasticity, double length) {
-	if (points.size() < 2) return;
-	double link = length / (double)(points.size() - 1);
-	float stiffness = (float)std::clamp(elasticity, 0.0, 1.0);
-	for (int pass = 0; pass < iterations; pass++) {
-		if (pin_start) points[0] = anchor;
-		for (size_t i = 0; i + 1 < points.size(); i++) {
-			V delta_p = points[i + 1] - points[i];
-			double distance = delta_p.length();
-			if (distance <= link || distance <= 1e-9) continue;
-			V correction = delta_p * (float)(((distance - link) / distance) * stiffness);
-			if (pin_start && i == 0) {
-				points[i + 1] -= correction;
-			} else {
-				points[i] += correction * 0.5f;
-				points[i + 1] -= correction * 0.5f;
-			}
-		}
-	}
-	// 弾性補正の反復誤差が残っても「最大長」だけは越えないよう、固定端から
-	// 各子を順にクランプする。前のリンクを再び伸ばさない順序なので1回で確定する。
-	if (pin_start) {
-		points[0] = anchor;
-		for (size_t i = 0; i + 1 < points.size(); i++) {
-			V delta_p = points[i + 1] - points[i];
-			double distance = delta_p.length();
-			if (distance > link && distance > 1e-9)
-				points[i + 1] = points[i] + delta_p * (float)(link / distance);
-		}
-	}
-}
 
 static Vector2 rope_side_2d(const std::vector<Vector2> &points, size_t i) {
 	Vector2 tangent;
@@ -265,6 +133,7 @@ void SpriteRope2D::_sync_attachment() {
 }
 
 void SpriteRope2D::_simulate(double delta) {
+	if (!std::isfinite(delta) || delta <= 0.0) return;
 	if (_points.size() != (size_t)_segments) reset_simulation();
 	if (_previous.size() != _points.size()) reset_simulation();
 	Vector2 anchor = _points[0];
@@ -285,37 +154,43 @@ void SpriteRope2D::_physics_process(double delta) {
 	_sync_attachment();
 }
 
+// 隣接する帯の三角形を1回の描画命令へまとめる。
+static PackedInt32Array rope_indices(int count) {
+	PackedInt32Array indices;
+	indices.resize((count - 1) * 6);
+	int32_t *data = indices.ptrw();
+	for (int i = 0; i + 1 < count; i++) {
+		int at = i * 6, row = i * 2;
+		data[at] = row; data[at + 1] = row + 1; data[at + 2] = row + 2;
+		data[at + 3] = row + 1; data[at + 4] = row + 3; data[at + 5] = row + 2;
+	}
+	return indices;
+}
+
 void SpriteRope2D::_draw() {
 	if (_points.size() < 2) reset_simulation();
-	PackedVector2Array center;
-	center.resize((int)_points.size());
-	for (int i = 0; i < (int)_points.size(); i++) center.set(i, _points[(size_t)i]);
 	if (_line_mode) {
-		draw_polyline(center, _line_color, (float)_line_width, true);
+		draw_polyline(get_rope_points(), _line_color, (float)_line_width, true);
 		return;
 	}
 	Vector2 size = _visual_size();
-	Ref<Texture2D> texture = _texture;
-	if (texture.is_null() || size.x <= 0.0f || size.y <= 0.0f) return;
+	if (_texture.is_null() || size.x <= 0.0f || size.y <= 0.0f) return;
 	float half = size.x * 0.5f;
+	int count = (int)_points.size();
+	PackedVector2Array vertices, uvs;
+	vertices.resize(count * 2); uvs.resize(count * 2);
+	Vector2 *v = vertices.ptrw(), *uv = uvs.ptrw();
+	for (int i = 0; i < count; i++) {
+		Vector2 side = rope_side_2d(_points, (size_t)i) * half;
+		v[i * 2] = _points[(size_t)i] + side;
+		v[i * 2 + 1] = _points[(size_t)i] - side;
+		float t = (float)i / (float)(count - 1);
+		uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
+	}
 	PackedColorArray colors;
 	colors.push_back(Color(1, 1, 1, 1));
-	for (size_t i = 0; i + 1 < _points.size(); i++) {
-		float v0 = (float)i / (float)(_points.size() - 1);
-		float v1 = (float)(i + 1) / (float)(_points.size() - 1);
-		Vector2 s0 = rope_side_2d(_points, i) * half;
-		Vector2 s1 = rope_side_2d(_points, i + 1) * half;
-		Vector2 left0 = _points[i] + s0, right0 = _points[i] - s0;
-		Vector2 left1 = _points[i + 1] + s1, right1 = _points[i + 1] - s1;
-		PackedVector2Array triangle, uv;
-		triangle.push_back(left0); triangle.push_back(right0); triangle.push_back(left1);
-		uv.push_back(Vector2(0, v0)); uv.push_back(Vector2(1, v0)); uv.push_back(Vector2(0, v1));
-		draw_primitive(triangle, colors, uv, texture);
-		triangle.clear(); uv.clear();
-		triangle.push_back(right0); triangle.push_back(right1); triangle.push_back(left1);
-		uv.push_back(Vector2(1, v0)); uv.push_back(Vector2(1, v1)); uv.push_back(Vector2(0, v1));
-		draw_primitive(triangle, colors, uv, texture);
-	}
+	RenderingServer::get_singleton()->canvas_item_add_triangle_array(get_canvas_item(),
+			rope_indices(count), vertices, colors, uvs, PackedInt32Array(), PackedFloat32Array(), _texture->get_rid());
 }
 
 void SpriteRope2D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
@@ -329,7 +204,7 @@ void SpriteRope2D::set_elasticity(double value) { _elasticity = std::isfinite(va
 void SpriteRope2D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
 void SpriteRope2D::set_use_system_gravity(bool enabled) { _use_system_gravity = enabled; }
 void SpriteRope2D::set_gravity_scale(double value) { _gravity_scale = std::isfinite(value) ? value : 1.0; }
-void SpriteRope2D::set_gravity(const Vector2 &value) { _gravity = value; }
+void SpriteRope2D::set_gravity(const Vector2 &value) { if (value.is_finite()) _gravity = value; }
 void SpriteRope2D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.1, value) : 4.0; queue_redraw(); }
 void SpriteRope2D::set_line_color(const Color &value) { _line_color = value; queue_redraw(); }
 void SpriteRope2D::set_attachment_body(const NodePath &path) {
@@ -350,7 +225,7 @@ void SpriteRope2D::set_attachment_point(int value) {
 PackedVector2Array SpriteRope2D::get_rope_points() const {
 	PackedVector2Array out;
 	out.resize((int)_points.size());
-	for (int i = 0; i < (int)_points.size(); i++) out.set(i, _points[(size_t)i]);
+	std::copy(_points.begin(), _points.end(), out.ptrw());
 	return out;
 }
 
@@ -530,6 +405,7 @@ void SpriteRope3D::_sync_attachment() {
 }
 
 void SpriteRope3D::_simulate(double delta) {
+	if (!std::isfinite(delta) || delta <= 0.0) return;
 	if (_points.size() != (size_t)_segments) reset_simulation();
 	if (_previous.size() != _points.size()) reset_simulation();
 	Vector3 anchor = _points[0];
@@ -543,8 +419,7 @@ void SpriteRope3D::_simulate(double delta) {
 
 void SpriteRope3D::_update_mesh() {
 	_ensure_mesh();
-	_mesh->clear_surfaces();
-	if (_points.size() < 2) return;
+	if (_points.size() < 2) { _mesh->clear_surfaces(); _mesh_points = 0; return; }
 	Vector2 visual_size = _visual_size();
 	Ref<Texture2D> texture;
 	float half;
@@ -554,37 +429,55 @@ void SpriteRope3D::_update_mesh() {
 		_material->set_albedo(_line_color);
 	} else {
 		texture = _texture;
-		if (texture.is_null() || visual_size.x <= 0.0f || visual_size.y <= 0.0f) return;
+		if (texture.is_null() || visual_size.x <= 0.0f || visual_size.y <= 0.0f) { _mesh->clear_surfaces(); _mesh_points = 0; return; }
 		half = (float)(visual_size.x * _pixel_size * 0.5);
 		_material->set_texture(BaseMaterial3D::TEXTURE_ALBEDO, texture);
 		_material->set_albedo(_modulate);
 	}
+	int count = (int)_points.size();
 	PackedVector3Array vertices;
-	PackedVector2Array uvs;
-	vertices.resize((int)_points.size() * 2);
-	uvs.resize((int)_points.size() * 2);
-	for (int i = 0; i < (int)_points.size(); i++) {
+	vertices.resize(count * 2);
+	Vector3 *v = vertices.ptrw();
+	for (int i = 0; i < count; i++) {
 		Vector3 side = rope_side_3d(_points, (size_t)i) * half;
-		float v = (float)i / (float)(_points.size() - 1);
-		vertices.set(i * 2, _points[(size_t)i] + side);
-		vertices.set(i * 2 + 1, _points[(size_t)i] - side);
-		uvs.set(i * 2, Vector2(0, v));
-		uvs.set(i * 2 + 1, Vector2(1, v));
+		v[i * 2] = _points[(size_t)i] + side;
+		v[i * 2 + 1] = _points[(size_t)i] - side;
 	}
-	PackedInt32Array indices;
-	indices.resize(((int)_points.size() - 1) * 6);
-	for (int i = 0; i + 1 < (int)_points.size(); i++) {
-		int at = i * 6, row = i * 2;
-		indices.set(at, row); indices.set(at + 1, row + 1); indices.set(at + 2, row + 2);
-		indices.set(at + 3, row + 1); indices.set(at + 4, row + 3); indices.set(at + 5, row + 2);
+	// 頂点領域の更新では境界が再計算されないため、自分で現在の範囲を渡す。
+	AABB bounds(v[0], Vector3());
+	for (int i = 1; i < count * 2; i++) bounds.expand_to(v[i]);
+	_mesh->set_custom_aabb(bounds.grow(0.00001f));
+	if (_dynamic_mesh && _mesh_points == count && _mesh->get_surface_count() == 1) {
+#ifdef REAL_T_IS_DOUBLE
+		// GPUの位置形式はdouble精度ビルドでもfloat32のxyz。
+		PackedFloat32Array packed;
+		packed.resize(count * 6);
+		float *data = packed.ptrw();
+		for (int i = 0; i < count * 2; i++) {
+			data[i * 3] = (float)v[i].x; data[i * 3 + 1] = (float)v[i].y; data[i * 3 + 2] = (float)v[i].z;
+		}
+		_mesh->surface_update_vertex_region(0, 0, packed.to_byte_array());
+#else
+		_mesh->surface_update_vertex_region(0, 0, vertices.to_byte_array());
+#endif
+		return;
+	}
+	PackedVector2Array uvs;
+	uvs.resize(count * 2);
+	Vector2 *uv = uvs.ptrw();
+	for (int i = 0; i < count; i++) {
+		float t = (float)i / (float)(count - 1);
+		uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
 	}
 	Array arrays;
 	arrays.resize(Mesh::ARRAY_MAX);
 	arrays[Mesh::ARRAY_VERTEX] = vertices;
 	arrays[Mesh::ARRAY_TEX_UV] = uvs;
-	arrays[Mesh::ARRAY_INDEX] = indices;
-	_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+	arrays[Mesh::ARRAY_INDEX] = rope_indices(count);
+	_mesh->clear_surfaces();
+	_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), Mesh::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 	_mesh->surface_set_material(0, _material);
+	_mesh_points = count;
 }
 
 void SpriteRope3D::_physics_process(double delta) {
@@ -594,6 +487,13 @@ void SpriteRope3D::_physics_process(double delta) {
 		_update_mesh();
 	}
 	_sync_attachment();
+}
+
+// 動的更新の切り替え時は面を作り直し、GPUと設定を揃える。
+void SpriteRope3D::set_dynamic_mesh(bool enabled) {
+	if (_dynamic_mesh == enabled) return;
+	_dynamic_mesh = enabled; _mesh_points = 0;
+	if (is_inside_tree()) _update_mesh();
 }
 
 void SpriteRope3D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
@@ -607,7 +507,7 @@ void SpriteRope3D::set_elasticity(double value) { _elasticity = std::isfinite(va
 void SpriteRope3D::set_damping(double value) { _damping = std::isfinite(value) ? std::clamp(value, 0.0, 1.0) : 0.02; }
 void SpriteRope3D::set_use_system_gravity(bool enabled) { _use_system_gravity = enabled; }
 void SpriteRope3D::set_gravity_scale(double value) { _gravity_scale = std::isfinite(value) ? value : 1.0; }
-void SpriteRope3D::set_gravity(const Vector3 &value) { _gravity = value; }
+void SpriteRope3D::set_gravity(const Vector3 &value) { if (value.is_finite()) _gravity = value; }
 void SpriteRope3D::set_line_width(double value) { _line_width = std::isfinite(value) ? std::max(0.0001, value) : 0.04; _update_mesh(); }
 void SpriteRope3D::set_line_color(const Color &value) { _line_color = value; _update_mesh(); }
 void SpriteRope3D::set_pixel_size(double value) { value = std::isfinite(value) ? std::max(0.0001, value) : 0.01; if (_pixel_size != value) { _pixel_size = value; reset_simulation(); } }
@@ -630,13 +530,16 @@ void SpriteRope3D::set_attachment_point(int value) {
 PackedVector3Array SpriteRope3D::get_rope_points() const {
 	PackedVector3Array out;
 	out.resize((int)_points.size());
-	for (int i = 0; i < (int)_points.size(); i++) out.set(i, _points[(size_t)i]);
+	std::copy(_points.begin(), _points.end(), out.ptrw());
 	return out;
 }
 
 String SpriteRope3D::get_simulation_backend() const { return rope_backend_name(); }
 
 void SpriteRope3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_dynamic_mesh", "enabled"), &SpriteRope3D::set_dynamic_mesh);
+	ClassDB::bind_method(D_METHOD("is_dynamic_mesh"), &SpriteRope3D::is_dynamic_mesh);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dynamic_mesh"), "set_dynamic_mesh", "is_dynamic_mesh");
 	ClassDB::bind_method(D_METHOD("set_texture", "texture"), &SpriteRope3D::set_texture);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SpriteRope3D::get_texture);
 	ClassDB::bind_method(D_METHOD("set_line_mode", "enabled"), &SpriteRope3D::set_line_mode);

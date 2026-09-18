@@ -197,6 +197,22 @@ func run_checks() -> void:
 		EditorInterface.get_selection().clear()
 		EditorInterface.get_selection().add_node(animate)
 		var anchor_screen: Vector2 = svg_plugin.call("path_screen_2d", animate, Vector2(60, 20))
+		# 描画を4パターン変えても、接点とハンドルの表示・選択位置は固定する。
+		var stable_handle2: Vector2 = animate.call("get_in_handle", 0, 1)
+		animate.set("animation_interval", 1)
+		animate.set("jitter_amount", 0.03)
+		animate.set("animation_enabled", true)
+		for tick in 4:
+			await get_tree().process_frame
+			# 選択時のViewport配置変更は追従し、文書内の点だけ固定する。
+			var screen_transform2: Transform2D = svg_plugin.call("screen_transform", animate)
+			var expected_anchor2 := screen_transform2 * ShapeUtils.displayed_point_2d(animate, Vector2(60, 20))
+			var expected_handle2 := screen_transform2 * ShapeUtils.displayed_point_2d(animate, stable_handle2)
+			check(Vector2(svg_plugin.call("path_screen_2d", animate, animate.call("get_path_point", 0, 1), 0)).is_equal_approx(expected_anchor2)
+				and Vector2(svg_plugin.call("path_screen_2d", animate, animate.call("get_in_handle", 0, 1), 0)).is_equal_approx(expected_handle2),
+				"2Dの編集点またはハンドルが揺れた輪郭へ追従したよ")
+		animate.set("animation_enabled", false)
+		anchor_screen = svg_plugin.call("path_screen_2d", animate, Vector2(60, 20), 0)
 		var path_hit: Dictionary = svg_plugin.call("pick_path_control_2d", animate, anchor_screen)
 		check(path_hit.path == 0 and path_hit.point == 1 and path_hit.part == "point",
 			"2Dパスツールが接点番号を選択できないよ")
@@ -263,7 +279,7 @@ func run_checks() -> void:
 		scene_root.add_child(transformed2)
 		transformed2.owner = scene_root
 		var transformed_screen: Vector2 = svg_plugin.call("path_screen_2d", transformed2, Vector2(10, 20), 0)
-		var expected_screen := transformed2.get_global_transform_with_canvas() * Vector2(36, 52)
+		var expected_screen := editor_view2.get_global_canvas_transform() * transformed2.get_screen_transform() * Vector2(36, 52)
 		check(transformed_screen.distance_to(expected_screen) < 0.01
 			and Vector2(svg_plugin.call("path_point_from_screen_2d", transformed2, transformed_screen, 0))
 				.distance_to(Vector2(10, 20)) < 0.01,
@@ -412,6 +428,17 @@ func run_checks() -> void:
 		EditorInterface.get_selection().clear()
 		EditorInterface.get_selection().add_node(animate3)
 		var point_world: Vector3 = svg_plugin.call("svg_world_3d", animate3, Vector2(70, 20), 0)
+		var stable_handle3: Vector2 = animate3.call("get_in_handle", 0, 1)
+		var stable_world3: Vector3 = svg_plugin.call("svg_world_3d", animate3, stable_handle3, 0)
+		animate3.set("animation_interval", 1)
+		animate3.set("jitter_amount", 0.03)
+		animate3.set("animation_enabled", true)
+		for tick in 4:
+			await get_tree().process_frame
+			check(Vector3(svg_plugin.call("svg_world_3d", animate3, animate3.call("get_path_point", 0, 1), 0)).is_equal_approx(point_world)
+				and Vector3(svg_plugin.call("svg_world_3d", animate3, animate3.call("get_in_handle", 0, 1), 0)).is_equal_approx(stable_world3),
+				"3Dの編集点またはハンドルが揺れた輪郭へ追従したよ")
+		animate3.set("animation_enabled", false)
 		var transformed_document3 := Vector2(animate3.call("path_to_document", 0, Vector2(70, 20)))
 		var expected_world3 := animate3.to_global(ShapeUtils.displayed_point_3d(animate3, transformed_document3))
 		check(point_world.distance_to(expected_world3) < 0.0001

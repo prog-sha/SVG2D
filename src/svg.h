@@ -98,6 +98,7 @@ private:
 		godot::Vector2 baked = godot::Vector2(0, 0);
 		bool dirty = true;
 		bool mipmaps = false;
+		int pattern = -1; // この画像へ焼いた揺れパターン
 	};
 
 	godot::String _src;
@@ -105,9 +106,12 @@ private:
 	std::array<Frame, 4> _frames;
 	double _jitter_amount = 0.0008;
 	bool _jitter_enabled = false;
+	bool _cache_animation_frames = true; // OFFなら現在の揺れ画像1枚だけを使い回す
+	bool _keep_render_cache = true; // 再描画用の中間バッファを保持する
 
 	// 画面密度を実際に必要な整数画素数へ丸める。
 	godot::Vector2 _target(const godot::Vector2 &density) const;
+	int _pattern(int pattern) const;
 
 public:
 	// SVG の中身を読み、次の取得時に新しい画像を作れる状態へする。
@@ -120,6 +124,11 @@ public:
 	// 現在の入力と画面密度に対応する画像を返す。
 	godot::Ref<godot::Texture2D> get_texture(const godot::Vector2 &density = godot::Vector2(1, 1),
 			int pattern = 0, bool mipmaps = false);
+	void set_cache_animation_frames(bool enabled);
+	bool is_cache_animation_frames() const { return _cache_animation_frames; }
+	void set_keep_render_cache(bool enabled);
+	bool is_keep_render_cache() const { return _keep_render_cache; }
+	int get_render_cache_bytes() const { return _doc ? _doc->cache_bytes() : 0; }
 	void set_jitter_amount(double amount);
 	double get_jitter_amount() const { return _jitter_amount; }
 	void set_jitter_enabled(bool enabled);
@@ -153,6 +162,8 @@ private:
 	bool _advance_animation();
 
 protected:
+	// 接点更新では揺れの周期を維持し、表示文書だけ差し替える。
+	void _set_path_src(const godot::String &s);
 	static void _bind_methods();
 
 public:
@@ -165,6 +176,11 @@ public:
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
+	void set_cache_animation_frames(bool enabled);
+	bool is_cache_animation_frames() const { return _svg.is_cache_animation_frames(); }
+	void set_keep_render_cache(bool enabled) { _svg.set_keep_render_cache(enabled); }
+	bool is_keep_render_cache() const { return _svg.is_keep_render_cache(); }
+	int get_render_cache_bytes() const { return _svg.get_render_cache_bytes(); }
 	void set_jitter_amount(double amount);
 	double get_jitter_amount() const { return _svg.get_jitter_amount(); }
 	void set_animation_interval(int frames);
@@ -222,6 +238,8 @@ private:
 	bool _advance_animation();
 
 protected:
+	// 接点更新では揺れの周期を維持し、表示文書だけ差し替える。
+	void _set_path_src(const godot::String &s);
 	static void _bind_methods();
 
 public:
@@ -236,6 +254,11 @@ public:
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
+	void set_cache_animation_frames(bool enabled);
+	bool is_cache_animation_frames() const { return _svg.is_cache_animation_frames(); }
+	void set_keep_render_cache(bool enabled) { _svg.set_keep_render_cache(enabled); }
+	bool is_keep_render_cache() const { return _svg.is_keep_render_cache(); }
+	int get_render_cache_bytes() const { return _svg.get_render_cache_bytes(); }
 	void set_jitter_amount(double amount);
 	double get_jitter_amount() const { return _svg.get_jitter_amount(); }
 	void set_animation_interval(int frames);

@@ -21,8 +21,11 @@
 				Returns the texture rasterized from [member src] at the current viewport density.
 			</description>
 		</method>
+		<method name="get_render_cache_bytes" qualifiers="const"><return type="int" /><description>Returns accounted render work-buffer bytes, excluding displayed textures, parsed XML and allocator overhead.</description></method>
 	</methods>
 	<members>
+		<member name="cache_animation_frames" type="bool" setter="set_cache_animation_frames" getter="is_cache_animation_frames" default="true">Keeps four jitter textures for reuse on unchanged shapes. Disable to update one texture in place, reducing retained texture memory by up to 75% but rasterizing again at each pattern change. Pattern timing and pixels are identical in both modes.</member>
+		<member name="keep_render_cache" type="bool" setter="set_keep_render_cache" getter="is_keep_render_cache" default="true">Keeps geometry, gradient, clip and pixel work buffers for subsequent rasterization. Disable to release them after each render while retaining the displayed texture and parsed document. This reduces retained memory but increases allocation and recomputation during zoom or jitter animation.</member>
 		<member name="animation_enabled" type="bool" setter="set_animation_enabled" getter="is_animation_enabled" default="false">
 			Enables the four-frame path jitter animation. Disabled nodes keep one normal texture and do not retain the three animation textures.
 		</member>

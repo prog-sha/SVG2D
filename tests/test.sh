@@ -26,7 +26,23 @@ mkdir -p tmp
 ${CXX:-c++} -std=c++17 -Isrc tests/cache_test.cpp -o tmp/cache_test
 tmp/cache_test
 scons platform="$platform" target=template_debug svg2d_scalar="$scalar"
-result=$("$godot" --resolution 64x48 --path "$root" --script tests/test.gd 2>&1)
+# Godotを起動せず、粒子数の端数と全軸のSIMD計算を通常処理と比較する。
+case "$platform" in
+  macos) math_arch=universal ;;
+  *) math_arch=$(uname -m); [ "$math_arch" != aarch64 ] || math_arch=arm64 ;;
+esac
+math_scalar=
+[ "$scalar" != yes ] || math_scalar=-DSVG2D_SCALAR
+${CXX:-c++} -std=c++17 -O2 -ffp-contract=off $math_scalar -Isrc -Igodot-cpp/include \
+  -Igodot-cpp/gen/include -Igodot-cpp/gdextension tests/rope_math_test.cpp \
+  "godot-cpp/bin/libgodot-cpp.$platform.template_debug.$math_arch.a" -o tmp/rope_math_test
+tmp/rope_math_test
+if result=$("$godot" --resolution 64x48 --path "$root" --script tests/test.gd 2>&1); then
+  :
+else
+  printf '%s\n' "$result"
+  exit 1
+fi
 printf '%s\n' "$result"
 printf '%s\n' "$result" | grep -q "SVG2D / SVG3Dの試験に通ったよ"
 printf '%s\n' "$result" | grep -q "SVG2D profile max RMSE"
@@ -42,7 +58,7 @@ if [ "${SVG2D_SKIP_EDITOR:-no}" = yes ]; then
 fi
 
 # 配布用addonsを空のプロジェクトへ入れ、プラグイン有効状態の実エディターで確かめる。
-editor_root=$(mktemp -d)
+editor_root=$(mktemp -d "$root/tmp/editor.XXXXXX")
 trap 'rm -rf "$editor_root"' EXIT HUP INT TERM
 cp tests/editor_project.godot "$editor_root/project.godot"
 cp -R addons "$editor_root/addons"

@@ -6,6 +6,7 @@
 
 #include "cache.h"
 
+#include "svg/xml.h"
 #include "svg/geom.h"
 #include "svg/paint.h"
 #include "svg/raster.h"
@@ -572,14 +573,17 @@ static uint32_t jitter_hash(uint32_t value) {
 	return value ^ (value >> 16);
 }
 
-static float jitter_unit(int seed, size_t sub, size_t point, int axis, const Vector2 &position) {
+// 位置と接点番号の鍵を両軸で共有し、座標の丸め計算を半分にする。
+static Vector2 jitter_random(int seed, size_t sub, size_t point, const Vector2 &position) {
 	uint32_t key = (uint32_t)seed;
 	key ^= (uint32_t)(sub + 1) * 0x9e3779b9u;
 	key ^= (uint32_t)(point + 1) * 0x85ebca6bu;
-	key ^= (uint32_t)(axis + 1) * 0xc2b2ae35u;
 	key ^= (uint32_t)std::llround((double)position.x * 1024.0) * 0x27d4eb2du;
 	key ^= (uint32_t)std::llround((double)position.y * 1024.0) * 0x165667b1u;
-	return (float)((double)(jitter_hash(key) & 0x00ffffffu) / 8388607.5 - 1.0);
+	auto unit = [key](uint32_t axis) {
+		return (float)((double)(jitter_hash(key ^ (axis * 0xc2b2ae35u)) & 0x00ffffffu) / 8388607.5 - 1.0);
+	};
+	return Vector2(unit(1), unit(2));
 }
 
 // 閉じた輪郭は面積重心、開いた線は頂点平均を返す。
@@ -612,8 +616,7 @@ static Path jitter_path(const Path &path, const Ctx &c) {
 		Vector2 fixed_center = sub_center(out[si]);
 		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
 			const Vector2 &original = out[si].p[pi];
-			Vector2 random(jitter_unit(c.jitter_seed, si, pi, 0, original),
-					jitter_unit(c.jitter_seed, si, pi, 1, original));
+			Vector2 random = jitter_random(c.jitter_seed, si, pi, original);
 			if (random.length_squared() > 1.0f) random.normalize();
 			out[si].p[pi].x += amount.x * 0.38f * random.x;
 			out[si].p[pi].y += amount.y * 0.38f * random.y;
@@ -621,18 +624,18 @@ static Path jitter_path(const Path &path, const Ctx &c) {
 		// 輪郭変形で生じた面積重心のずれを戻す。これはアニメ用の移動ではなく、
 		// 元の位置を保つための補正で、外周と穴の各subpathへ別々に適用する。
 		Vector2 correction = fixed_center - sub_center(out[si]);
-		for (Vector2 &point : out[si].p) point += correction;
 		// 重心補正を含めた最大変位を測り、4枚間の差がJITTERを越えないよう
 		// 基準形からの各変位を同じ比率で縮める。
-		float longest = 0.0f;
+		float longest_squared = 0.0f; // 最大値の判定まで平方根を取らない
 		for (size_t pi = 0; pi < out[si].p.size(); pi++) {
+			out[si].p[pi] += correction;
 			Vector2 delta = out[si].p[pi] - path[si].p[pi];
 			Vector2 ratio(amount.x > 0.0f ? delta.x / amount.x : 0.0f,
 					amount.y > 0.0f ? delta.y / amount.y : 0.0f);
-			longest = std::max(longest, ratio.length());
+			longest_squared = std::max(longest_squared, ratio.length_squared());
 		}
-		if (longest > 0.49f) {
-			float scale = 0.49f / longest;
+		if (longest_squared > 0.49f * 0.49f) {
+			float scale = 0.49f / std::sqrt(longest_squared);
 			for (size_t pi = 0; pi < out[si].p.size(); pi++)
 				out[si].p[pi] = path[si].p[pi] + (out[si].p[pi] - path[si].p[pi]) * scale;
 		}
@@ -1287,12 +1290,13 @@ bool SVG::parse(const String &text) {
 	_error = "";
 	Ref<XMLParser> xp;
 	xp.instantiate();
-	if (xp->open_buffer(text.to_utf8_buffer()) != OK) {
+	PackedByteArray buffer = text.to_utf8_buffer();
+	if (xp->open_buffer(buffer) != OK) {
 		_error = "読み取れなかったよ";
 		return false;
 	}
 	std::vector<std::shared_ptr<Elem>> stack;
-	while (xp->read() == OK) {
+	while (read_svg_node(xp, buffer) == OK) {
 		int nt = xp->get_node_type();
 		if (nt == XMLParser::NODE_ELEMENT) {
 			auto e = std::make_shared<Elem>();
@@ -1490,10 +1494,28 @@ Vector2 SVGTexture::_target(const Vector2 &density) const {
 			(float)std::min(MAX_TEX, std::max(1.0, std::ceil(base.y * y - 1e-6))));
 }
 
+// 揺れを止めている間は、どの再生位置でも通常画像だけを使う。
+int SVGTexture::_pattern(int pattern) const {
+	return _jitter_enabled && _jitter_amount > 0.0 ? (pattern % 4 + 4) % 4 : 0;
+}
+
 bool SVGTexture::needs(const Vector2 &density, int pattern, bool mipmaps) const {
-	Vector2 target = _target(density);
-	const Frame &frame = _frames[(size_t)((pattern % 4 + 4) % 4)];
-	return frame.dirty || target != frame.baked || mipmaps != frame.mipmaps;
+	int seed = _pattern(pattern);
+	const Frame &frame = _frames[_cache_animation_frames ? (size_t)seed : 0];
+	return frame.dirty || _target(density) != frame.baked || mipmaps != frame.mipmaps || frame.pattern != seed;
+}
+
+// 連続変形は過去の形の画像を使えないため、1枚保持へ切り替えられる。
+void SVGTexture::set_cache_animation_frames(bool enabled) {
+	if (_cache_animation_frames == enabled) return;
+	_cache_animation_frames = enabled;
+	for (size_t i = 1; i < _frames.size(); i++) _frames[i] = Frame();
+}
+
+// 中間処理の控えを手放しても、表示中の画像と解析済み文書は保つ。
+void SVGTexture::set_keep_render_cache(bool enabled) {
+	_keep_render_cache = enabled;
+	if (!enabled && _doc) _doc->clear_cache();
 }
 
 void SVGTexture::set_jitter_amount(double amount) {
@@ -1521,21 +1543,25 @@ void SVGTexture::set_jitter_enabled(bool enabled) {
 	}
 }
 
-// いまの画面密度で焼く。固定seed 1〜4の各画像は別々に控え、5枚目を作らない。
+// 必要なパターンだけ焼く。1枚保持でもseedは独立して進める。
 Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool mipmaps) {
-	Frame &frame = _frames[(size_t)((pattern % 4 + 4) % 4)];
+	int seed = _pattern(pattern);
+	Frame &frame = _frames[_cache_animation_frames ? (size_t)seed : 0];
 	if (_doc == nullptr) {
 		frame = Frame();
+		frame.pattern = seed;
+		frame.mipmaps = mipmaps;
 		frame.dirty = false;
 		return frame.texture;
 	}
 	Vector2 target = _target(density);
 	if (!frame.dirty && frame.texture.is_valid() && frame.baked == target &&
-			frame.mipmaps == mipmaps)
+			frame.mipmaps == mipmaps && frame.pattern == seed)
 		return frame.texture;
 	Ref<Image> img = _doc->render((int)target.x, (int)target.y,
 			_jitter_enabled ? _jitter_amount : 0.0,
-			((pattern % 4 + 4) % 4) + 1);
+			seed + 1);
+	if (!_keep_render_cache) _doc->clear_cache();
 	if (img.is_null()) {
 		frame.texture.unref();
 		return frame.texture;
@@ -1548,6 +1574,7 @@ Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool
 	}
 	frame.baked = target;
 	frame.mipmaps = mipmaps;
+	frame.pattern = seed;
 	frame.dirty = false;
 	return frame.texture;
 }
@@ -1574,9 +1601,21 @@ Vector2 SVG2D::_editor_fallback_density() const {
 }
 
 void SVG2D::set_src(const String &s) {
-	_svg.set_src(s);
 	_animation_tick = 0;
 	_animation_pattern = 0;
+	_set_path_src(s);
+}
+
+// 文書の差し替えと揺れの再生位置を分け、接点アニメーションと併用する。
+void SVG2D::_set_path_src(const String &s) {
+	_svg.set_src(s);
+	queue_redraw();
+}
+
+// 画像保持方式を変えたら、現在のパターンを新しい保持先へ反映する。
+void SVG2D::set_cache_animation_frames(bool enabled) {
+	if (_svg.is_cache_animation_frames() == enabled) return;
+	_svg.set_cache_animation_frames(enabled);
 	queue_redraw();
 }
 
@@ -1637,7 +1676,9 @@ bool SVG2D::_advance_animation() {
 }
 
 void SVG2D::set_jitter_amount(double amount) {
+	double previous = _svg.get_jitter_amount();
 	_svg.set_jitter_amount(amount);
+	if (previous == _svg.get_jitter_amount()) return;
 	_animation_tick = 0;
 	_animation_pattern = 0;
 	_update_processing();
@@ -1680,6 +1721,11 @@ void SVG2D::set_offset(const Vector2 &offset) {
 }
 
 void SVG2D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_cache_animation_frames", "enabled"), &SVG2D::set_cache_animation_frames);
+	ClassDB::bind_method(D_METHOD("is_cache_animation_frames"), &SVG2D::is_cache_animation_frames);
+	ClassDB::bind_method(D_METHOD("set_keep_render_cache", "enabled"), &SVG2D::set_keep_render_cache);
+	ClassDB::bind_method(D_METHOD("is_keep_render_cache"), &SVG2D::is_keep_render_cache);
+	ClassDB::bind_method(D_METHOD("get_render_cache_bytes"), &SVG2D::get_render_cache_bytes);
 	ClassDB::bind_method(D_METHOD("set_src", "text"), &SVG2D::set_src);
 	ClassDB::bind_method(D_METHOD("get_src"), &SVG2D::get_src);
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG2D::set_adaptive);
@@ -1702,6 +1748,7 @@ void SVG2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_GROUP("Animation", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cache_animation_frames"), "set_cache_animation_frames", "is_cache_animation_frames");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "animation_enabled"),
 			"set_animation_enabled", "is_animation_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "jitter_amount", PROPERTY_HINT_RANGE,
@@ -1714,6 +1761,7 @@ void SVG2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "offset"), "set_offset", "get_offset");
 	ADD_GROUP("Rendering", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "keep_render_cache"), "set_keep_render_cache", "is_keep_render_cache");
 }
 
 SVG3D::SVG3D() {
@@ -1818,9 +1866,21 @@ void SVG3D::_queue_refresh() {
 }
 
 void SVG3D::set_src(const String &s) {
-	_svg.set_src(s);
 	_animation_tick = 0;
 	_animation_pattern = 0;
+	_set_path_src(s);
+}
+
+// 文書の差し替えと揺れの再生位置を分け、接点アニメーションと併用する。
+void SVG3D::_set_path_src(const String &s) {
+	_svg.set_src(s);
+	_queue_refresh();
+}
+
+// 画像保持方式を変えたら、現在のパターンを新しい保持先へ反映する。
+void SVG3D::set_cache_animation_frames(bool enabled) {
+	if (_svg.is_cache_animation_frames() == enabled) return;
+	_svg.set_cache_animation_frames(enabled);
 	_queue_refresh();
 }
 
@@ -1851,7 +1911,9 @@ bool SVG3D::_advance_animation() {
 }
 
 void SVG3D::set_jitter_amount(double amount) {
+	double previous = _svg.get_jitter_amount();
 	_svg.set_jitter_amount(amount);
+	if (previous == _svg.get_jitter_amount()) return;
 	_animation_tick = 0;
 	_animation_pattern = 0;
 	_update_processing();
@@ -1929,6 +1991,11 @@ void SVG3D::_process(double) {
 }
 
 void SVG3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_cache_animation_frames", "enabled"), &SVG3D::set_cache_animation_frames);
+	ClassDB::bind_method(D_METHOD("is_cache_animation_frames"), &SVG3D::is_cache_animation_frames);
+	ClassDB::bind_method(D_METHOD("set_keep_render_cache", "enabled"), &SVG3D::set_keep_render_cache);
+	ClassDB::bind_method(D_METHOD("is_keep_render_cache"), &SVG3D::is_keep_render_cache);
+	ClassDB::bind_method(D_METHOD("get_render_cache_bytes"), &SVG3D::get_render_cache_bytes);
 	ClassDB::bind_method(D_METHOD("set_src", "text"), &SVG3D::set_src);
 	ClassDB::bind_method(D_METHOD("get_src"), &SVG3D::get_src);
 	ClassDB::bind_method(D_METHOD("set_pixel_size", "size"), &SVG3D::set_pixel_size);
@@ -1955,6 +2022,7 @@ void SVG3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "src", PROPERTY_HINT_FILE, "*.svg"),
 			"set_src", "get_src");
 	ADD_GROUP("Animation", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cache_animation_frames"), "set_cache_animation_frames", "is_cache_animation_frames");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "animation_enabled"),
 			"set_animation_enabled", "is_animation_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "jitter_amount", PROPERTY_HINT_RANGE,
@@ -1970,6 +2038,7 @@ void SVG3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pixel_size", PROPERTY_HINT_RANGE,
 			"0.0001,128,0.0001,or_greater,exp"), "set_pixel_size", "get_pixel_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "keep_render_cache"), "set_keep_render_cache", "is_keep_render_cache");
 }
 
 } // namespace svg2d

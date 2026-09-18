@@ -985,6 +985,8 @@ func _run() -> void:
 	await check_ropes()
 	await check_stickman_rope_scene()
 	await check_svg_animate()
+	await preload("res://tests/optimization.gd").run(self)
+	await preload("res://tests/animate_jitter.gd").run(self)
 	check_large_profile()
 	var config := ConfigFile.new()
 	check(config.load("res://addons/svg2d/plugin.cfg") == OK, "plugin.cfgを読めなかったよ")

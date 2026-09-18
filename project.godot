@@ -1,10 +1,17 @@
-; SVG2D を単独で読み込み、動作を確かめる最小の Godot プロジェクト。
-; 描画本体は addons/svg2d にあり、このファイルは開発時の確認場所を用意する。
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
 config_version=5
 
 [application]
 
 config/name="SVG2D"
+config/features=PackedStringArray("4.7")
 
 [editor_plugins]
 

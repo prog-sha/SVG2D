@@ -1,3 +1,5 @@
+// 2D・3Dのロープ設定と粒子を保持する宣言。
+// 責務: 物理と表示の状態を分け、同じ設定をSVGと通常画像へ提供する。
 #ifndef SVG2D_ROPE_H
 #define SVG2D_ROPE_H
 
@@ -91,6 +93,8 @@ protected:
 	godot::NodePath _attachment_body;
 	uint64_t _attachment_target_id = 0;
 	godot::Ref<godot::ArrayMesh> _mesh;
+	int _mesh_points = 0; // GPUへ登録済みの粒子数
+	bool _dynamic_mesh = true; // UVと接続順を再生成せず頂点だけ転送する
 	godot::Ref<godot::StandardMaterial3D> _material;
 	bool _line_mode = false, _simulation_enabled = true, _pin_start = true;
 	bool _use_system_gravity = true;
@@ -107,6 +111,8 @@ protected:
 	static void _bind_methods();
 public:
 	SpriteRope3D();
+	void set_dynamic_mesh(bool enabled);
+	bool is_dynamic_mesh() const { return _dynamic_mesh; }
 	void _ready() override;
 	void _physics_process(double delta) override;
 	void reset_simulation();
