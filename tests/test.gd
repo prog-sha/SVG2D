@@ -1005,6 +1005,7 @@ func _run() -> void:
 		"linux.debug.x86_64", "linux.release.x86_64",
 		"linux.debug.arm64", "linux.release.arm64",
 		"android.debug.arm64", "android.release.arm64",
+		"ios.debug.arm64", "ios.release.arm64",
 		"web.debug.wasm32", "web.release.wasm32",
 	])
 	check(libraries.size() == expected_libraries.size(),

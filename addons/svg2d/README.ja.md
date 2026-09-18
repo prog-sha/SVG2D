@@ -9,6 +9,7 @@ SVG2D は、SVG を Godot の 2D・3D シーンに表示するための軽量な
 - Godot 4.7 以降
 - Windows x86_64
 - macOS Universal
+- iOS arm64
 - Linux x86_64・arm64
 - Android arm64
 - Web wasm32（スレッドなし）

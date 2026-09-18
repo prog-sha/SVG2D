@@ -22,6 +22,8 @@ EXPECTED = {
     "linux.release.arm64": ("elf", 183),
     "android.debug.arm64": ("elf", 183),
     "android.release.arm64": ("elf", 183),
+    "ios.debug.arm64": ("mach-o-arm64", 0x0100000C),
+    "ios.release.arm64": ("mach-o-arm64", 0x0100000C),
     "web.debug.wasm32": ("wasm", None),
     "web.release.wasm32": ("wasm", None),
 }
@@ -65,6 +67,14 @@ def check_binary(path: Path, kind: str, machine: int | None) -> None:
         assert {0x01000007, 0x0100000C}.issubset(machines), (
             f"Mach-O does not contain x86_64 and arm64: {path}"
         )
+        return
+
+    if kind == "mach-o-arm64":
+        assert data[:4] == b"\xcf\xfa\xed\xfe", f"Mach-O is not little-endian 64-bit: {path}"
+        actual_machine = struct.unpack_from("<I", data, 4)[0]
+        file_type = struct.unpack_from("<I", data, 12)[0]
+        assert actual_machine == machine, f"wrong Mach-O CPU {actual_machine:#x}: {path}"
+        assert file_type == 6, f"Mach-O is not a dynamic library: {path}"
         return
 
     raise AssertionError(f"unknown binary kind: {kind}")

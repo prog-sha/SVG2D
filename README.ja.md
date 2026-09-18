@@ -6,7 +6,7 @@ SVG2D は、SVG を Godot の 2D・3D シーンに表示・編集するための
 
 エディターではSVGの不透明な絵をクリックして2D・3Dノードをドラッグできるよ。Inspectorの **Create Hitbox** にある **Rect** はGodot標準の `StaticBody` + 矩形Collision子ノードを、**Shape** は透明な穴を除いたSVG外周から2Dポリゴンまたは薄い3D形状を自動生成するよ。
 
-英語版を基準文書とし、配布済みのアドオンは Godot 4.7 以降、Windows x86_64、macOS Universal、Linux x86_64/arm64、Android arm64、Web wasm32（スレッドなし）に対応しているよ。導入方法、使い方、対応している SVG 機能は [`addons/svg2d/README.ja.md`](addons/svg2d/README.ja.md) を見てね。
+英語版を基準文書とし、配布済みのアドオンは Godot 4.7 以降、Windows x86_64、macOS Universal、iOS arm64、Linux x86_64/arm64、Android arm64、Web wasm32（スレッドなし）に対応しているよ。導入方法、使い方、対応している SVG 機能は [`addons/svg2d/README.ja.md`](addons/svg2d/README.ja.md) を見てね。
 
 ## ソースから組み立てよう
 
@@ -33,7 +33,7 @@ SSE2やNEONを使わない通常CPU経路を確かめるときは、`SVG2D_SCALA
 
 macOSで両方の画素がSHA-256まで一致するか確かめるときは、`sh tests/test_simd.sh` を実行しよう。
 
-配布する全GDExtensionパスに宣言どおりの形式・アーキテクチャのバイナリがあるかは、`python3 tests/test_binaries.py` で確認できるよ。
+配布用のmacOS、iOS、Windows、Linux、Android、Webをまとめて組み立てるには`./tests/build_all.sh`を使う。対象別の内容指紋で変更のない対象は省く。`--force`なら全対象を呼び出しつつ、SConsのファイル単位の差分コンパイルは維持できる。全GDExtensionパスの形式・アーキテクチャは`uv run python tests/test_binaries.py`で確認できるよ。
 
 `SVGAnimate2D` と `AnimationPlayer` で棒人間の接点を動かす例は [`examples/stickman/stickman_movie.tscn`](examples/stickman/stickman_movie.tscn)、`SVGAnimate3D` でジャンプ・1回転・着地させる例は [`examples/stickman/stickman_movie_3d.tscn`](examples/stickman/stickman_movie_3d.tscn) だよ。どちらもスクリプトを使わず、ノードとキーフレームをTSCNへ保存しているよ。Godot MovieWriterで各60フレームを書き出して自動確認するにはffmpegを用意して次を実行しよう。
 
