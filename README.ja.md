@@ -57,7 +57,7 @@ sh tests/test_movie.sh
 
 ### 接点アニメーションの履歴キャッシュ
 
-SVGAnimateの **Animation Cache → Animation Cache Mode** を **Exact Frames** にすると、以前と完全に同じ接点形状・解像度・揺れ条件へ戻ったとき、SVG解析・画像化・画像転送を省ける。既定は **Disabled**。座標や時間の丸めは行わないため、毎回異なる補間座標では再利用できない。繰り返すポーズや一定の時刻を指定する再生向け。
+SVGAnimateの **Animation Cache → Animation Cache Mode** は **Exact Frames** が既定。以前と完全に同じ接点形状・解像度・揺れ条件へ戻ったとき、SVG解析・画像化・画像転送を省ける。座標や時間の丸めは行わないため、毎回異なる補間座標では再利用できない。過去フレームの保持が不要な場合は **Disabled** を使う。
 
 **Animation Cache Limit Mb** は履歴の上限（既定32 MiB、1〜256）。最大512枚まで保持し、上限を超えたら最近使っていない画像から解放する。1枚だけで上限を超える画像は保持しない。表示中の画像や通常の描画用バッファはこの上限とは別。`src` の再設定、モード変更、`clear_animation_cache()` で履歴を消せる。
 

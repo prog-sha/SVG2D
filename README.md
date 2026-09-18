@@ -49,7 +49,7 @@ Point getters and scene saving always use current edits. Call `flush_paths()` be
 
 ### Path animation history cache
 
-Set SVGAnimate's **Animation Cache → Animation Cache Mode** to **Exact Frames** to reuse textures when an identical serialized path state, resolution and jitter configuration recur. Hits skip SVG parsing, rasterization and texture upload. The default is **Disabled**. There is no time or coordinate quantization: continuously varying interpolation values may not hit. Use this for recurring poses or deterministic frame sampling.
+SVGAnimate's **Animation Cache → Animation Cache Mode** defaults to **Exact Frames**. It reuses textures when an identical serialized path state, resolution and jitter configuration recur. Hits skip SVG parsing, rasterization and texture upload. There is no time or coordinate quantization: continuously varying interpolation values may not hit. Use **Disabled** when retaining past frames is not useful.
 
 **Animation Cache Limit Mb** sets the history budget (32 MiB by default, 1–256). Up to 512 frames are retained, evicting least recently used entries when either limit is reached. Oversized individual frames bypass retention. Current display references and renderer work buffers are separate from this budget. Replacing `src`, changing the mode or calling `clear_animation_cache()` clears history.
 

@@ -469,7 +469,7 @@ static bool property_indices(const StringName &name, int &path, int &point, Path
 }
 
 #define ANIMATE_IMPL(CLASS, BASE) \
-CLASS::CLASS() : _paths(new SVGPathAnimationData()) { set_cache_animation_frames(false); } \
+CLASS::CLASS() : _paths(new SVGPathAnimationData()) { set_cache_animation_frames(false); set_animation_cache_mode(1); } \
 CLASS::~CLASS() = default; \
 void CLASS::set_animation_cache_mode(int mode) { BASE::_path_texture().set_animation_cache_mode(mode); } \
 int CLASS::get_animation_cache_mode() const { return BASE::_path_texture().get_animation_cache_mode(); } \

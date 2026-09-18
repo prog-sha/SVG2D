@@ -23,6 +23,7 @@ static func run(tree: SceneTree) -> void:
 		+ "<path data-note='x > y d=bad' fill='red' d='M8 8 A4 4 0 0116 16 L24 8 Z'/></g>"
 	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
 		var node: Node = ClassDB.instantiate(kind)
+		node.set("animation_cache_mode", 0)
 		node.set("adaptive", false)
 		node.set("src", svg(body))
 		tree.root.add_child(node)
@@ -68,6 +69,7 @@ static func run(tree: SceneTree) -> void:
 		node.free()
 
 	var bench: Node = ClassDB.instantiate("SVGAnimate2D")
+	bench.set("animation_cache_mode", 0)
 	var path := "M0 8"
 	for point in range(1, 32): path += " L%d 8" % point
 	bench.set("src", svg("<path d='%s'/>" % path))

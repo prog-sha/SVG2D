@@ -33,11 +33,13 @@ static func run(tree: SceneTree) -> void:
 	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
 		var normal: Node = ClassDB.instantiate(kind)
 		var cached: Node = ClassDB.instantiate(kind)
+		tree.check(cached.get("animation_cache_mode") == 1,
+			"%sのAnimation Cache Mode既定値がExact Framesでないよ" % kind)
+		normal.set("animation_cache_mode", 0)
 		for node in [normal, cached]:
 			node.set("src", source())
 			node.set("adaptive", false)
 			tree.root.add_child(node)
-		cached.set("animation_cache_mode", 1)
 		var rids: Array[RID] = []
 		var pixels: Array[PackedByteArray] = []
 		for i in 4:

@@ -26,6 +26,7 @@ static func run(tree: SceneTree) -> void:
 		var nodes: Array[Node] = []
 		for cached in [false, true]:
 			var node: Node = ClassDB.instantiate("SVGAnimate" + dimension)
+			node.set("animation_cache_mode", 0)
 			tree.check(not node.get("cache_animation_frames"), "SVGAnimateの既定保持枚数が1枚でないよ")
 			configure(node)
 			node.set("cache_animation_frames", cached)
