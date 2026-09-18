@@ -442,29 +442,44 @@ public:
 
 enum PathPropertyPart { PATH_ANCHOR, PATH_IN_HANDLE, PATH_OUT_HANDLE };
 
+// AnimationPlayerのプロパティ名を直接読み、分割文字列の確保を避ける。
 static bool property_indices(const StringName &name, int &path, int &point, PathPropertyPart &part) {
-	String s = name;
-	if (!s.begins_with("paths/path_")) return false;
-	PackedStringArray parts = s.split("/");
-	if ((parts.size() != 3 && parts.size() != 4) || !parts[1].begins_with("path_") || !parts[2].begins_with("point_")) return false;
-	String p = parts[1].trim_prefix("path_"), i = parts[2].trim_prefix("point_");
-	if (p.is_empty() || i.is_empty()) return false;
-	for (int n = 0; n < p.length(); n++) if (p[n] < '0' || p[n] > '9') return false;
-	for (int n = 0; n < i.length(); n++) if (i[n] < '0' || i[n] > '9') return false;
-	if (p.length() > 9 || i.length() > 9) return false;
-	path = p.to_int(); point = i.to_int();
+	String text = name;
+	const char32_t *at = text.ptr(), *end = at + text.length();
+	auto literal = [&](const char32_t *value) {
+		while (*value) { if (at == end || *at++ != *value++) return false; }
+		return true;
+	};
+	auto index = [&](int &value) {
+		value = 0;
+		const char32_t *begin = at;
+		while (at < end && *at >= '0' && *at <= '9') {
+			if (at - begin >= 9) return false;
+			value = value * 10 + (int)(*at++ - '0');
+		}
+		return at != begin;
+	};
+	if (!literal(U"paths/path_") || !index(path) || !literal(U"/point_") || !index(point)) return false;
 	part = PATH_ANCHOR;
-	if (parts.size() == 4) {
-		if (parts[3] == "in_handle") part = PATH_IN_HANDLE;
-		else if (parts[3] == "out_handle") part = PATH_OUT_HANDLE;
-		else return false;
-	}
-	return true;
+	if (at == end) return true;
+	if (*at++ != '/' || at == end) return false;
+	if (*at == 'i') { if (!literal(U"in_handle")) return false; part = PATH_IN_HANDLE; }
+	else { if (!literal(U"out_handle")) return false; part = PATH_OUT_HANDLE; }
+	return at == end;
 }
 
 #define ANIMATE_IMPL(CLASS, BASE) \
 CLASS::CLASS() : _paths(new SVGPathAnimationData()) { set_cache_animation_frames(false); } \
 CLASS::~CLASS() = default; \
+void CLASS::set_animation_cache_mode(int mode) { BASE::_path_texture().set_animation_cache_mode(mode); } \
+int CLASS::get_animation_cache_mode() const { return BASE::_path_texture().get_animation_cache_mode(); } \
+void CLASS::set_animation_cache_limit_mb(int limit) { BASE::_path_texture().set_animation_cache_limit_mb(limit); } \
+int CLASS::get_animation_cache_limit_mb() const { return BASE::_path_texture().get_animation_cache_limit_mb(); } \
+void CLASS::clear_animation_cache() { BASE::_path_texture().clear_animation_cache(); } \
+int64_t CLASS::get_animation_cache_bytes() const { return BASE::_path_texture().get_animation_cache_bytes(); } \
+int CLASS::get_animation_cache_frame_count() const { return BASE::_path_texture().get_animation_cache_frame_count(); } \
+int64_t CLASS::get_animation_cache_hits() const { return BASE::_path_texture().get_animation_cache_hits(); } \
+int64_t CLASS::get_animation_cache_misses() const { return BASE::_path_texture().get_animation_cache_misses(); } \
 void CLASS::_queue_paths() { _path_dirty = true; if (!_deferred_updates) { flush_paths(); return; } if (_path_queued) return; _path_queued = true; callable_mp(this, &CLASS::_flush_paths).call_deferred(); } \
 void CLASS::_flush_paths() { _path_queued = false; flush_paths(); } \
 void CLASS::flush_paths() { if (!_path_dirty) return; _path_dirty = false; BASE::_set_path_src(_paths->rebuilt()); } \
@@ -486,6 +501,18 @@ bool CLASS::_set(const StringName &name, const Variant &value) { int path, point
 bool CLASS::_get(const StringName &name, Variant &value) const { int path, point; PathPropertyPart part; if (!property_indices(name, path, point, part) || !_paths->valid(path, point)) return false; value = part == PATH_ANCHOR ? get_path_point(path, point) : part == PATH_IN_HANDLE ? get_in_handle(path, point) : get_out_handle(path, point); return true; } \
 void CLASS::_get_property_list(List<PropertyInfo> *list) const { for (int p = 0; p < get_path_count(); p++) for (int i = 0; i < get_point_count(p); i++) { String base = "paths/path_" + itos(p) + "/point_" + itos(i); list->push_back(PropertyInfo(Variant::VECTOR2, base, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_KEYING_INCREMENTS)); list->push_back(PropertyInfo(Variant::VECTOR2, base + "/in_handle", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT)); list->push_back(PropertyInfo(Variant::VECTOR2, base + "/out_handle", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT)); } } \
 void CLASS::_bind_methods() { \
+	ClassDB::bind_method(D_METHOD("set_animation_cache_mode", "mode"), &CLASS::set_animation_cache_mode); \
+	ClassDB::bind_method(D_METHOD("get_animation_cache_mode"), &CLASS::get_animation_cache_mode); \
+	ClassDB::bind_method(D_METHOD("set_animation_cache_limit_mb", "limit"), &CLASS::set_animation_cache_limit_mb); \
+	ClassDB::bind_method(D_METHOD("get_animation_cache_limit_mb"), &CLASS::get_animation_cache_limit_mb); \
+	ClassDB::bind_method(D_METHOD("clear_animation_cache"), &CLASS::clear_animation_cache); \
+	ClassDB::bind_method(D_METHOD("get_animation_cache_bytes"), &CLASS::get_animation_cache_bytes); \
+	ClassDB::bind_method(D_METHOD("get_animation_cache_frame_count"), &CLASS::get_animation_cache_frame_count); \
+	ClassDB::bind_method(D_METHOD("get_animation_cache_hits"), &CLASS::get_animation_cache_hits); \
+	ClassDB::bind_method(D_METHOD("get_animation_cache_misses"), &CLASS::get_animation_cache_misses); \
+	ADD_GROUP("Animation Cache", ""); \
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "animation_cache_mode", PROPERTY_HINT_ENUM, "Disabled,Exact Frames"), "set_animation_cache_mode", "get_animation_cache_mode"); \
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "animation_cache_limit_mb", PROPERTY_HINT_RANGE, "1,256,1,suffix:MiB"), "set_animation_cache_limit_mb", "get_animation_cache_limit_mb"); \
 	ClassDB::bind_method(D_METHOD("set_deferred_updates", "enabled"), &CLASS::set_deferred_updates); \
 	ClassDB::bind_method(D_METHOD("is_deferred_updates"), &CLASS::is_deferred_updates); \
 	ClassDB::bind_method(D_METHOD("flush_paths"), &CLASS::flush_paths); \

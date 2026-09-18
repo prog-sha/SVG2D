@@ -92,3 +92,11 @@ add_child(image_rope)
 `SVGAnimate2D` / `SVGAnimate3D` でも、Inspectorの `animation_enabled` をONにすると、通常のSVGと同じうごメモ風の輪郭揺れを使える。`jitter_amount` が揺れ幅、`animation_interval` が切り替え間隔。接点をAnimationPlayerで動かしていても揺れの周期は続く。エディターの接点・ハンドル・選択位置と保存値は、揺れを加える前の座標を使う。
 
 `cache_animation_frames` は、ONなら4パターンを保持し、OFFなら画像1枚を更新する。SVGAnimateは連続変形向けにOFFが既定。通常のSVG2D / SVG3DはONが既定。静止した形を揺らし続ける場合はON、メモリを抑えて接点を頻繁に動かす場合はOFFを使う。どちらも同じ揺れを描く。
+
+### 接点アニメーションの履歴キャッシュ
+
+SVGAnimateの **Animation Cache → Animation Cache Mode** を **Exact Frames** にすると、以前と完全に同じ接点形状・解像度・揺れ条件へ戻ったとき、SVG解析・画像化・画像転送を省ける。既定は **Disabled**。座標や時間の丸めは行わないため、毎回異なる補間座標では再利用できない。繰り返すポーズや一定の時刻を指定する再生向け。
+
+**Animation Cache Limit Mb** は履歴の上限（既定32 MiB、1〜256）。最大512枚まで保持し、上限を超えたら最近使っていない画像から解放する。1枚だけで上限を超える画像は保持しない。表示中の画像や通常の描画用バッファはこの上限とは別。`src` の再設定、モード変更、`clear_animation_cache()` で履歴を消せる。
+
+`get_animation_cache_hits()`、`get_animation_cache_misses()`、`get_animation_cache_bytes()`、`get_animation_cache_frame_count()` で利用状況を確認できる。`cache_animation_frames` は現在の形の揺れ4パターン、**Exact Frames** は過去の接点形状も含む履歴を扱う。どちらも編集点・ハンドルの位置には影響しない。

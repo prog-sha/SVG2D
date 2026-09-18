@@ -32,6 +32,15 @@ public:
 	void set_deferred_updates(bool enabled);
 	bool is_deferred_updates() const { return _deferred_updates; }
 	void flush_paths();
+	void set_animation_cache_mode(int mode);
+	int get_animation_cache_mode() const;
+	void set_animation_cache_limit_mb(int limit);
+	int get_animation_cache_limit_mb() const;
+	void clear_animation_cache();
+	int64_t get_animation_cache_bytes() const;
+	int get_animation_cache_frame_count() const;
+	int64_t get_animation_cache_hits() const;
+	int64_t get_animation_cache_misses() const;
 	int get_path_count() const;
 	int get_point_count(int path) const;
 	godot::Vector2 get_path_point(int path, int point) const;
@@ -66,6 +75,15 @@ public:
 	void set_deferred_updates(bool enabled);
 	bool is_deferred_updates() const { return _deferred_updates; }
 	void flush_paths();
+	void set_animation_cache_mode(int mode);
+	int get_animation_cache_mode() const;
+	void set_animation_cache_limit_mb(int limit);
+	int get_animation_cache_limit_mb() const;
+	void clear_animation_cache();
+	int64_t get_animation_cache_bytes() const;
+	int get_animation_cache_frame_count() const;
+	int64_t get_animation_cache_hits() const;
+	int64_t get_animation_cache_misses() const;
 	int get_path_count() const;
 	int get_point_count(int path) const;
 	godot::Vector2 get_path_point(int path, int point) const;

@@ -91,6 +91,8 @@ public:
 // SVG の文字列と焼いた画像を2D・3Dノードで共有する係。
 // 責務: 入力を読み、指定した画素数の画像を必要なときに作ること。
 // 設計思想: 表示先を持たず、2Dと3Dで同じ画像を使えるようにする。
+struct AnimationCache;
+
 class SVGTexture {
 private:
 	struct Frame {
@@ -99,11 +101,15 @@ private:
 		bool dirty = true;
 		bool mipmaps = false;
 		int pattern = -1; // この画像へ焼いた揺れパターン
+		bool shared = false; // 履歴に保持した画像は上書きしない
 	};
 
 	godot::String _src;
 	std::unique_ptr<SVG> _doc;
 	std::array<Frame, 4> _frames;
+	std::unique_ptr<AnimationCache> _history;
+	bool _doc_dirty = false; // 表示寸法を保った接点変更の解析待ち
+	uint64_t _source_hash = 0; // 同じ文書を描く間は鍵を再計算しない
 	double _jitter_amount = 0.0008;
 	bool _jitter_enabled = false;
 	bool _cache_animation_frames = true; // OFFなら現在の揺れ画像1枚だけを使い回す
@@ -112,8 +118,22 @@ private:
 	// 画面密度を実際に必要な整数画素数へ丸める。
 	godot::Vector2 _target(const godot::Vector2 &density) const;
 	int _pattern(int pattern) const;
+	void _parse();
 
 public:
+	SVGTexture();
+	~SVGTexture();
+	void set_animation_cache_mode(int mode);
+	int get_animation_cache_mode() const;
+	void set_animation_cache_limit_mb(int limit);
+	int get_animation_cache_limit_mb() const;
+	void clear_animation_cache();
+	int64_t get_animation_cache_bytes() const;
+	int get_animation_cache_frame_count() const;
+	int64_t get_animation_cache_hits() const;
+	int64_t get_animation_cache_misses() const;
+	// 接点だけの変更は文書寸法を保ち、履歴がなければ描画時に解析する。
+	void set_path_src(const godot::String &s);
 	// SVG の中身を読み、次の取得時に新しい画像を作れる状態へする。
 	void set_src(const godot::String &s);
 	godot::String get_src() const { return _src; }
@@ -162,6 +182,8 @@ private:
 	bool _advance_animation();
 
 protected:
+	SVGTexture &_path_texture() { return _svg; }
+	const SVGTexture &_path_texture() const { return _svg; }
 	// 接点更新では揺れの周期を維持し、表示文書だけ差し替える。
 	void _set_path_src(const godot::String &s);
 	static void _bind_methods();
@@ -238,6 +260,8 @@ private:
 	bool _advance_animation();
 
 protected:
+	SVGTexture &_path_texture() { return _svg; }
+	const SVGTexture &_path_texture() const { return _svg; }
 	// 接点更新では揺れの周期を維持し、表示文書だけ差し替える。
 	void _set_path_src(const godot::String &s);
 	static void _bind_methods();

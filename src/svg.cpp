@@ -5,6 +5,7 @@
 #include "svg.h"
 
 #include "cache.h"
+#include "animation_cache.h"
 
 #include "svg/xml.h"
 #include "svg/geom.h"
@@ -1452,11 +1453,34 @@ Ref<Image> SVG::render(int w, int h, double jitter, int seed) const {
 static const double MAX_TEX = 4096.0;   // 1枚の画像が占めるメモリーを最大64 MiBに抑える
 static const double EDITOR_FALLBACK_TEX = 2048.0; // 3D viewport初期化前だけ使う最大辺
 
+SVGTexture::SVGTexture() : _history(std::make_unique<AnimationCache>()) {}
+SVGTexture::~SVGTexture() = default;
+
+// 素材の変更は履歴を空け、寸法も含めて読み直す。
 void SVGTexture::set_src(const String &s) {
-	if (_src == s) return;
+	clear_animation_cache();
+	if (_src == s && !_doc_dirty) return;
 	_src = s;
-	String text = s;
-	String path = s.strip_edges();
+	_source_hash = (uint64_t)s.hash();
+	_parse();
+	for (Frame &frame : _frames) frame.dirty = true;
+}
+
+// 接点の変更だけなら文書寸法は一定。履歴の検索後まで解析を遅らせる。
+void SVGTexture::set_path_src(const String &s) {
+	if (_src == s) return;
+	if (!_history->enabled || !_doc) { set_src(s); return; }
+	_src = s;
+	_source_hash = (uint64_t)s.hash();
+	_doc_dirty = true;
+	for (Frame &frame : _frames) frame.dirty = true;
+}
+
+// 解析待ちの文書を描画時に確定する。
+void SVGTexture::_parse() {
+	_doc_dirty = false;
+	String text = _src;
+	String path = _src.strip_edges();
 	if (path.begins_with("uid://")) path = ResourceUID::ensure_path(path);
 	// Inspector では SVG を素材として選ぶ。従来どおり SVG 本文を直接渡す API も
 	// 壊さないため、Godot のファイルパスだけを読み替える。
@@ -1477,8 +1501,27 @@ void SVGTexture::set_src(const String &s) {
 		for (Frame &frame : _frames) frame = Frame();
 		return;
 	}
+}
+
+// 保持方式を切り替えた直後は現在の画像も新しい方式で取得する。
+void SVGTexture::set_animation_cache_mode(int mode) {
+	bool enabled = mode == 1;
+	if (_history->enabled == enabled) return;
+	_history->enabled = enabled;
+	clear_animation_cache();
 	for (Frame &frame : _frames) frame.dirty = true;
 }
+int SVGTexture::get_animation_cache_mode() const { return _history->enabled ? 1 : 0; }
+void SVGTexture::set_animation_cache_limit_mb(int limit) {
+	_history->cap = (size_t)std::clamp(limit, 1, 256) * 1024 * 1024;
+	_history->trim(0);
+}
+int SVGTexture::get_animation_cache_limit_mb() const { return (int)(_history->cap / (1024 * 1024)); }
+void SVGTexture::clear_animation_cache() { _history->clear(); }
+int64_t SVGTexture::get_animation_cache_bytes() const { return (int64_t)_history->bytes; }
+int SVGTexture::get_animation_cache_frame_count() const { return (int)_history->lru.size(); }
+int64_t SVGTexture::get_animation_cache_hits() const { return (int64_t)_history->hits; }
+int64_t SVGTexture::get_animation_cache_misses() const { return (int64_t)_history->misses; }
 
 Vector2 SVGTexture::draw_size() const {
 	return _doc == nullptr ? Vector2() : _doc->doc_size();
@@ -1558,6 +1601,18 @@ Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool
 	if (!frame.dirty && frame.texture.is_valid() && frame.baked == target &&
 			frame.mipmaps == mipmaps && frame.pattern == seed)
 		return frame.texture;
+	AnimationCache::Key key{_src, (int)target.x, (int)target.y, seed,
+			_jitter_enabled ? _jitter_amount : 0.0, mipmaps, _source_hash};
+	if (_history->enabled) {
+		Ref<ImageTexture> hit = _history->find(key);
+		if (hit.is_valid()) {
+			frame.texture = hit; frame.baked = target; frame.mipmaps = mipmaps;
+			frame.pattern = seed; frame.dirty = false; frame.shared = true;
+			return frame.texture;
+		}
+	}
+	if (_doc_dirty) _parse();
+	if (!_doc) return Ref<Texture2D>();
 	Ref<Image> img = _doc->render((int)target.x, (int)target.y,
 			_jitter_enabled ? _jitter_amount : 0.0,
 			seed + 1);
@@ -1567,15 +1622,17 @@ Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool
 		return frame.texture;
 	}
 	if (mipmaps) img->generate_mipmaps();
-	if (frame.texture.is_valid() && frame.baked == target && frame.mipmaps == mipmaps) {
+	if (!frame.shared && frame.texture.is_valid() && frame.baked == target && frame.mipmaps == mipmaps) {
 		frame.texture->update(img);
 	} else {
 		frame.texture = ImageTexture::create_from_image(img);
+		frame.shared = false;
 	}
 	frame.baked = target;
 	frame.mipmaps = mipmaps;
 	frame.pattern = seed;
 	frame.dirty = false;
+	if (_history->enabled) frame.shared = _history->keep(key, frame.texture, (size_t)img->get_data_size());
 	return frame.texture;
 }
 
@@ -1603,12 +1660,13 @@ Vector2 SVG2D::_editor_fallback_density() const {
 void SVG2D::set_src(const String &s) {
 	_animation_tick = 0;
 	_animation_pattern = 0;
-	_set_path_src(s);
+	_svg.set_src(s);
+	queue_redraw();
 }
 
 // 文書の差し替えと揺れの再生位置を分け、接点アニメーションと併用する。
 void SVG2D::_set_path_src(const String &s) {
-	_svg.set_src(s);
+	_svg.set_path_src(s);
 	queue_redraw();
 }
 
@@ -1868,12 +1926,13 @@ void SVG3D::_queue_refresh() {
 void SVG3D::set_src(const String &s) {
 	_animation_tick = 0;
 	_animation_pattern = 0;
-	_set_path_src(s);
+	_svg.set_src(s);
+	_queue_refresh();
 }
 
 // 文書の差し替えと揺れの再生位置を分け、接点アニメーションと併用する。
 void SVG3D::_set_path_src(const String &s) {
-	_svg.set_src(s);
+	_svg.set_path_src(s);
 	_queue_refresh();
 }
 
