@@ -114,9 +114,12 @@ private:
 	bool _jitter_enabled = false;
 	bool _cache_animation_frames = true; // OFFなら現在の揺れ画像1枚だけを使い回す
 	bool _keep_render_cache = true; // 再描画用の中間バッファを保持する
+	bool _fast_mode = false; // 最長辺2048で一度焼き、その画像を使い続ける
+	bool _frozen = false; // FastModeの焼き上げ済み画像を密度変更で捨てない
 
 	// 画面密度を実際に必要な整数画素数へ丸める。
 	godot::Vector2 _target(const godot::Vector2 &density) const;
+	godot::Vector2 _fast_density() const;
 	int _pattern(int pattern) const;
 	void _parse();
 
@@ -153,6 +156,8 @@ public:
 	double get_jitter_amount() const { return _jitter_amount; }
 	void set_jitter_enabled(bool enabled);
 	bool is_jitter_enabled() const { return _jitter_enabled; }
+	void set_fast_mode(bool enabled);
+	bool is_fast_mode() const { return _fast_mode; }
 };
 
 // SVG を画面へ置くノード。
@@ -164,6 +169,7 @@ class SVG2D : public godot::Node2D {
 private:
 	SVGTexture _svg;
 	bool _adaptive = true;
+	bool _fast_mode = false;
 	bool _flip_h = false;
 	bool _flip_v = false;
 	godot::Vector2 _offset;
@@ -198,6 +204,8 @@ public:
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
+	void set_fast_mode(bool enabled);
+	bool is_fast_mode() const { return _fast_mode; }
 	void set_cache_animation_frames(bool enabled);
 	bool is_cache_animation_frames() const { return _svg.is_cache_animation_frames(); }
 	void set_keep_render_cache(bool enabled) { _svg.set_keep_render_cache(enabled); }
@@ -234,6 +242,7 @@ private:
 	godot::Sprite3D *_sprite = nullptr;
 	double _pixel_size = 0.01;
 	bool _adaptive = true;
+	bool _fast_mode = false;
 	bool _queued = false;
 	bool _flip_h = false;
 	bool _flip_v = false;
@@ -278,6 +287,8 @@ public:
 	// 画面上の大きさに合わせた自動解像度を切り替える。
 	void set_adaptive(bool enabled);
 	bool is_adaptive() const { return _adaptive; }
+	void set_fast_mode(bool enabled);
+	bool is_fast_mode() const { return _fast_mode; }
 	void set_cache_animation_frames(bool enabled);
 	bool is_cache_animation_frames() const { return _svg.is_cache_animation_frames(); }
 	void set_keep_render_cache(bool enabled) { _svg.set_keep_render_cache(enabled); }

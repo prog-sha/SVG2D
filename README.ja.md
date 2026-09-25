@@ -46,7 +46,8 @@ sh tests/test_movie.sh
 | Inspector設定 | 対象 | 効果 |
 | --- | --- | --- |
 | `deferred_updates` | SVGAnimate2D / 3D | 既定ON。同じ更新周期の接点編集をまとめ、SVGの再構築・再解析を1回にする。 |
-| `keep_render_cache` | SVG2D / 3Dとその派生 | OFFで画像化後の中間バッファを解放。再描画時の再計算は増える。表示テクスチャは残る。 |
+| `fast_mode` | SVG2D / 3Dとその派生 | 既定OFF。最長辺2048pxで一度だけ焼き、その画像を使い続ける。ズーム、カメラ、輪郭揺れ、接点変形では焼き直さない。`src` の差し替えでもう一度だけ焼く。反転、offset、modulate は使える。 |
+| `keep_render_cache` | SVG2D / 3Dとその派生 | OFFで画像化後の中間バッファを解放。再描画時の再計算は増える。表示テクスチャは残る。FastModeは一度焼いたあと、常に中間バッファを解放する。 |
 | `dynamic_mesh` | SpriteRope3D / SVGRope3D | 既定ON。頂点と境界だけ更新し、UV・三角形の再生成と転送を省く。 |
 
 接点の取得・シーン保存は常に最新の編集値を使う。遅延更新中に2Dテクスチャをすぐ取得する場合は `flush_paths()` を先に呼ぶ。3Dテクスチャの表示反映はidle時に行う。`get_render_cache_bytes()` で中間バッファの概算を確認できる。

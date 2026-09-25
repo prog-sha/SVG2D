@@ -32,6 +32,9 @@
 		<member name="animation_interval" type="int" setter="set_animation_interval" getter="get_animation_interval" default="10">
 			Number of rendered frames to hold each jitter pattern. The four fixed patterns cycle in order.
 		</member>
+		<member name="fast_mode" type="bool" setter="set_fast_mode" getter="is_fast_mode" default="false">
+			Renders once with a 2048-pixel longest edge, including mipmaps, and reuses that texture at every camera distance. Outline jitter and path deformation do not rasterize again. Replacing [member src] or disabling fast mode renders again. [member flip_h], [member flip_v], [member offset], and [member modulate] still apply. Stored [member adaptive] and [member animation_enabled] values are kept and resume when fast mode is turned off. Intermediate render buffers are released after the bake.
+		</member>
 		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="true">
 			If [code]true[/code], redraws the SVG at no less than 1.5 times its projected pixel dimensions through the active camera. The larger local-axis density is used for both texture axes so 3D rotation cannot distort the SVG aspect ratio. Before the 3D editor camera is initialized, a temporary texture with a 2048-pixel longest edge prevents a low-resolution first view. The current texture is reused while dimensions stay unchanged, and each texture axis is limited to 4096 pixels.
 		</member>

@@ -38,7 +38,8 @@ Run `./tests/build_all.sh` to build macOS, iOS, Windows, Linux, Android and Web 
 | Inspector setting | Nodes | Effect |
 | --- | --- | --- |
 | `deferred_updates` | SVGAnimate2D / 3D | On by default. Combines path edits until idle time, rebuilding and parsing the SVG once per batch. |
-| `keep_render_cache` | SVG2D / 3D and subclasses | Disable to release intermediate buffers after rasterization. Rerendering requires more allocation and computation; the displayed texture is retained. |
+| `fast_mode` | SVG2D / 3D and subclasses | Off by default. Rasterizes once at a 2048-pixel longest edge and keeps that texture. Zoom, cameras, jitter, and path deformation do not rasterize again. `src` replacement renders once more. Flip, offset, and modulate still apply. |
+| `keep_render_cache` | SVG2D / 3D and subclasses | Disable to release intermediate buffers after rasterization. Rerendering requires more allocation and computation; the displayed texture is retained. Fast mode always releases them after its single bake. |
 | `dynamic_mesh` | SpriteRope3D / SVGRope3D | On by default. Updates vertices and bounds while retaining UVs and triangle indices. |
 
 Point getters and scene saving always use current edits. Call `flush_paths()` before immediately reading an edited 2D texture with deferred updates enabled. 3D texture refresh occurs at idle time. `get_render_cache_bytes()` reports estimated intermediate buffer usage.

@@ -1452,6 +1452,7 @@ Ref<Image> SVG::render(int w, int h, double jitter, int seed) const {
 
 static const double MAX_TEX = 4096.0;   // 1枚の画像が占めるメモリーを最大64 MiBに抑える
 static const double EDITOR_FALLBACK_TEX = 2048.0; // 3D viewport初期化前だけ使う最大辺
+static const double FAST_TEX = 2048.0; // FastModeが一度だけ焼く最長辺
 
 SVGTexture::SVGTexture() : _history(std::make_unique<AnimationCache>()) {}
 SVGTexture::~SVGTexture() = default;
@@ -1463,12 +1464,20 @@ void SVGTexture::set_src(const String &s) {
 	_src = s;
 	_source_hash = (uint64_t)s.hash();
 	_parse();
+	_frozen = false;
 	for (Frame &frame : _frames) frame.dirty = true;
 }
 
 // 接点の変更だけなら文書寸法は一定。履歴の検索後まで解析を遅らせる。
 void SVGTexture::set_path_src(const String &s) {
 	if (_src == s) return;
+	// 焼き上げ済みのFastModeは絵を固定する。文字列だけ残し、解除時に描き直す。
+	if (_fast_mode && _frozen) {
+		_src = s;
+		_source_hash = (uint64_t)s.hash();
+		_doc_dirty = true;
+		return;
+	}
 	if (!_history->enabled || !_doc) { set_src(s); return; }
 	_src = s;
 	_source_hash = (uint64_t)s.hash();
@@ -1542,7 +1551,25 @@ int SVGTexture::_pattern(int pattern) const {
 	return _jitter_enabled && _jitter_amount > 0.0 ? (pattern % 4 + 4) % 4 : 0;
 }
 
+Vector2 SVGTexture::_fast_density() const {
+	Vector2 size = draw_size();
+	double longest = std::max((double)size.x, (double)size.y);
+	if (longest <= 0.0) return Vector2(1, 1);
+	float density = (float)(FAST_TEX / longest);
+	return Vector2(density, density);
+}
+
+void SVGTexture::set_fast_mode(bool enabled) {
+	if (_fast_mode == enabled) return;
+	_fast_mode = enabled;
+	_frozen = false;
+	clear_animation_cache();
+	for (size_t i = 1; i < _frames.size(); i++) _frames[i] = Frame();
+	_frames[0].dirty = true;
+}
+
 bool SVGTexture::needs(const Vector2 &density, int pattern, bool mipmaps) const {
+	if (_fast_mode) return !_frozen;
 	int seed = _pattern(pattern);
 	const Frame &frame = _frames[_cache_animation_frames ? (size_t)seed : 0];
 	return frame.dirty || _target(density) != frame.baked || mipmaps != frame.mipmaps || frame.pattern != seed;
@@ -1588,6 +1615,37 @@ void SVGTexture::set_jitter_enabled(bool enabled) {
 
 // 必要なパターンだけ焼く。1枚保持でもseedは独立して進める。
 Ref<Texture2D> SVGTexture::get_texture(const Vector2 &density, int pattern, bool mipmaps) {
+	if (_fast_mode) {
+		Frame &frame = _frames[0];
+		if (_frozen) return frame.texture;
+		if (_doc_dirty) _parse();
+		for (size_t i = 1; i < _frames.size(); i++) _frames[i] = Frame();
+		if (_doc == nullptr) {
+			frame = Frame();
+			frame.mipmaps = mipmaps;
+			frame.dirty = false;
+			_frozen = true;
+			return frame.texture;
+		}
+		Vector2 target = _target(_fast_density());
+		Ref<Image> img = _doc->render((int)target.x, (int)target.y, 0.0, 1);
+		_doc->clear_cache();
+		if (img.is_null()) {
+			frame.texture.unref();
+			frame.dirty = false;
+			_frozen = true;
+			return frame.texture;
+		}
+		if (mipmaps) img->generate_mipmaps();
+		frame.texture = ImageTexture::create_from_image(img);
+		frame.shared = false;
+		frame.baked = target;
+		frame.mipmaps = mipmaps;
+		frame.pattern = 0;
+		frame.dirty = false;
+		_frozen = true;
+		return frame.texture;
+	}
 	int seed = _pattern(pattern);
 	Frame &frame = _frames[_cache_animation_frames ? (size_t)seed : 0];
 	if (_doc == nullptr) {
@@ -1684,7 +1742,19 @@ void SVG2D::set_adaptive(bool enabled) {
 	queue_redraw();
 }
 
+void SVG2D::set_fast_mode(bool enabled) {
+	if (_fast_mode == enabled) return;
+	_fast_mode = enabled;
+	_svg.set_fast_mode(enabled);
+	_update_processing();
+	queue_redraw();
+}
+
 void SVG2D::_process(double) {
+	if (_fast_mode) {
+		set_process(false);
+		return;
+	}
 	if (!_adaptive && (!_animation_enabled || _svg.get_jitter_amount() <= 0.0)) {
 		set_process(false);
 		return;
@@ -1722,11 +1792,11 @@ void SVG2D::set_editor_density(const Vector2 &density) {
 }
 
 void SVG2D::_update_processing() {
-	set_process(_adaptive || (_animation_enabled && _svg.get_jitter_amount() > 0.0));
+	set_process(!_fast_mode && (_adaptive || (_animation_enabled && _svg.get_jitter_amount() > 0.0)));
 }
 
 bool SVG2D::_advance_animation() {
-	if (!_animation_enabled || _svg.get_jitter_amount() <= 0.0) return false;
+	if (_fast_mode || !_animation_enabled || _svg.get_jitter_amount() <= 0.0) return false;
 	if (++_animation_tick < _animation_interval) return false;
 	_animation_tick = 0;
 	_animation_pattern = (_animation_pattern + 1) % 4;
@@ -1788,6 +1858,8 @@ void SVG2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_src"), &SVG2D::get_src);
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG2D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG2D::is_adaptive);
+	ClassDB::bind_method(D_METHOD("set_fast_mode", "enabled"), &SVG2D::set_fast_mode);
+	ClassDB::bind_method(D_METHOD("is_fast_mode"), &SVG2D::is_fast_mode);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG2D::get_texture);
 	ClassDB::bind_method(D_METHOD("_set_editor_density", "density"), &SVG2D::set_editor_density);
 	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVG2D::get_svg_size);
@@ -1818,6 +1890,7 @@ void SVG2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "is_flipped_v");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "offset"), "set_offset", "get_offset");
 	ADD_GROUP("Rendering", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fast_mode"), "set_fast_mode", "is_fast_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "keep_render_cache"), "set_keep_render_cache", "is_keep_render_cache");
 }
@@ -1957,12 +2030,20 @@ void SVG3D::set_adaptive(bool enabled) {
 	_queue_refresh();
 }
 
+void SVG3D::set_fast_mode(bool enabled) {
+	if (_fast_mode == enabled) return;
+	_fast_mode = enabled;
+	_svg.set_fast_mode(enabled);
+	_update_processing();
+	_queue_refresh();
+}
+
 void SVG3D::_update_processing() {
-	set_process(_adaptive || (_animation_enabled && _svg.get_jitter_amount() > 0.0));
+	set_process(!_fast_mode && (_adaptive || (_animation_enabled && _svg.get_jitter_amount() > 0.0)));
 }
 
 bool SVG3D::_advance_animation() {
-	if (!_animation_enabled || _svg.get_jitter_amount() <= 0.0) return false;
+	if (_fast_mode || !_animation_enabled || _svg.get_jitter_amount() <= 0.0) return false;
 	if (++_animation_tick < _animation_interval) return false;
 	_animation_tick = 0;
 	_animation_pattern = (_animation_pattern + 1) % 4;
@@ -2032,7 +2113,7 @@ void SVG3D::set_editor_camera(Camera3D *camera) {
 	// エディター起動直後は、SVGのdeferred refreshが3D viewport/cameraの初期化より
 	// 先に走ることがある。その低い暫定画像をキャッシュしたままにせず、カメラの
 	// 投影寸法が届いた時点で自発的に更新する。Node::_processの実行順には依存しない。
-	if (_adaptive && changed && _svg.needs(_editor_density, _animation_pattern, true))
+	if (!_fast_mode && _adaptive && changed && _svg.needs(_editor_density, _animation_pattern, true))
 		_queue_refresh();
 }
 
@@ -2041,6 +2122,10 @@ Ref<Texture2D> SVG3D::get_texture() const {
 }
 
 void SVG3D::_process(double) {
+	if (_fast_mode) {
+		set_process(false);
+		return;
+	}
 	if (!_adaptive && (!_animation_enabled || _svg.get_jitter_amount() <= 0.0)) {
 		set_process(false);
 		return;
@@ -2061,6 +2146,8 @@ void SVG3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_pixel_size"), &SVG3D::get_pixel_size);
 	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &SVG3D::set_adaptive);
 	ClassDB::bind_method(D_METHOD("is_adaptive"), &SVG3D::is_adaptive);
+	ClassDB::bind_method(D_METHOD("set_fast_mode", "enabled"), &SVG3D::set_fast_mode);
+	ClassDB::bind_method(D_METHOD("is_fast_mode"), &SVG3D::is_fast_mode);
 	ClassDB::bind_method(D_METHOD("get_texture"), &SVG3D::get_texture);
 	ClassDB::bind_method(D_METHOD("get_svg_size"), &SVG3D::get_svg_size);
 	ClassDB::bind_method(D_METHOD("set_jitter_amount", "amount"), &SVG3D::set_jitter_amount);
@@ -2096,6 +2183,7 @@ void SVG3D::_bind_methods() {
 	ADD_GROUP("Rendering", "");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pixel_size", PROPERTY_HINT_RANGE,
 			"0.0001,128,0.0001,or_greater,exp"), "set_pixel_size", "get_pixel_size");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fast_mode"), "set_fast_mode", "is_fast_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "keep_render_cache"), "set_keep_render_cache", "is_keep_render_cache");
 }

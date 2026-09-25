@@ -101,6 +101,7 @@ func check_docs(name: String) -> void:
 	var xml := FileAccess.get_file_as_string("res://doc_classes/%s.xml" % name)
 	check(xml.contains('<member name="src"'), "%sのsrc説明がないよ" % name)
 	check(xml.contains('<member name="adaptive"'), "%sのadaptive説明がないよ" % name)
+	check(xml.contains('<member name="fast_mode"'), "%sのfast_mode説明がないよ" % name)
 	check(xml.contains('<member name="jitter_amount"'), "%sのjitter_amount説明がないよ" % name)
 	check(xml.contains('<member name="animation_enabled"'), "%sのanimation_enabled説明がないよ" % name)
 	check(xml.contains('<member name="animation_interval"'), "%sのanimation_interval説明がないよ" % name)
@@ -496,6 +497,85 @@ func check_jitter_animation() -> void:
 	flag3.free()
 	print("SVG jitter cache: 4 unique patterns, pattern 5 reused pattern 1 RID")
 	svg.free()
+
+# FastModeは最長辺2048で一度焼き、拡大・揺れ・接点変形では同じ画像を返す。
+func check_fast_mode() -> void:
+	var source := '<svg width="64" height="48"><rect width="16" height="48" fill="white"/></svg>'
+	var svg: Node2D = ClassDB.instantiate("SVG2D")
+	svg.set("src", source)
+	svg.set("adaptive", true)
+	svg.set("animation_enabled", true)
+	svg.set("jitter_amount", 0.1)
+	svg.set("fast_mode", true)
+	root.add_child(svg)
+	var texture: Texture2D = svg.call("get_texture")
+	var size := texture.get_size()
+	check(maxi(size.x, size.y) == 2048 and mini(size.x, size.y) == 1536,
+		"SVG2D FastModeの最長辺が2048でないよ: %s" % size)
+	check(svg.call("get_render_cache_bytes") == 0, "SVG2D FastModeが中間バッファを残しているよ")
+	check(not svg.is_processing(), "SVG2D FastModeが毎フレーム処理しているよ")
+	check(svg.get("animation_enabled") and svg.get("adaptive"),
+		"SVG2D FastModeがadaptiveとanimation_enabledの保存値を消したよ")
+	var rid := texture.get_rid()
+	svg.scale = Vector2(4, 4)
+	var scaled: Texture2D = svg.call("get_texture")
+	check(scaled.get_rid() == rid and scaled.get_size() == size,
+		"SVG2D FastModeが拡大で焼き直したよ")
+	svg.set("src", '<svg width="64" height="48"><rect width="32" height="48" fill="white"/></svg>')
+	var replaced: Texture2D = svg.call("get_texture")
+	check(replaced.get_rid() != rid and maxi(replaced.get_width(), replaced.get_height()) == 2048,
+		"SVG2D FastModeがsrc差し替えで焼き直さないよ")
+	svg.set("flip_h", true)
+	svg.modulate = Color(0.5, 0.25, 1.0, 0.5)
+	check(svg.get("flip_h") and svg.modulate.is_equal_approx(Color(0.5, 0.25, 1.0, 0.5)),
+		"SVG2D FastModeで反転またはmodulateを保持できないよ")
+	svg.free()
+
+	var animate: Node2D = ClassDB.instantiate("SVGAnimate2D")
+	animate.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='48'>" \
+		+ "<path fill='#f34' d='M 8 12 L 40 12 L 40 36 Z'/></svg>")
+	animate.set("fast_mode", true)
+	animate.set("deferred_updates", false)
+	var before: Texture2D = animate.call("get_texture")
+	var before_rid := before.get_rid()
+	animate.call("set_path_point", 0, 1, Vector2(20, 8))
+	animate.call("flush_paths")
+	var after: Texture2D = animate.call("get_texture")
+	check(after.get_rid() == before_rid, "SVGAnimate2D FastModeが接点変形で焼き直したよ")
+	animate.set("fast_mode", false)
+	animate.set("adaptive", false)
+	animate.set("animation_enabled", false)
+	var resumed: Texture2D = animate.call("get_texture")
+	check(resumed.get_rid() != before_rid and resumed.get_size() == Vector2(64, 48),
+		"FastMode解除後に自然寸法へ戻らないよ: %s" % resumed.get_size())
+	animate.free()
+
+	var svg3: Node3D = ClassDB.instantiate("SVG3D")
+	root.add_child(svg3)
+	svg3.set("src", source)
+	svg3.set("fast_mode", true)
+	svg3.set("animation_enabled", true)
+	svg3.set("flip_h", true)
+	svg3.set("modulate", Color(0.25, 0.5, 0.75, 0.6))
+	await process_frame
+	await process_frame
+	check(not svg3.is_processing(), "SVG3D FastModeが毎フレーム処理しているよ")
+	var children := svg3.get_children(true)
+	check(children.size() == 1 and children[0] is Sprite3D, "SVG3D FastModeの内部Sprite3Dがないよ")
+	if children.size() == 1 and children[0] is Sprite3D:
+		var sprite := children[0] as Sprite3D
+		var baked := sprite.texture.get_size() if sprite.texture else Vector2()
+		check(sprite.texture != null and sprite.texture.has_mipmaps()
+			and maxi(baked.x, baked.y) == 2048,
+			"SVG3D FastModeがミップマップ付き2048画像でないよ: %s" % baked)
+		check(sprite.flip_h and sprite.modulate.is_equal_approx(Color(0.25, 0.5, 0.75, 0.6)),
+			"SVG3D FastModeで反転またはmodulateが反映されないよ")
+		var kept := sprite.texture.get_rid()
+		svg3.scale = Vector3(3, 3, 3)
+		await process_frame
+		check(sprite.texture.get_rid() == kept, "SVG3D FastModeが拡大で焼き直したよ")
+	svg3.free()
+	print("FastMode: 2048 bake reused across scale, jitter, and path edits")
 
 # 2Dの反転・offsetと、3Dのmodulate・反転・自然寸法offsetを実描画ノードで確かめる。
 func check_appearance() -> void:
@@ -963,6 +1043,7 @@ func _run() -> void:
 	await check_perspective_3d()
 	await check_rotation_3d()
 	await check_jitter_animation()
+	await check_fast_mode()
 	await check_appearance()
 	await check_ropes()
 	await check_stickman_rope_scene()

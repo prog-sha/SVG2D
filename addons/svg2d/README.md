@@ -62,6 +62,8 @@ add_child(image_rope)
 
 Animation is disabled by default. Enable `animation_enabled` to deform path outlines without translating the whole shape. `jitter_amount` is the maximum peak-to-peak deformation as a ratio of the document dimensions (0.0008 by default, capped at 0.3). Four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default). Disabling animation releases its three extra cached textures. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).
 
+`fast_mode` rasterizes once at a 2048-pixel longest edge and reuses that texture. It ignores zoom, camera scale, outline jitter, and path deformation. Replacing `src` renders once more. `flip_h`, `flip_v`, `offset`, and `modulate` still apply. `SVG3D` keeps mipmaps. Turning it off resumes the stored `adaptive` and `animation_enabled` settings.
+
 The `adaptive` property is enabled by default. It follows 2D editor zoom and display scale with at least 1.5x supersampling, as well as runtime cameras and the 3D editor camera. `SVG3D` applies the larger projected local-axis density to both texture axes, preserving the SVG aspect ratio while rotated. Disable adaptive rendering to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.
 
 Adaptive textures are limited to 4096 pixels on either axis to keep one RGBA texture within 64 MiB. Very large on-screen SVGs therefore use the highest available resolution.
@@ -83,7 +85,8 @@ See `LICENSE` in this folder.
 | Inspector setting | Nodes | Effect |
 | --- | --- | --- |
 | `deferred_updates` | SVGAnimate2D / 3D | On by default. Combines path edits until idle time, rebuilding and parsing the SVG once per batch. |
-| `keep_render_cache` | SVG2D / 3D and subclasses | Disable to release intermediate buffers after rasterization. Rerendering requires more allocation and computation; the displayed texture is retained. |
+| `fast_mode` | SVG2D / 3D and subclasses | Off by default. Rasterizes once at a 2048-pixel longest edge and keeps that texture. Zoom, cameras, jitter, and path deformation do not rasterize again. |
+| `keep_render_cache` | SVG2D / 3D and subclasses | Disable to release intermediate buffers after rasterization. Rerendering requires more allocation and computation; the displayed texture is retained. Fast mode always releases them after its single bake. |
 | `dynamic_mesh` | SpriteRope3D / SVGRope3D | On by default. Updates vertices and bounds while retaining UVs and triangle indices. |
 
 Point getters and scene saving always use current edits. Call `flush_paths()` before immediately reading an edited 2D texture with deferred updates enabled. 3D texture refresh occurs at idle time. `get_render_cache_bytes()` reports estimated intermediate buffer usage.
