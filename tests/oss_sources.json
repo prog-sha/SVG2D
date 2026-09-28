@@ -1,0 +1,225 @@
+{
+  "purpose": "OSSから採用した試験観点と不具合調査の参照位置。コードや素材の転載ではなく独自の結合試験として実装。",
+  "sources": [
+    {
+      "oss": "erincatto/box2d",
+      "revision": "9ebbbcd960ad424e03e5de6e66a40764c16f51bc",
+      "file": "testbed/tests/rope.cpp",
+      "lines": [
+        [
+          34,
+          89
+        ],
+        [
+          235,
+          264
+        ]
+      ],
+      "role": "粒子・質量を持つロープを移動・停止して描画するtestbed",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/erincatto/box2d/blob/9ebbbcd960ad424e03e5de6e66a40764c16f51bc/testbed/tests/rope.cpp"
+    },
+    {
+      "oss": "erincatto/box2d",
+      "revision": "9ebbbcd960ad424e03e5de6e66a40764c16f51bc",
+      "file": "testbed/tests/breakable.cpp",
+      "lines": [
+        [
+          90,
+          138
+        ]
+      ],
+      "role": "破断直前の剛体速度を分割後の重心へ移すtestbed",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/erincatto/box2d/blob/9ebbbcd960ad424e03e5de6e66a40764c16f51bc/testbed/tests/breakable.cpp"
+    },
+    {
+      "oss": "erincatto/box2d",
+      "revision": "9ebbbcd960ad424e03e5de6e66a40764c16f51bc",
+      "file": "unit-test/joint_test.cpp",
+      "lines": [
+        [
+          27,
+          104
+        ]
+      ],
+      "role": "world・剛体・Jointを組み合わせ、Step後の反力を検証する試験",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/erincatto/box2d/blob/9ebbbcd960ad424e03e5de6e66a40764c16f51bc/unit-test/joint_test.cpp"
+    },
+    {
+      "oss": "linebender/resvg",
+      "revision": "1b6c2fddbcbeffa8135df4323b02aaae84890907",
+      "file": "crates/resvg/tests/integration/main.rs",
+      "lines": [
+        [
+          32,
+          145
+        ]
+      ],
+      "role": "入力・解析・描画・アルファ変換・期待画像比較の結合試験",
+      "test": "tests/oss_svg_integration.gd",
+      "url": "https://github.com/linebender/resvg/blob/1b6c2fddbcbeffa8135df4323b02aaae84890907/crates/resvg/tests/integration/main.rs"
+    },
+    {
+      "oss": "linebender/resvg",
+      "revision": "1b6c2fddbcbeffa8135df4323b02aaae84890907",
+      "file": "crates/resvg/tests/tests/structure/symbol/opacity-on-use-and-symbol.svg",
+      "lines": [
+        [
+          1,
+          12
+        ]
+      ],
+      "role": "useとsymbolの透明度の積を検証するSVG素材",
+      "test": "tests/oss_svg_integration.gd",
+      "url": "https://github.com/linebender/resvg/blob/1b6c2fddbcbeffa8135df4323b02aaae84890907/crates/resvg/tests/tests/structure/symbol/opacity-on-use-and-symbol.svg"
+    },
+    {
+      "oss": "linebender/resvg",
+      "revision": "1b6c2fddbcbeffa8135df4323b02aaae84890907",
+      "file": "crates/resvg/tests/tests/structure/use/style-inheritance-1.svg",
+      "lines": [
+        [
+          1,
+          12
+        ]
+      ],
+      "role": "参照先の色が呼出側の継承値を上書きするSVG素材",
+      "test": "tests/oss_svg_integration.gd",
+      "url": "https://github.com/linebender/resvg/blob/1b6c2fddbcbeffa8135df4323b02aaae84890907/crates/resvg/tests/tests/structure/use/style-inheritance-1.svg"
+    },
+    {
+      "oss": "Kozea/CairoSVG",
+      "revision": "3b7a250c9e955db9c3cdf525d5b5027a9a396201",
+      "file": "test_non_regression/test_non_regression.py",
+      "lines": [
+        [
+          17,
+          44
+        ]
+      ],
+      "role": "期待画像と描画結果を画素比較する回帰試験",
+      "test": "tests/oss_svg_integration.gd",
+      "url": "https://github.com/Kozea/CairoSVG/blob/3b7a250c9e955db9c3cdf525d5b5027a9a396201/test_non_regression/test_non_regression.py"
+    },
+    {
+      "oss": "Kozea/CairoSVG",
+      "revision": "3b7a250c9e955db9c3cdf525d5b5027a9a396201",
+      "file": "cairosvg/test_api.py",
+      "lines": [
+        [
+          46,
+          119
+        ]
+      ],
+      "role": "bytes・ファイル・ストリーム入力と描画経路の同等性試験",
+      "test": "tests/oss_svg_integration.gd",
+      "url": "https://github.com/Kozea/CairoSVG/blob/3b7a250c9e955db9c3cdf525d5b5027a9a396201/cairosvg/test_api.py"
+    },
+    {
+      "oss": "Tshmofen/verlet-rope-4",
+      "revision": "968b247ad87bca24aada303f680dd4aab5a8c962",
+      "file": "demo/scripts/MovingRopeDemo.cs",
+      "lines": [
+        [
+          14,
+          29
+        ]
+      ],
+      "role": "物理更新中の接続物の移動・停止デモ（自動試験ではない）",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/Tshmofen/verlet-rope-4/blob/968b247ad87bca24aada303f680dd4aab5a8c962/demo/scripts/MovingRopeDemo.cs"
+    },
+    {
+      "oss": "Tshmofen/verlet-rope-4",
+      "revision": "968b247ad87bca24aada303f680dd4aab5a8c962",
+      "file": "demo/examples/scripts/WreckingBallDemo.cs",
+      "lines": [
+        [
+          5,
+          21
+        ]
+      ],
+      "role": "初期衝撃を与える相互作用デモ（自動試験ではない）",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/Tshmofen/verlet-rope-4/blob/968b247ad87bca24aada303f680dd4aab5a8c962/demo/examples/scripts/WreckingBallDemo.cs"
+    },
+    {
+      "oss": "Tshmofen/verlet-rope-4",
+      "revision": "968b247ad87bca24aada303f680dd4aab5a8c962",
+      "file": "addons/verlet_rope_4/Physics/VerletRopeRigid.cs",
+      "lines": [
+        [
+          142,
+          192
+        ],
+        [
+          221,
+          242
+        ]
+      ],
+      "role": "PinJointの鎖と実剛体位置からの描画の実装",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/Tshmofen/verlet-rope-4/blob/968b247ad87bca24aada303f680dd4aab5a8c962/addons/verlet_rope_4/Physics/VerletRopeRigid.cs"
+    },
+    {
+      "oss": "godotengine/godot",
+      "revision": "5b4e0cb0fd279832bbdd69fed5354d4e5ad26f88",
+      "file": "scene/2d/physics/joints/joint_2d.cpp",
+      "lines": [
+        [
+          38,
+          71
+        ],
+        [
+          132,
+          191
+        ]
+      ],
+      "role": "接続先のtree離脱による拘束解除と同一NodePathの更新省略",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/godotengine/godot/blob/5b4e0cb0fd279832bbdd69fed5354d4e5ad26f88/scene/2d/physics/joints/joint_2d.cpp"
+    },
+    {
+      "oss": "godotengine/godot",
+      "revision": "5b4e0cb0fd279832bbdd69fed5354d4e5ad26f88",
+      "file": "scene/3d/physics/joints/joint_3d.cpp",
+      "lines": [
+        [
+          36,
+          71
+        ],
+        [
+          127,
+          188
+        ]
+      ],
+      "role": "3D Jointのtree離脱・再構成手順",
+      "test": "tests/oss_rope_integration.gd",
+      "url": "https://github.com/godotengine/godot/blob/5b4e0cb0fd279832bbdd69fed5354d4e5ad26f88/scene/3d/physics/joints/joint_3d.cpp"
+    },
+    {
+      "oss": "linebender/resvg",
+      "revision": "1b6c2fddbcbeffa8135df4323b02aaae84890907",
+      "file": "crates/usvg/src/parser/use_node.rs",
+      "lines": [
+        [
+          49,
+          85
+        ],
+        [
+          117,
+          142
+        ],
+        [
+          149,
+          191
+        ]
+      ],
+      "role": "symbol・svg参照の寸法、座標変換、切り抜きの実装（独立レビューで参照）",
+      "test": "tests/oss_svg_integration.gd",
+      "url": "https://github.com/linebender/resvg/blob/1b6c2fddbcbeffa8135df4323b02aaae84890907/crates/usvg/src/parser/use_node.rs"
+    }
+  ]
+}

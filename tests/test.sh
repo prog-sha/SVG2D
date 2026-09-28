@@ -49,6 +49,18 @@ if printf '%s\n' "$animation_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
 	echo "SVG animation properties test reported an error"
 	exit 1
 fi
+# 実シーンの描画・物理を通し、OSS由来の観点を独立した期待値と比較する。
+if integration_result=$("$godot" --resolution 64x48 --path "$root" --script tests/oss_integration.gd 2>&1); then
+  :
+else
+  printf '%s\n' "$integration_result"
+  exit 1
+fi
+printf '%s\n' "$integration_result"
+printf '%s\n' "$integration_result" | grep -q 'OSS integration: .* PASSED'
+if printf '%s\n' "$integration_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
+  exit 1
+fi
 if result=$("$godot" --resolution 64x48 --path "$root" --script tests/test.gd 2>&1); then
   :
 else
@@ -92,3 +104,6 @@ if printf '%s\n' "$editor_result" | grep -q '^ERROR:'; then
   echo "Godotエディターがエラーを出したよ"
   exit 1
 fi
+
+# 座標変換だけでなく、実エディタの点操作と描画した画面も残す。
+GODOT="$godot" sh tests/test_oss_editor.sh

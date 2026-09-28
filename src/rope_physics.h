@@ -7,6 +7,8 @@
 #include <godot_cpp/classes/animatable_body3d.hpp>
 #include <godot_cpp/classes/rigid_body2d.hpp>
 #include <godot_cpp/classes/rigid_body3d.hpp>
+#include <godot_cpp/classes/physics_server2d.hpp>
+#include <godot_cpp/classes/physics_server3d.hpp>
 #include <godot_cpp/classes/pin_joint2d.hpp>
 #include <godot_cpp/classes/pin_joint3d.hpp>
 #include <godot_cpp/classes/collision_shape2d.hpp>
@@ -25,6 +27,7 @@ using namespace godot;
 struct RopeSpace2D {
 	using V = Vector2; using Body = RigidBody2D; using Node = Node2D;
 	using Anchor = AnimatableBody2D; using Target = PhysicsBody2D;
+	using Server = PhysicsServer2D;
 	using Joint = PinJoint2D; using Shape = CapsuleShape2D; using Collision = CollisionShape2D;
 	static void pose(Body *body, V a, V b) {
 		body->set_global_position((a + b) * 0.5f);
@@ -47,6 +50,7 @@ struct RopeSpace2D {
 struct RopeSpace3D {
 	using V = Vector3; using Body = RigidBody3D; using Node = Node3D;
 	using Anchor = AnimatableBody3D; using Target = PhysicsBody3D;
+	using Server = PhysicsServer3D;
 	using Joint = PinJoint3D; using Shape = CapsuleShape3D; using Collision = CollisionShape3D;
 	static void pose(Body *body, V a, V b) {
 		V edge = b - a;
@@ -75,6 +79,7 @@ struct RopePhysics {
 	struct Segment { Body *body; V a, b; }; // 剛体内の区間端点
 	std::vector<Segment> segments;
 	using Joint = typename Space::Joint;
+	using Server = typename Space::Server;
 	std::vector<Joint *> links;
 	typename Space::Anchor *anchor = nullptr;
 	Joint *pin = nullptr, *attachment = nullptr;
@@ -144,7 +149,16 @@ struct RopePhysics {
 						segments[i - 1].body->to_global(segments[i - 1].b)));
 		}
 		if (anchor && !pin) pin = Space::joint(anchor, segments.front().body, anchor->get_global_position());
-		if (id == target_id && point == target_point && (!id || attachment)) return;
+		if (id == target_id && point == target_point && (!id || attachment)) {
+			// 接続物のtree離脱で解除された拘束だけ復旧する。同じパスへの帰還も対象。
+			if (target && (Server::get_singleton()->joint_get_type(attachment->get_rid()) != Server::JOINT_TYPE_PIN
+					|| attachment->get_node_or_null(attachment->get_node_b()) != target)) {
+				NodePath path = attachment->get_path_to(target);
+				attachment->set_node_b(NodePath());
+				attachment->set_node_b(path);
+			}
+			return;
+		}
 		release(attachment); target_id = id; target_point = point;
 		if (target) attachment = Space::joint(segments[std::min(point, (int)segments.size() - 1)].body,
 				target, owner->to_global(points[(size_t)point]));

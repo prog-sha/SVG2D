@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" viewBox="0 0 64 48">
+  <!-- 参照先の色・変換・透明度を、呼出元の透明度と組み合わせる。 -->
+  <defs>
+    <symbol id="tile" viewBox="0 0 16 16" fill="#ff0000" opacity="0.5" transform="translate(4 0)">
+      <path d="M0 0H12V12H0Z"/>
+      <path d="M4 4H16V16H4Z"/>
+    </symbol>
+  </defs>
+  <use href="#tile" x="8" y="8" width="32" height="32" fill="#0000ff" opacity="0.5"/>
+</svg>

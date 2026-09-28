@@ -362,11 +362,11 @@ static std::vector<std::vector<Transform2D>> path_render_instances(const String 
 				par.is_empty() ? "xMidYMid meet" : par, initial.width, initial.height);
 		initial.width = root_view[2]; initial.height = root_view[3];
 	}
-	std::function<void(const Elem &, EditTransformState, int, int)> walk;
-	walk = [&](const Elem &e, EditTransformState state, int depth, int uses) {
+	std::function<void(const Elem &, EditTransformState, int, int, const Elem *)> walk;
+	walk = [&](const Elem &e, EditTransformState state, int depth, int uses, const Elem *instance) {
 		if (depth > 256 || uses > 12) return;
 		const std::string &tag = e.tag;
-		if (tag == "defs" || tag == "symbol" || tag == "title" || tag == "desc"
+		if (tag == "defs" || (tag == "symbol" && !instance) || tag == "title" || tag == "desc"
 				|| tag == "style" || tag == "linearGradient" || tag == "radialGradient"
 				|| tag == "clipPath" || tag == "mask" || tag == "pattern"
 				|| tag == "filter" || tag == "marker" || attr(e, "display") == "none") return;
@@ -378,10 +378,14 @@ static std::vector<std::vector<Transform2D>> path_render_instances(const String 
 		if (!fill_opacity.is_empty()) state.fill_opacity = edit_length(fill_opacity, 1, 1);
 		if (!stroke_opacity.is_empty()) state.stroke_opacity = edit_length(stroke_opacity, 1, 1);
 		if (edit_length(attr(e, "opacity"), 1, 1) <= 0) return;
-		if (tag == "svg" && &e != root) {
+		if ((tag == "svg" && &e != root) || (tag == "symbol" && instance)) {
 			double parent_w = state.width, parent_h = state.height;
-			double w = edit_length(attr(e, "width"), parent_w, parent_w);
-			double h = edit_length(attr(e, "height"), parent_h, parent_h);
+			String sw = instance ? attr(*instance, "width") : String();
+			String sh = instance ? attr(*instance, "height") : String();
+			if (sw.is_empty()) sw = attr(e, "width");
+			if (sh.is_empty()) sh = attr(e, "height");
+			double w = edit_length(sw, parent_w, parent_w);
+			double h = edit_length(sh, parent_h, parent_h);
 			Transform2D move;
 			move.set_origin(Vector2((float)edit_length(attr(e, "x"), 0, parent_w),
 					(float)edit_length(attr(e, "y"), 0, parent_h)));
@@ -412,32 +416,14 @@ static std::vector<std::vector<Transform2D>> path_render_instances(const String 
 			const Elem &target = *ref->second;
 			double x = edit_length(attr(e, "x"), 0, state.width);
 			double y = edit_length(attr(e, "y"), 0, state.height);
-			if (target.tag == "symbol" || target.tag == "svg") {
-				String sw = attr(e, "width"), sh = attr(e, "height");
-				if (sw.is_empty()) sw = attr(target, "width");
-				if (sh.is_empty()) sh = attr(target, "height");
-				double w = edit_length(sw, state.width, state.width);
-				double h = edit_length(sh, state.height, state.height);
-				Transform2D move; move.set_origin(Vector2((float)x, (float)y));
-				state.transform = state.transform * move;
-				std::vector<double> vb = edit_numbers(attr(target, "viewBox"));
-				if (vb.size() >= 4 && vb[2] > 0 && vb[3] > 0) {
-					String par = attr(target, "preserveAspectRatio");
-					state.transform = state.transform * edit_view_fit(Rect2((float)vb[0], (float)vb[1],
-							(float)vb[2], (float)vb[3]), par.is_empty() ? "xMidYMid meet" : par, w, h);
-					state.width = vb[2]; state.height = vb[3];
-				} else { state.width = w; state.height = h; }
-				for (const auto &child : target.kids) walk(*child, state, depth + 1, uses + 1);
-			} else {
-				Transform2D move; move.set_origin(Vector2((float)x, (float)y));
-				state.transform = state.transform * move;
-				walk(target, state, depth + 1, uses + 1);
-			}
+			Transform2D move; move.set_origin(Vector2((float)x, (float)y));
+			state.transform = state.transform * move;
+			walk(target, state, depth + 1, uses + 1, &e);
 			return;
 		}
-		for (const auto &child : e.kids) walk(*child, state, depth + 1, uses);
+		for (const auto &child : e.kids) walk(*child, state, depth + 1, uses, nullptr);
 	};
-	walk(*root, initial, 0, 0);
+	walk(*root, initial, 0, 0, nullptr);
 	return result;
 }
 

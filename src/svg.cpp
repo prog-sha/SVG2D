@@ -884,7 +884,7 @@ static Transform2D view_fit(const Rect2 &view, const String &par, double w, doub
 
 // --- 札をたどる ---
 
-static void draw_elem(Ctx &c, const SVG::Elem &e, State st);
+static void draw_elem(Ctx &c, const SVG::Elem &e, State st, const SVG::Elem *instance = nullptr);
 
 // その札の中身をぜんぶ描く。
 static void draw_kids(Ctx &c, const SVG::Elem &e, const State &st) {
@@ -1006,7 +1006,7 @@ static void box_walk(const Ctx &c, const SVG::Elem &e, State st, Rect2 &out, boo
 	// 置きかたは切り抜きの形にも同じように掛かる
 	if (depth == 0) st.m = keep;
 	const std::string &t = e.tag;
-	if (t == "g" || t == "a" || t == "svg") {
+	if (t == "g" || t == "a" || t == "svg" || t == "symbol") {
 		for (const auto &k : e.kids) box_walk(c, *k, st, out, got, depth + 1);
 		return;
 	}
@@ -1088,9 +1088,9 @@ static void enter_view(Ctx &c, const SVG::Elem &e, const State &st, State &in, d
 }
 
 // 札を 1 つ描く。中身のある札はたどる。
-static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
+static void draw_elem(Ctx &c, const SVG::Elem &e, State st, const SVG::Elem *instance) {
 	const std::string &t = e.tag;
-	if (t == "defs" || t == "symbol" || t == "title" || t == "desc" || t == "style"
+	if (t == "defs" || (t == "symbol" && !instance) || t == "title" || t == "desc" || t == "style"
 			|| t == "linearGradient" || t == "radialGradient" || t == "clipPath"
 			|| t == "mask" || t == "pattern" || t == "filter" || t == "marker")
 		return;
@@ -1124,11 +1124,25 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 		c.lv++;
 		c.cv = layer;
 	}
+	// 切り抜きも子の図形も、参照先のviewBox座標で評価する。
+	State inner = st;
+	std::shared_ptr<const Cover> keep_view;
+	bool viewed = false;
+	if ((t == "svg" && &e != c.root) || (t == "symbol" && instance)) {
+		// 呼出側は寸法を指定し、参照先の色・変換・透明度はこの共通経路で適用する。
+		String w = instance ? attr_of(*instance, "width") : String();
+		String h = instance ? attr_of(*instance, "height") : String();
+		if (w.is_empty()) w = attr_of(e, "width");
+		if (h.is_empty()) h = attr_of(e, "height");
+		enter_view(c, e, st, inner, length_of(attr_of(e, "x"), 0, st.bx()),
+				length_of(attr_of(e, "y"), 0, st.by()), length_of(w, st.vw, st.bx()),
+				length_of(h, st.vh, st.by()), keep_view, viewed);
+	}
 	bool clipped = false;
 	if (!clip_s.is_empty() && clip_s != "none") {
 		SVG::Elem *cp = find_ref(c, clip_s);
 		if (cp != nullptr && cp->tag == "clipPath") {
-			State cst = st;
+			State cst = inner;
 			bool ok = true;
 			if (attr_of(*cp, "clipPathUnits") == "objectBoundingBox") {
 				// 切り抜きの形を 0〜1 で書く決めかた。その札が入る四角を下じきにする。
@@ -1136,11 +1150,11 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 				Rect2 bb;
 				ok = false;
 				State bs;
-				bs.vw = st.vw;
-				bs.vh = st.vh;
+				bs.vw = inner.vw;
+				bs.vh = inner.vh;
 				box_walk(c, e, bs, bb, ok, 0);
 				Transform2D bt(bb.size.x, 0, 0, bb.size.y, bb.position.x, bb.position.y);
-				cst.m = st.m * bt;
+				cst.m = inner.m * bt;
 			}
 			// 上から掛かっている切り抜きがあれば、掛け合わせる。
 			// 控えるのは切り抜きを掛ける場合に
@@ -1151,48 +1165,25 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 		}
 	}
 
-	if (t == "svg" || t == "g" || t == "a") {
-		State inner = st;
-		std::shared_ptr<const Cover> keep_view;
-		bool viewed = false;
-		if (t == "svg" && &e != c.root)
-			enter_view(c, e, st, inner, length_of(attr_of(e, "x"), 0, st.bx()),
-					length_of(attr_of(e, "y"), 0, st.by()),
-					length_of(attr_of(e, "width"), st.vw, st.bx()),
-					length_of(attr_of(e, "height"), st.vh, st.by()), keep_view, viewed);
+	if (t == "svg" || t == "symbol" || t == "g" || t == "a") {
+
 		c.depth++;
 		draw_kids(c, e, inner);
 		c.depth--;
-		if (viewed) c.clip = std::move(keep_view);
 	} else if (t == "use") {
 		SVG::Elem *src = find_ref(c, href_of(e));
 		if (src != nullptr) {
 			double x = length_of(attr_of(e, "x"), 0, st.bx());
 			double y = length_of(attr_of(e, "y"), 0, st.by());
 			State us = st;
-			std::shared_ptr<const Cover> keep_view;
-			bool viewed = false;
-			bool box = src->tag == "symbol" || src->tag == "svg";
-			if (box) {
-				// symbol と svg を呼び出すと、そこが新しい viewport になる。
-				// 大きさは呼ぶ側が決めてよく、無ければ呼ばれる側、それも無ければ丸ごと
-				String uw = attr_of(e, "width"), uh = attr_of(e, "height");
-				if (uw.is_empty()) uw = attr_of(*src, "width");
-				if (uh.is_empty()) uh = attr_of(*src, "height");
-				enter_view(c, *src, st, us, x, y, length_of(uw, st.vw, st.bx()),
-						length_of(uh, st.vh, st.by()), keep_view, viewed);
-			} else {
-				Transform2D mv;
-				mv.set_origin(Vector2((float)x, (float)y));
-				us.m = st.m * mv;
-			}
+			Transform2D mv;
+			mv.set_origin(Vector2((float)x, (float)y));
+			us.m = st.m * mv;
 			c.depth++;
 			c.uses++;
-			if (box) draw_kids(c, *src, us);
-			else draw_elem(c, *src, us);
+			draw_elem(c, *src, us, &e);
 			c.uses--;
 			c.depth--;
-			if (viewed) c.clip = std::move(keep_view);
 		}
 	} else {
 		// 曲線をどの程度細かく開くかは、画面での大きさから決める
@@ -1253,6 +1244,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st) {
 	}
 
 	if (clipped) c.clip = std::move(keep_clip);
+	if (viewed) c.clip = std::move(keep_view);
 	if (layered) {
 		c.lv--;
 		c.cv = keep_cv;
