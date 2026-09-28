@@ -1467,7 +1467,14 @@ SVGTexture::~SVGTexture() = default;
 // 素材の変更は履歴を空け、寸法も含めて読み直す。
 void SVGTexture::set_src(const String &s) {
 	clear_animation_cache();
-	if (_src == s && !_doc_dirty) return;
+	// ファイル参照は同じ名前でも中身が更新されるため、明示的な再設定で読み直す。
+	if (_src == s && !_doc_dirty) {
+		String path = s.strip_edges();
+		bool file = path.begins_with("uid://") ||
+				((path.begins_with("res://") || path.begins_with("user://")) &&
+						path.get_extension().to_lower() == "svg");
+		if (!file) return;
+	}
 	_src = s;
 	_source_hash = (uint64_t)s.hash();
 	_parse();

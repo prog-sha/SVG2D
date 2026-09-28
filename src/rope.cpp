@@ -84,6 +84,7 @@ Vector2 SpriteRope2D::_effective_gravity() const {
 
 void SpriteRope2D::reset_simulation() {
 	_clear_attachment();
+	_draw_uv_dirty = true;
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
 	_coords.resize((size_t)_segments);
@@ -172,20 +173,31 @@ void SpriteRope2D::_draw() {
 	if (_texture.is_null() || size.x <= 0.0f || size.y <= 0.0f) return;
 	float half = size.x * 0.5f;
 	int count = (int)_points.size();
-	PackedVector2Array vertices, uvs;
-	vertices.resize(count * 2); uvs.resize(count * 2);
-	Vector2 *v = vertices.ptrw(), *uv = uvs.ptrw();
+	PackedVector2Array vertices;
+	vertices.resize(count * 2);
+	Vector2 *v = vertices.ptrw();
 	for (int i = 0; i < count; i++) {
 		Vector2 side = rope_side_2d(_points, (size_t)i) * half;
 		v[i * 2] = _points[(size_t)i] + side;
 		v[i * 2 + 1] = _points[(size_t)i] - side;
-		float t = _uv_range.x + (_uv_range.y - _uv_range.x) * _coords[i];
-		uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
 	}
-	PackedColorArray colors;
-	colors.push_back(Color(1, 1, 1, 1));
+	// 固定した素材座標と接続順は、点数や切断位置が変わるまで作り直さない。
+	if (_draw_indices.size() != (count - 1) * 6) {
+		_draw_indices = rope_indices(count);
+		_draw_uv_dirty = true;
+	}
+	if (_draw_uv_dirty) {
+		_draw_uvs.resize(count * 2);
+		Vector2 *uv = _draw_uvs.ptrw();
+		for (int i = 0; i < count; i++) {
+			float t = _uv_range.x + (_uv_range.y - _uv_range.x) * _coords[(size_t)i];
+			uv[i * 2] = Vector2(0, t); uv[i * 2 + 1] = Vector2(1, t);
+		}
+		_draw_uv_dirty = false;
+	}
+	if (_draw_colors.is_empty()) _draw_colors.push_back(Color(1, 1, 1, 1));
 	RenderingServer::get_singleton()->canvas_item_add_triangle_array(get_canvas_item(),
-			rope_indices(count), vertices, colors, uvs, PackedInt32Array(), PackedFloat32Array(), _texture->get_rid());
+			_draw_indices, vertices, _draw_colors, _draw_uvs, PackedInt32Array(), PackedFloat32Array(), _texture->get_rid());
 }
 
 void SpriteRope2D::set_texture(const Ref<Texture2D> &texture) { if (_texture != texture) { _texture = texture; reset_simulation(); } }
@@ -222,7 +234,7 @@ void SpriteRope2D::set_rope_mass(double value) { _rope_mass = std::isfinite(valu
 void SpriteRope2D::set_uv_range(const Vector2 &value) {
 	if (!value.is_finite()) return;
 	_uv_range = value;
-
+	_draw_uv_dirty = true;
 	queue_redraw();
 }
 
@@ -266,6 +278,7 @@ SpriteRope2D *SpriteRope2D::cut_at(int point) {
 	tail->_pin_start = false; tail->_preserve_state = true;
 	float uv_cut = _uv_range.x + (_uv_range.y - _uv_range.x) * ratio;
 	tail->_uv_range = Vector2(uv_cut, _uv_range.y); _uv_range.y = uv_cut;
+	_draw_uv_dirty = true; tail->_draw_uv_dirty = true;
 	_points.resize(point + 1); _previous.resize(point + 1);
 	_segments = point + 1; _max_length = length * ratio; _rope_mass *= ratio;
 	get_parent()->add_child(tail, true);

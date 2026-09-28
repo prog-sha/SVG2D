@@ -3,15 +3,14 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-godot=${GODOT:-/Applications/Godot 4.7.1.app/Contents/MacOS/Godot}
+godot=${GODOT:-/Applications/Godot 4.7.2.app/Contents/MacOS/Godot}
 [ -x "$godot" ] || { echo "Godot 4.7 が見つからないよ。GODOT で場所を渡してね"; exit 2; }
 command -v ffmpeg >/dev/null || { echo "動画フレーム確認にはffmpegが必要だよ"; exit 2; }
 command -v ffprobe >/dev/null || { echo "動画情報の確認にはffprobeが必要だよ"; exit 2; }
 
 movie_root=$(mktemp -d)
 trap 'rm -rf "$movie_root"' EXIT HUP INT TERM
-# Godot 4.7.1のmacOS版はheadless MovieWriterでDummy textureを参照して落ちるため、
-# 実レンダラーを画面外のウィンドウで使う。これはUI操作を必要としない。
+# MovieWriterへ実レンダラーの画素を渡すため、画面外のウィンドウで使う。
 render_movie() {
 	label=$1
 	scene=$2

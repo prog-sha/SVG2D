@@ -84,6 +84,52 @@ static func run(tree: SceneTree) -> void:
 	bench.free()
 	print("Path edits 384: immediate %d us, deferred %d us" % [immediate_us, batched_us])
 
+	# 同じ素材の再設定では揺れの巻き戻しを保ちつつ、パスの再解析を省く。
+	var source_body := ""
+	for i in 100:
+		source_body += "<path d='M%d 2 L%d 30 L%d 20 Z'/>" % [i, i + 5, i + 10]
+	var source := "<svg width='256' height='128'>%s</svg>" % source_body
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var animate: Node = ClassDB.instantiate(kind)
+		animate.set("src", source)
+		var start := Time.get_ticks_usec()
+		for i in 32: animate.set("src", source)
+		var elapsed := Time.get_ticks_usec() - start
+		tree.check(animate.call("get_path_count") == 100,
+			"%sで同じ素材を設定すると編集対象が変わったよ" % kind)
+		animate.call("set_path_point", 0, 0, Vector2(25, 25))
+		animate.call("flush_paths")
+		animate.set("src", source)
+		tree.check(animate.call("get_path_point", 0, 0) == Vector2(0, 2),
+			"%sで同じ素材の再設定が接点編集を戻せないよ" % kind)
+		animate.free()
+		print("%s same source 32 updates: %d us" % [kind, elapsed])
+	# 同じファイル名を設定し直すと、変化したファイル内容を描画と編集点の両方へ反映する。
+	var file_path := "res://tmp/perf_source_reload.svg"
+	for kind in ["SVG2D", "SVGAnimate2D", "SVG3D", "SVGAnimate3D"]:
+		var file := FileAccess.open(file_path, FileAccess.WRITE)
+		file.store_string(svg("<path fill='red' d='M1 1 L40 1 L40 40 L1 40 Z'/>"))
+		file.close()
+		var node: Node = ClassDB.instantiate(kind)
+		node.set("adaptive", false)
+		tree.root.add_child(node)
+		node.set("src", file_path)
+		await tree.process_frame
+		tree.check(node.call("get_texture").get_image().get_pixel(8, 8).r > 0.9,
+			"%sが最初のファイルを描画できないよ" % kind)
+		file = FileAccess.open(file_path, FileAccess.WRITE)
+		file.store_string(svg("<path fill='blue' d='M2 2 L40 2 L40 40 L2 40 Z'/>"))
+		file.close()
+		node.set("src", file_path)
+		await tree.process_frame
+		tree.check(node.call("get_texture").get_image().get_pixel(8, 8).b > 0.9,
+			"%sが同じファイル名の更新を読めないよ" % kind)
+		if kind.begins_with("SVGAnimate"):
+			tree.check(node.call("get_path_point", 0, 0) == Vector2(2, 2),
+				"%sの編集点が更新ファイルとずれたよ" % kind)
+		node.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(file_path))
+
 	var rope: Node3D = ClassDB.instantiate("SpriteRope3D")
 	rope.set("line_mode", true)
 	rope.set("simulation_enabled", false)

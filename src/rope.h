@@ -16,6 +16,8 @@
 #include <godot_cpp/core/property_info.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/packed_color_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
 #include <vector>
 
 namespace svg2d {
@@ -26,6 +28,10 @@ protected:
 	godot::Ref<godot::Texture2D> _texture;
 	std::vector<godot::Vector2> _points, _previous;
 	std::vector<double> _coords; // 素材に沿った位置。区間長・質量・UVの配分を共有する
+	godot::PackedInt32Array _draw_indices; // 点数が同じ間は三角形の接続順を保持する
+	godot::PackedVector2Array _draw_uvs; // 素材の対応範囲が同じ間はUVを保持する
+	godot::PackedColorArray _draw_colors; // 白一色の帯は色配列を使い回す
+	bool _draw_uv_dirty = true; // 切断・再初期化後の素材座標を反映する
 	std::unique_ptr<RopePhysics2D> _physics; // 接続物と同じ物理空間で解く区間剛体
 	double _rope_mass = 1.0, _last_delta = 1.0 / 60.0; // 合計質量と速度換算時間
 	godot::Vector2 _uv_range = godot::Vector2(0, 1); // 切断後も素材の対応範囲を保つ

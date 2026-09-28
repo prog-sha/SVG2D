@@ -2,7 +2,7 @@
 # 配布アドオンを隔離した実エディタで開き、symbolの点操作と画面を確認する。
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
-godot=${GODOT:-/Applications/Godot 4.7.1.app/Contents/MacOS/Godot} # 検証する実エディタ
+godot=${GODOT:-/Applications/Godot 4.7.2.app/Contents/MacOS/Godot} # 検証する実エディタ
 project=$(mktemp -d "$root/tmp/oss-editor.XXXXXX") # 本体のエディタ設定を変えない作業場所
 cp "$root/tests/editor_project.godot" "$project/project.godot"
 cp -R "$root/addons" "$project/addons"

@@ -14,7 +14,7 @@ scalar=${SVG2D_SCALAR:-no} # yesならベクトル命令を使わない経路を
 if [ -n "${GODOT:-}" ]; then
   godot=$GODOT
 elif [ "$platform" = macos ]; then
-  godot=/Applications/Godot\ 4.7.1.app/Contents/MacOS/Godot
+  godot=/Applications/Godot\ 4.7.2.app/Contents/MacOS/Godot
 else
   godot=$(command -v godot || command -v godot4 || true)
 fi

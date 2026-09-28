@@ -16,6 +16,9 @@ static func run(tree: SceneTree) -> void:
 		var rope: Node = ClassDB.instantiate("SVGRope" + dim)
 		var load: Node = ClassDB.instantiate("RigidBody" + dim)
 		var holder: Node = ClassDB.instantiate("Node" + dim)
+		# 親の移動と回転を含む座標で、接続・速度・切断を検証する。
+		host.set("position", Vector2(2, 3) if dim2 else Vector3(2, 3, 0))
+		host.set("rotation", 0.15 if dim2 else Vector3(0, 0, 0.15))
 		rope.set("line_mode", true)
 		rope.set("pin_start", false)
 		rope.set("segments", 4)
@@ -118,6 +121,16 @@ static func textured_cut(tree: SceneTree) -> void:
 		var before := view.get_texture().get_image()
 		tree.check(before.get_pixel(32, 8).r > 0.9 and before.get_pixel(32, 40).b > 0.9,
 			dim + " SVG material did not reach rope renderer")
+		if dim2:
+			# UVの変更と復元がキャッシュ済み配列へ反映されるかを画素で見る。
+			rope.set("uv_range", Vector2(0, 0.5))
+			await preload("res://tests/oss_svg_integration.gd").frame(tree)
+			tree.check(view.get_texture().get_image().get_data() != before.get_data(),
+				"2D cached UV ignored range update")
+			rope.set("uv_range", Vector2(0, 1))
+			await preload("res://tests/oss_svg_integration.gd").frame(tree)
+			tree.check(view.get_texture().get_image().get_data() == before.get_data(),
+				"2D cached UV did not restore material")
 		var a = Vector2(20, 17.25) if dim2 else Vector3(-0.2, 0.0675, 0)
 		var b = Vector2(44, 17.25) if dim2 else Vector3(0.2, 0.0675, 0)
 		var tail: Node = rope.call("cut_segment", a, b)

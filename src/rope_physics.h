@@ -85,7 +85,7 @@ struct RopePhysics {
 	Joint *pin = nullptr, *attachment = nullptr;
 	uint64_t target_id = 0;
 	int target_point = -1;
-	double last_mass = -1, last_rate = -1;
+	double last_mass = -1, last_rate = -1, last_damping = -1, last_dt = -1;
 	V last_gravity;
 	bool running = true;
 
@@ -165,16 +165,21 @@ struct RopePhysics {
 	}
 	// 描画座標とVerletへ戻せる速度を、剛体端点から取り出す。
 	void read(Node *owner, std::vector<V> &points, std::vector<V> &previous, double dt) const {
+		// 同じ更新中は所有ノードの姿勢が一定。逆変換を点ごとに作らない。
+		auto local = owner->get_global_transform().affine_inverse();
 		for (size_t i = 0; i < points.size(); i++) {
 			const auto &segment = segments[std::min(i, segments.size() - 1)];
 			V position = segment.body->to_global(i < segments.size() ? segment.a : segment.b);
 			V velocity = segment.body->get_linear_velocity() + Space::spin(segment.body, position - segment.body->get_global_position());
-			points[i] = owner->to_local(position); previous[i] = owner->to_local(position - velocity * dt);
+			points[i] = local.xform(position); previous[i] = local.xform(position - velocity * dt);
 		}
 	}
 	// 変化した設定だけ物理サーバーへ送る。停止時も剛体と表示を揃える。
 	void configure(double mass, double damping, V gravity, bool enabled, double dt, const std::vector<double> &coords) {
-		double rate = (1.0 - std::pow(1.0 - damping, dt * 60.0)) / dt;
+		// 固定物理刻みでは減衰率を使い回し、毎回の累乗計算を省く。
+		double rate = damping == last_damping && dt == last_dt ? last_rate
+				: (1.0 - std::pow(1.0 - damping, dt * 60.0)) / dt;
+		last_damping = damping; last_dt = dt;
 		bool changed = mass != last_mass || rate != last_rate || gravity != last_gravity;
 		if (!changed && running == enabled) return;
 		for (size_t i = 0; i < segments.size(); i++) {

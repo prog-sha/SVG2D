@@ -155,10 +155,9 @@ struct EditTransformState {
 
 // CSS と style 属性を解決済みの SVG 木から、文書順の実効ペイントを得る。
 // 元のグラデーションや none を初期キーで単色に潰さないために必要。
-static std::vector<EditTransformState> path_paints(const String &markup) {
+static std::vector<EditTransformState> path_paints(const SVG &document) {
 	std::vector<EditTransformState> result;
-	SVG document;
-	if (!document.parse(markup) || document.get_root() == nullptr) return result;
+	if (document.get_root() == nullptr) return result;
 	std::function<void(const SVG::Elem &, EditTransformState)> visit =
 			[&](const SVG::Elem &element, EditTransformState state) {
 			auto attr = [&](const char *name) {
@@ -324,9 +323,8 @@ static std::vector<EditTransformState> path_display_transforms(const String &mar
 }
 
 // 文書内の定義は直接表示しない。use が作る各実体を描画と同じ順・変換で列挙する。
-static std::vector<std::vector<Transform2D>> path_render_instances(const String &markup) {
-	SVG document;
-	if (!document.parse(markup) || document.get_root() == nullptr) return {};
+static std::vector<std::vector<Transform2D>> path_render_instances(const SVG &document) {
+	if (document.get_root() == nullptr) return {};
 	using Elem = SVG::Elem;
 	const Elem *root = document.get_root();
 	std::vector<std::vector<Transform2D>> result;
@@ -435,6 +433,15 @@ public:
 	// PackedSceneは動的プロパティをsrcより先に復元するため、解析前の値を順序付きで待機する。
 	std::vector<std::pair<StringName, Vector2>> pending;
 	std::vector<std::pair<StringName, Variant>> style_pending;
+
+	// 入力の再設定で既存の編集を消すべきかを判断する。
+	bool pristine() const {
+		for (const PathSlot &slot : slots)
+			if (slot.dirty || slot.style_dirty || slot.geometry_changed || slot.fill_changed ||
+					slot.stroke_changed || slot.fill_opacity_changed || slot.stroke_opacity_changed ||
+					slot.stroke_width_changed) return false;
+		return true;
+	}
 
 	// 基本図形の接点を固定したパスとして扱い、編集前は元のSVGを描く。
 	static std::string shape_path(const std::string &name,
@@ -612,9 +619,11 @@ public:
 			text = FileAccess::file_exists(path) ? FileAccess::get_file_as_string(path) : String();
 		markup = std::string(text.utf8().get_data());
 		if (text.strip_edges().is_empty()) return;
+		SVG document;
+		document.parse(text);
 		std::vector<EditTransformState> displays = path_display_transforms(text);
-		std::vector<EditTransformState> paints = path_paints(text);
-		std::vector<std::vector<Transform2D>> instances = path_render_instances(text);
+		std::vector<EditTransformState> paints = path_paints(document);
+		std::vector<std::vector<Transform2D>> instances = path_render_instances(document);
 		size_t display_index = 0;
 		// 引用符・コメント・CDATA内のpath文字列を編集対象へ混ぜない。
 		size_t at = 0;
@@ -904,7 +913,7 @@ void CLASS::_queue_paths() { _path_dirty = true; if (!_deferred_updates) { flush
 void CLASS::_flush_paths() { _path_queued = false; flush_paths(); } \
 void CLASS::flush_paths() { if (!_path_dirty) return; _path_dirty = false; BASE::_set_path_src(_paths->rebuilt()); emit_signal("path_changed"); } \
 void CLASS::set_deferred_updates(bool enabled) { _deferred_updates = enabled; if (!enabled) flush_paths(); } \
-void CLASS::set_src(const String &src) { _path_dirty = false; _paths->parse(src); bool restored = false; for (const auto &entry : _paths->pending) { int path, point; PathPropertyPart part; if (!property_indices(entry.first, path, point, part) || !_paths->valid(path, point)) continue; if (part == PATH_ANCHOR) _paths->move_point(path, point, entry.second); else _paths->set_handle(path, point, entry.second, part == PATH_IN_HANDLE); restored = true; } _paths->pending.clear(); for (const auto &entry : _paths->style_pending) { int path; String part; if (style_indices(entry.first, path, part) && _paths->set_style(path, part, entry.second)) restored = true; } _paths->style_pending.clear(); BASE::set_src(restored ? _paths->rebuilt() : src); notify_property_list_changed(); emit_signal("path_changed"); } \
+void CLASS::set_src(const String &src) { bool same = src == _paths->source && src.strip_edges().begins_with("<") && !_path_dirty && _paths->pending.empty() && _paths->style_pending.empty() && _paths->pristine(); _path_dirty = false; if (!same) _paths->parse(src); bool restored = false; for (const auto &entry : _paths->pending) { int path, point; PathPropertyPart part; if (!property_indices(entry.first, path, point, part) || !_paths->valid(path, point)) continue; if (part == PATH_ANCHOR) _paths->move_point(path, point, entry.second); else _paths->set_handle(path, point, entry.second, part == PATH_IN_HANDLE); restored = true; } _paths->pending.clear(); for (const auto &entry : _paths->style_pending) { int path; String part; if (style_indices(entry.first, path, part) && _paths->set_style(path, part, entry.second)) restored = true; } _paths->style_pending.clear(); BASE::set_src(restored ? _paths->rebuilt() : src); notify_property_list_changed(); emit_signal("path_changed"); } \
 String CLASS::get_src() const { return _paths->source; } \
 int CLASS::get_path_count() const { return (int)_paths->slots.size(); } \
 int CLASS::get_path_instance_count(int path) const { return _paths->instance_count(path); } \

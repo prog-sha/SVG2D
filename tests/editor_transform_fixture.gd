@@ -1,12 +1,14 @@
 @tool
 extends RefCounted
 
-# One fixture is shared by the editor-input regression and visual capture.
+# 編集点の位置と、複数色の図形が正しく描かれることを同じ素材で確かめる。
 const SOURCE := "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>" \
 	+ "<g transform='translate(8 5)'><path transform='scale(0.8 1.1)' " \
-	+ "d='M14 18 L72 20 L70 83 L10 81 Z' fill='#ffffff'/></g></svg>"
+	+ "d='M14 18 L72 20 L70 83 L10 81 Z' fill='#1684d6'/>" \
+	+ "<path d='M26 42 H58 V68 H26 Z' fill='#f4b942'/>" \
+	+ "<path d='M40 50 L50 64 L30 64 Z' fill='#ca2652'/></g></svg>"
 
-static func create_2d(root: Node, scene_owner: Node = null) -> Dictionary:
+static func create_2d(root: Node, scene_owner: Node = null, source: String = SOURCE) -> Dictionary:
 	var a := Node2D.new()
 	a.name = "Outer2D"
 	a.position = Vector2(-105, 73)
@@ -30,7 +32,7 @@ static func create_2d(root: Node, scene_owner: Node = null) -> Dictionary:
 	if scene_owner: c.owner = scene_owner
 	var svg: Node2D = ClassDB.instantiate("SVGAnimate2D")
 	svg.name = "SVGAnimate2D"
-	svg.set("src", SOURCE)
+	svg.set("src", source)
 	svg.position = Vector2(37, 19)
 	svg.rotation = 0.43
 	svg.set("offset", Vector2(4, -6))
@@ -38,7 +40,7 @@ static func create_2d(root: Node, scene_owner: Node = null) -> Dictionary:
 	if scene_owner: svg.owner = scene_owner
 	return {"a": a, "b": b, "c": c, "svg": svg}
 
-static func create_3d(root: Node, scene_owner: Node = null) -> Dictionary:
+static func create_3d(root: Node, scene_owner: Node = null, source: String = SOURCE) -> Dictionary:
 	var a := Node3D.new()
 	a.name = "Outer3D"
 	a.position = Vector3(-0.11, 0.07, 0.12)
@@ -62,7 +64,7 @@ static func create_3d(root: Node, scene_owner: Node = null) -> Dictionary:
 	if scene_owner: c.owner = scene_owner
 	var svg: Node3D = ClassDB.instantiate("SVGAnimate3D")
 	svg.name = "SVGAnimate3D"
-	svg.set("src", SOURCE)
+	svg.set("src", source)
 	svg.position = Vector3(0.06, -0.02, 0.04)
 	svg.rotation = Vector3(-0.2, 0.17, 0.39)
 	svg.set("offset", Vector2(4, -6))
