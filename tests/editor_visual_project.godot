@@ -1,0 +1,13 @@
+config_version=5
+
+[application]
+
+config/name="SVG2D Editor Visual Capture"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/svg2d/plugin.cfg", "res://tests/editor_visual_capture_plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"

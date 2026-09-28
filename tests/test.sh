@@ -37,6 +37,18 @@ ${CXX:-c++} -std=c++17 -O2 -ffp-contract=off $math_scalar -Isrc -Igodot-cpp/incl
   -Igodot-cpp/gen/include -Igodot-cpp/gdextension tests/rope_math_test.cpp \
   "godot-cpp/bin/libgodot-cpp.$platform.template_debug.$math_arch.a" -o tmp/rope_math_test
 tmp/rope_math_test
+if animation_result=$("$godot" --resolution 64x48 --path "$root" --script tests/animate_properties.gd 2>&1); then
+	:
+else
+	printf '%s\n' "$animation_result"
+	exit 1
+fi
+printf '%s\n' "$animation_result"
+printf '%s\n' "$animation_result" | grep -q "SVG animation properties test passed"
+if printf '%s\n' "$animation_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
+	echo "SVG animation properties test reported an error"
+	exit 1
+fi
 if result=$("$godot" --resolution 64x48 --path "$root" --script tests/test.gd 2>&1); then
   :
 else
@@ -64,6 +76,7 @@ cp tests/editor_project.godot "$editor_root/project.godot"
 cp -R addons "$editor_root/addons"
 mkdir "$editor_root/tests"
 cp tests/editor_inspector_test.gd "$editor_root/tests/editor_inspector_test.gd"
+cp tests/editor_transform_fixture.gd "$editor_root/tests/editor_transform_fixture.gd"
 cp tests/editor_test_plugin.cfg "$editor_root/tests/editor_test_plugin.cfg"
 cp -R tests/svg "$editor_root/tests/svg"
 if editor_result=$("$godot" --headless --editor --path "$editor_root" --quit-after 600 2>&1); then

@@ -76,6 +76,7 @@ public:
 	~SVG();
 	// SVG の中身を読み取る。読めたら true。
 	bool parse(const godot::String &text);
+	const Elem *get_root() const { return _root.get(); }
 	// 読めなかったわけ。読めていれば空。
 	godot::String get_error() const { return _error; }
 	// 札に書いてある大きさ。width/height が無ければ viewBox の広さ。

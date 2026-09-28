@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="SVGAnimate3D" inherits="SVG3D" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/tools/doc_classes.xsd">
 	<brief_description>Editable and keyframeable SVG path node for 3D.</brief_description>
-	<description>Provides the same topology-preserving, scene-persistent numbered anchor and cubic-handle editing API as SVGAnimate2D on the local XY plane, including rendered viewBox and nested SVG transforms.</description>
+	<description>Provides the same topology-preserving, scene-persistent numbered anchor and cubic-handle editing API as SVGAnimate2D on the local XY plane, including rendered viewBox and nested SVG transforms. Per-path fill_color/stroke_color (or discrete fill_paint/stroke_paint for non-solid paints), fill_opacity, stroke_opacity and stroke_width can be keyed along with node modulate. The editor's right-click menu can key individual properties or all SVG properties, and its Inspector can create an AnimationPlayer with initial keys for all of them. Visible path elements and basic shapes (rect, circle, ellipse, line, polyline, polygon) expose editable points. Edited shapes retain their original element name and styling; the source SVG file is not changed. Reused paths expose controls at each rendered use instance.</description>
 	<methods>
 		<method name="get_path_count" qualifiers="const"><return type="int" /></method>
+		<method name="get_path_instance_count" qualifiers="const"><return type="int" /><param index="0" name="path" type="int" /><description>Returns the number of rendered instances of a path, including uses of a definition.</description></method>
 		<method name="get_point_count" qualifiers="const"><return type="int" /><param index="0" name="path" type="int" /></method>
 		<method name="get_path_point" qualifiers="const"><return type="Vector2" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /></method>
 		<method name="set_path_point"><return type="void" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /><param index="2" name="value" type="Vector2" /></method>
@@ -11,7 +12,11 @@
 		<method name="set_in_handle"><return type="void" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /><param index="2" name="value" type="Vector2" /></method>
 		<method name="get_out_handle" qualifiers="const"><return type="Vector2" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /></method>
 		<method name="set_out_handle"><return type="void" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /><param index="2" name="value" type="Vector2" /></method>
+		<method name="has_in_handle" qualifiers="const"><return type="bool" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /></method>
+		<method name="has_out_handle" qualifiers="const"><return type="bool" /><param index="0" name="path" type="int" /><param index="1" name="point" type="int" /></method>
 		<method name="get_path_points" qualifiers="const"><return type="PackedVector2Array" /><param index="0" name="path" type="int" /></method>
+		<method name="path_to_document_instance" qualifiers="const"><return type="Vector2" /><param index="0" name="path" type="int" /><param index="1" name="point" type="Vector2" /><param index="2" name="instance" type="int" /><description>Maps a path-local point into document coordinates for a rendered instance.</description></method>
+		<method name="document_to_path_instance" qualifiers="const"><return type="Vector2" /><param index="0" name="path" type="int" /><param index="1" name="point" type="Vector2" /><param index="2" name="instance" type="int" /><description>Maps document coordinates back to path-local coordinates for a rendered instance.</description></method>
 		<method name="flush_paths"><return type="void" /><description>Applies pending path edits immediately. Call before reading a texture when deferred_updates is enabled. SVGAnimate3D still refreshes its displayed texture at idle time.</description></method>
 		<method name="clear_animation_cache"><return type="void" /><description>Releases animation history and resets its hit/miss counters. The current display remains available.</description></method>
 		<method name="get_animation_cache_bytes" qualifiers="const"><return type="int" /><description>Returns accounted history bytes for image pixels including mipmaps, stored SVG strings and entry metadata. Excludes current display references, renderer work buffers, driver overhead and allocator overhead.</description></method>

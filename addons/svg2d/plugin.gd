@@ -7,6 +7,8 @@ const SVGInspector = preload("editor/svg_inspector.gd")
 const ShapeUtils = preload("editor/svg_shape_utils.gd")
 const SVG3DGizmo = preload("editor/svg_3d_gizmo.gd")
 
+signal path_control_selected(node: Node, path: int, point: int, part: String)
+
 var svg_inspector: EditorInspectorPlugin
 var svg_3d_gizmo: EditorNode3DGizmoPlugin
 var canvas_input_control: Control
@@ -17,11 +19,16 @@ var drag_plane_point := Vector3.ZERO
 var drag_plane_normal := Vector3.FORWARD
 var path_node: Node
 var path_index := 0
+var path_instance := 0
 var point_index := 0
 var path_part := "point" # point / in / out。パス数と接点数は変更しない。
 var path_drag_before := Vector2.ZERO
 var path_opposite_before := Vector2.ZERO
 var path_dragging := false
+var path_context_menu: PopupMenu
+var context_properties: Array[String] = []
+var overlay_path_node: Node
+var overlay_transform_state: Array = []
 const EDITOR_OVERSAMPLE := 1.5
 const PATH_HANDLE_RADIUS := 7.0
 
@@ -31,9 +38,15 @@ func _enter_tree() -> void:
 	svg_3d_gizmo = SVG3DGizmo.new()
 	add_node_3d_gizmo_plugin(svg_3d_gizmo)
 	add_to_group("svg2d_editor_plugin")
+	path_context_menu = PopupMenu.new()
+	path_context_menu.name = "SVGPathKeyMenu"
+	EditorInterface.get_base_control().add_child(path_context_menu)
+	var editor_control := EditorInterface.get_base_control()
+	path_context_menu.id_pressed.connect(_context_key_selected)
 	# 選択済みノードの種類に依存せず、透明画素を除いた独自判定へ入力を渡す。
 	set_input_event_forwarding_always_enabled()
 	EditorInterface.get_selection().selection_changed.connect(update_overlays)
+	EditorInterface.get_selection().selection_changed.connect(_sync_selected_path_overlay)
 	set_process(true)
 
 func _handles(object: Object) -> bool:
@@ -45,11 +58,17 @@ func _exit_tree() -> void:
 	drag_node = null
 	path_node = null
 	path_dragging = false
+	_disconnect_path_overlay()
+	if path_context_menu:
+		path_context_menu.queue_free()
+		path_context_menu = null
 	_attach_canvas_input(null)
 	update_svg2d_editor_density(null)
 	update_svg3d_editor_camera(null)
 	if EditorInterface.get_selection().selection_changed.is_connected(update_overlays):
 		EditorInterface.get_selection().selection_changed.disconnect(update_overlays)
+	if EditorInterface.get_selection().selection_changed.is_connected(_sync_selected_path_overlay):
+		EditorInterface.get_selection().selection_changed.disconnect(_sync_selected_path_overlay)
 	if svg_inspector:
 		remove_inspector_plugin(svg_inspector)
 		svg_inspector = null
@@ -65,6 +84,34 @@ func _process(_delta: float) -> void:
 	update_svg2d_editor_density(viewport_2d)
 	var viewport := EditorInterface.get_editor_viewport_3d(0)
 	update_svg3d_editor_camera(viewport.get_camera_3d() if viewport else null)
+	# AnimationPlayer can move the selected node or any parent without changing
+	# the path geometry. Compare only their final transforms, not every path point.
+	if is_instance_valid(overlay_path_node):
+		var state := [overlay_path_node.get("global_transform"),
+			overlay_path_node.get("offset"), overlay_path_node.get("flip_h"),
+			overlay_path_node.get("flip_v"), overlay_path_node.call("get_svg_size")]
+		if overlay_transform_state != state:
+			overlay_transform_state = state
+			update_overlays()
+
+func _disconnect_path_overlay() -> void:
+	if is_instance_valid(overlay_path_node) and overlay_path_node.is_connected(&"path_changed", update_overlays):
+		overlay_path_node.disconnect(&"path_changed", update_overlays)
+	overlay_path_node = null
+	overlay_transform_state.clear()
+
+func _sync_selected_path_overlay() -> void:
+	var selected := EditorInterface.get_selection().get_selected_nodes()
+	var node: Node = null
+	if selected.size() == 1 and (selected[0].is_class("SVGAnimate2D") \
+			or selected[0].is_class("SVGAnimate3D")):
+		node = selected[0]
+	if node == overlay_path_node:
+		return
+	_disconnect_path_overlay()
+	if node and node.has_signal("path_changed"):
+		overlay_path_node = node
+		overlay_path_node.connect(&"path_changed", update_overlays)
 
 # set_input_event_forwarding_always_enabled()が常時化するのは3D入力だけなので、
 # 2D編集Viewportの入力面にも接続し、未選択のSVGを最初のクリックから拾う。
@@ -180,16 +227,16 @@ func _forward_canvas_draw_over_viewport(viewport_control: Control) -> void:
 			draw_path_controls_2d(viewport_control, selected)
 
 # 編集点は元の文書座標を使い、画像化だけに適用する揺れへ追従させない。
-func path_screen_2d(node: Node2D, point: Vector2, path := -1) -> Vector2:
-	var document := Vector2(node.call("path_to_document", path, point)) if path >= 0 else point
+func path_screen_2d(node: Node2D, point: Vector2, path := -1, instance := 0) -> Vector2:
+	var document := Vector2(node.call("path_to_document_instance", path, point, instance)) if path >= 0 else point
 	return screen_transform(node) * ShapeUtils.displayed_point_2d(node, document)
 
-func path_point_from_screen_2d(node: Node2D, screen_point: Vector2, path := -1) -> Vector2:
+func path_point_from_screen_2d(node: Node2D, screen_point: Vector2, path := -1, instance := 0) -> Vector2:
 	var displayed := screen_transform(node).affine_inverse() * screen_point - Vector2(node.get("offset"))
 	var size: Vector2 = node.call("get_svg_size")
 	if bool(node.get("flip_h")): displayed.x = size.x - displayed.x
 	if bool(node.get("flip_v")): displayed.y = size.y - displayed.y
-	return Vector2(node.call("document_to_path", path, displayed)) if path >= 0 else displayed
+	return Vector2(node.call("document_to_path_instance", path, displayed, instance)) if path >= 0 else displayed
 
 func draw_path_controls_2d(control: Control, node: Node2D) -> void:
 	var count := int(node.call("get_path_count"))
@@ -198,22 +245,24 @@ func draw_path_controls_2d(control: Control, node: Node2D) -> void:
 	path_index = clampi(path_index, 0, count - 1)
 	for path in count:
 		var path_points: PackedVector2Array = node.call("get_path_points", path)
-		for i in path_points.size():
-			var screen := path_screen_2d(node, path_points[i], path)
-			var selected := path == path_index and i == point_index
-			control.draw_circle(screen, 5.0 if selected else 3.5,
-				Color("#ffb52e") if selected else Color("#ffffff"))
-			control.draw_string(ThemeDB.fallback_font, screen + Vector2(7, -7), "%d:%d" % [path, i],
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+		for instance in int(node.call("get_path_instance_count", path)):
+			for i in path_points.size():
+				var screen := path_screen_2d(node, path_points[i], path, instance)
+				var selected := path == path_index and instance == path_instance and i == point_index
+				control.draw_circle(screen, 5.0 if selected else 3.5,
+					Color("#ffb52e") if selected else Color("#ffffff"))
+				control.draw_string(ThemeDB.fallback_font, screen + Vector2(7, -7), "%d:%d" % [path, i],
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
 	var points: PackedVector2Array = node.call("get_path_points", path_index)
 	if points.is_empty(): return
 	point_index = clampi(point_index, 0, points.size() - 1)
-	var anchor := path_screen_2d(node, points[point_index], path_index)
+	path_instance = clampi(path_instance, 0, int(node.call("get_path_instance_count", path_index)) - 1)
+	var anchor := path_screen_2d(node, points[point_index], path_index, path_instance)
 	for part in ["in", "out"]:
 		var handle: Vector2 = node.call("get_%s_handle" % part, path_index, point_index)
 		if handle.is_equal_approx(points[point_index]):
 			continue
-		var screen := path_screen_2d(node, handle, path_index)
+		var screen := path_screen_2d(node, handle, path_index, path_instance)
 		control.draw_line(anchor, screen, Color("#62d7ff"), 1.5, true)
 		control.draw_circle(screen, 4.0, Color("#62d7ff"))
 
@@ -221,16 +270,16 @@ func pick_path_control_2d(node: Node2D, screen_point: Vector2) -> Dictionary:
 	var best := PATH_HANDLE_RADIUS
 	var hit := {}
 	for p in int(node.call("get_path_count")):
-		for i in int(node.call("get_point_count", p)):
-			var anchor: Vector2 = node.call("get_path_point", p, i)
-			for part in ["point", "in", "out"]:
-				var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
-				if part != "point" and value.is_equal_approx(anchor):
-					continue
-				var distance := path_screen_2d(node, value, p).distance_to(screen_point)
-				if distance <= best:
-					best = distance
-					hit = {"path": p, "point": i, "part": part, "value": value}
+		for instance in int(node.call("get_path_instance_count", p)):
+			for i in int(node.call("get_point_count", p)):
+				var anchor: Vector2 = node.call("get_path_point", p, i)
+				for part in ["point", "in", "out"]:
+					var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
+					if part != "point" and value.is_equal_approx(anchor): continue
+					var distance := path_screen_2d(node, value, p, instance).distance_to(screen_point)
+					if distance <= best:
+						best = distance
+						hit = {"path": p, "instance": instance, "point": i, "part": part, "value": value}
 	return hit
 
 func set_path_control(node: Node, value: Vector2) -> void:
@@ -261,26 +310,149 @@ func select_path_control(node: Node, path: int, point: int, part := "") -> void:
 	path_index = clampi(path, 0, maxi(0, int(node.call("get_path_count")) - 1))
 	point_index = clampi(point, 0, maxi(0, int(node.call("get_point_count", path_index)) - 1))
 	if part in ["point", "in", "out"]: path_part = part
+	path_control_selected.emit(node, path_index, point_index, path_part)
 	update_overlays()
+
+func _player_controls_node(player: AnimationPlayer, node: Node) -> bool:
+	var base := player.get_node_or_null(player.root_node)
+	if base == null: base = player.get_parent()
+	if base == null: return false
+	var names := [player.assigned_animation] if not String(player.assigned_animation).is_empty() \
+		else player.get_animation_list()
+	for name in names:
+		var animation := player.get_animation(name)
+		for track in animation.get_track_count():
+			var path := animation.track_get_path(track)
+			if base.get_node_or_null(NodePath(path.get_concatenated_names())) == node:
+				return true
+	return false
+
+func _new_animation_player(root: Node, name: String) -> AnimationPlayer:
+	var player := AnimationPlayer.new()
+	player.name = name
+	root.add_child(player, true)
+	player.owner = root
+	player.root_node = NodePath("..")
+	EditorInterface.mark_scene_as_unsaved()
+	return player
 
 func _find_animation_player(node: Node) -> AnimationPlayer:
 	var root := EditorInterface.get_edited_scene_root()
-	if root == null: return null
+	if root == null or not (node == root or root.is_ancestor_of(node)):
+		return null
+	var best: AnimationPlayer = null
+	var best_score := 1000000
 	var players := root.find_children("*", "AnimationPlayer", true, false)
+	if root is AnimationPlayer: players.push_front(root)
 	for candidate in players:
-		if candidate is AnimationPlayer and not String(candidate.assigned_animation).is_empty():
-			return candidate
-	if not players.is_empty(): return players[0] as AnimationPlayer
-	var player := AnimationPlayer.new()
-	player.name = "AnimationPlayer"
-	root.add_child(player)
-	player.owner = root
+		if not candidate is AnimationPlayer: continue
+		var player := candidate as AnimationPlayer
+		# Existing tracks for this SVG win; otherwise prefer the closest player with
+		# an active animation, then the closest idle player. Tree order breaks ties.
+		var score := player.get_path_to(node).get_name_count()
+		if not String(player.assigned_animation).is_empty(): score -= 100
+		if _player_controls_node(player, node): score -= 10000
+		if score < best_score:
+			best = player
+			best_score = score
+	return best if best != null else _new_animation_player(root, "AnimationPlayer")
+
+func _path_style_properties(node: Node, path: int) -> Array[String]:
+	var result: Array[String] = []
+	var prefix := "paths/path_%d/" % path
+	for info in node.get_property_list():
+		var property := String(info.name)
+		if property.begins_with(prefix) and not property.substr(prefix.length()).begins_with("point_"):
+			result.append(property)
+	return result
+
+func _all_svg_key_properties(node: Node) -> Array[String]:
+	var result: Array[String] = []
+	for info in node.get_property_list():
+		var property := String(info.name)
+		if property.begins_with("paths/path_"):
+			result.append(property)
+	if node.get("modulate") != null:
+		result.append("modulate")
+	return result
+
+func create_all_point_animation_player(node: Node) -> AnimationPlayer:
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null or not (node == root or root.is_ancestor_of(node)) \
+			or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
+		return null
+	var player := _new_animation_player(root, "SVGAllPointsAnimationPlayer")
+	var animation := Animation.new()
+	animation.length = 1.0
+	var base := player.get_node_or_null(player.root_node)
+	var relative := base.get_path_to(node)
+	var node_path := "." if relative.is_empty() else String(relative)
+	for property in _all_svg_key_properties(node):
+		var track := animation.add_track(Animation.TYPE_VALUE)
+		animation.track_set_path(track, NodePath(node_path + ":" + property))
+		animation.track_insert_key(track, 0.0, node.get(property))
+	var library := AnimationLibrary.new()
+	library.add_animation("all_points", animation)
+	player.add_animation_library("", library)
+	player.assigned_animation = &"all_points"
+	EditorInterface.mark_scene_as_unsaved()
 	return player
 
+func _show_path_key_menu(node: Node, hit: Dictionary) -> void:
+	path_instance = int(hit.instance)
+	select_path_control(node, int(hit.path), int(hit.point), String(hit.part))
+	context_properties.clear()
+	path_context_menu.clear()
+	var base := "paths/path_%d/point_%d" % [path_index, point_index]
+	var selected := base if path_part == "point" else base + "/%s_handle" % path_part
+	_add_context_key("Key selected %s" % path_part, selected)
+	for part in ["point", "in", "out"]:
+		if part == path_part: continue
+		if part == "in" and not node.call("has_in_handle", path_index, point_index): continue
+		if part == "out" and not node.call("has_out_handle", path_index, point_index): continue
+		_add_context_key("Key %s" % part, base if part == "point" else base + "/%s_handle" % part)
+	path_context_menu.add_separator()
+	for property in _path_style_properties(node, path_index):
+		_add_context_key("Key %s" % property.get_file().replace("_", " ").capitalize(), property)
+	_add_context_key("Key node modulate", "modulate")
+	path_context_menu.add_separator()
+	_add_context_key("Key all SVG properties", "*")
+	if path_context_menu and DisplayServer.get_name() != "headless":
+		path_context_menu.position = DisplayServer.mouse_get_position()
+		path_context_menu.popup()
+
+func _add_context_key(label: String, property: String) -> void:
+	var id := context_properties.size()
+	context_properties.append(property)
+	path_context_menu.add_item(label, id)
+
+func _context_key_selected(id: int) -> void:
+	if not is_instance_valid(path_node) or id < 0 or id >= context_properties.size(): return
+	var property := context_properties[id]
+	if property == "*":
+		for name in _all_svg_key_properties(path_node):
+			insert_svg_property_key(path_node, name)
+	else:
+		insert_svg_property_key(path_node, property)
+
 # 接点番号を、現在のAnimationPlayerへ値トラックとして登録する。
-func insert_path_key(node: Node, path: int, point: int) -> bool:
+func insert_path_key(node: Node, path: int, point: int, part := "point") -> bool:
 	if not is_instance_valid(node) or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
 		return false
+	if part not in ["point", "in", "out"]:
+		return false
+	if path < 0 or path >= int(node.call("get_path_count")) \
+			or point < 0 or point >= int(node.call("get_point_count", path)):
+		return false
+	if part == "in" and not node.call("has_in_handle", path, point): return false
+	if part == "out" and not node.call("has_out_handle", path, point): return false
+	var suffix := "" if part == "point" else "/%s_handle" % part
+	return insert_svg_property_key(node, "paths/path_%d/point_%d%s" % [path, point, suffix])
+
+func insert_svg_property_key(node: Node, property: String) -> bool:
+	if not is_instance_valid(node) or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
+		return false
+	if property != "modulate" and not property.begins_with("paths/path_"): return false
 	var player := _find_animation_player(node)
 	if player == null: return false
 	var animation_name := StringName(player.assigned_animation)
@@ -299,13 +471,13 @@ func insert_path_key(node: Node, path: int, point: int) -> bool:
 	if base == null: base = player.get_parent()
 	var relative := base.get_path_to(node)
 	var node_path := "." if relative.is_empty() else String(relative)
-	var property := NodePath(node_path + ":paths/path_%d/point_%d" % [path, point])
-	var track := animation.find_track(property, Animation.TYPE_VALUE)
+	var track_path := NodePath(node_path + ":" + property)
+	var track := animation.find_track(track_path, Animation.TYPE_VALUE)
 	if track < 0:
 		track = animation.add_track(Animation.TYPE_VALUE)
-		animation.track_set_path(track, property)
+		animation.track_set_path(track, track_path)
 	var time := player.current_animation_position
-	animation.track_insert_key(track, time, node.get("paths/path_%d/point_%d" % [path, point]))
+	animation.track_insert_key(track, time, node.get(property))
 	EditorInterface.mark_scene_as_unsaved()
 	return true
 
@@ -354,19 +526,24 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 				path_index = wrapi(path_index + (-1 if event.keycode == KEY_BRACKETLEFT else 1), 0, paths)
 				point_index = 0
 		elif event.keycode == KEY_K:
-			return _canvas_handled(event) if insert_path_key(animate, path_index, point_index) else false
+			return _canvas_handled(event) if insert_path_key(animate, path_index, point_index, path_part) else false
 		elif event.keycode == KEY_TAB:
 			var n := int(animate.call("get_point_count", path_index))
 			if n > 0: point_index = wrapi(point_index + (-1 if event.shift_pressed else 1), 0, n)
 		else: return false
 		update_overlays()
 		return _canvas_handled(event)
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and animate:
+		var right_hit := pick_path_control_2d(animate, event.position)
+		if not right_hit.is_empty():
+			_show_path_key_menu(animate, right_hit)
+			return _canvas_handled(event)
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			if animate:
 				var control := pick_path_control_2d(animate, event.position)
 				if not control.is_empty():
-					path_node = animate; path_index = control.path; point_index = control.point
+					path_node = animate; path_index = control.path; path_instance = control.instance; point_index = control.point
 					path_part = control.part; path_drag_before = control.value; path_dragging = true
 					path_opposite_before = animate.call("get_%s_handle" % opposite_part(path_part), path_index, point_index) \
 						if path_part != "point" else Vector2.ZERO
@@ -389,7 +566,7 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 	if event is InputEventMouseMotion and path_dragging and path_node is Node2D \
 			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		var edit_node := path_node as Node2D
-		var local := path_point_from_screen_2d(edit_node, event.position, path_index)
+		var local := path_point_from_screen_2d(edit_node, event.position, path_index, path_instance)
 		if event.shift_pressed:
 			var delta: Vector2 = local - path_drag_before
 			local = path_drag_before + (Vector2(delta.x, 0) if absf(delta.x) >= absf(delta.y) else Vector2(0, delta.y))
@@ -450,7 +627,7 @@ func ray_hit_svg3d(node: Node3D, camera: Camera3D, screen_point: Vector2) -> Dic
 	var offset := Vector2(node.get("offset"))
 	var svg_point := Vector2(
 		local_hit.x / pixel_size + size.x * 0.5 - offset.x,
-		-local_hit.y / pixel_size + size.y * 0.5 - offset.y
+		-local_hit.y / pixel_size + size.y * 0.5 + offset.y
 	)
 	if not Rect2(Vector2.ZERO, size).has_point(svg_point):
 		return {}
@@ -493,7 +670,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 				path_index = wrapi(path_index + (-1 if event.keycode == KEY_BRACKETLEFT else 1), 0, paths)
 				point_index = 0
 		elif event.keycode == KEY_K:
-			return EditorPlugin.AFTER_GUI_INPUT_STOP if insert_path_key(animate, path_index, point_index) \
+			return EditorPlugin.AFTER_GUI_INPUT_STOP if insert_path_key(animate, path_index, point_index, path_part) \
 				else EditorPlugin.AFTER_GUI_INPUT_PASS
 		elif event.keycode == KEY_TAB:
 			var n := int(animate.call("get_point_count", path_index))
@@ -501,17 +678,25 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		else: return EditorPlugin.AFTER_GUI_INPUT_PASS
 		update_overlays()
 		return EditorPlugin.AFTER_GUI_INPUT_STOP
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and animate:
+		var right_hit := pick_path_control_3d(animate, camera, event.position)
+		if not right_hit.is_empty():
+			_show_path_key_menu(animate, right_hit)
+			return EditorPlugin.AFTER_GUI_INPUT_STOP
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			if animate:
 				var control := pick_path_control_3d(animate, camera, event.position)
 				if not control.is_empty():
-					path_node = animate; path_index = control.path; point_index = control.point
+					path_node = animate; path_index = control.path; path_instance = control.instance; point_index = control.point
 					path_part = control.part; path_drag_before = control.value; path_dragging = true
 					path_opposite_before = animate.call("get_%s_handle" % opposite_part(path_part), path_index, point_index) \
 						if path_part != "point" else Vector2.ZERO
 					drag_plane_point = animate.global_position
-					drag_plane_normal = animate.global_transform.basis.z.normalized()
+					var basis := animate.global_transform.basis
+					# Non-uniform scales below rotated parents shear the basis; Z is then not
+					# perpendicular to the actual SVG plane spanned by X and Y.
+					drag_plane_normal = basis.x.cross(basis.y).normalized()
 					return EditorPlugin.AFTER_GUI_INPUT_STOP
 			# ノード本体の選択・移動は全面collisionを持つ標準3Dギズモへ渡す。
 			# 独自平面ドラッグと標準ギズモをクリック位置によって混在させない。
@@ -522,7 +707,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		var hit := intersect_drag_plane(camera, event.position)
 		if hit != null:
-			var value := svg_point_from_world_3d(path_node, hit, path_index)
+			var value := svg_point_from_world_3d(path_node, hit, path_index, path_instance)
 			if event.shift_pressed:
 				var delta: Vector2 = value - path_drag_before
 				value = path_drag_before + (Vector2(delta.x, 0) \
@@ -534,32 +719,36 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	return EditorPlugin.AFTER_GUI_INPUT_PASS
 
 # 3Dの編集点も元のパス座標を投影し、揺れた輪郭とは独立させる。
-func svg_world_3d(node: Node3D, point: Vector2, path := -1) -> Vector3:
-	var document := Vector2(node.call("path_to_document", path, point)) if path >= 0 else point
+func svg_world_3d(node: Node3D, point: Vector2, path := -1, instance := 0) -> Vector3:
+	var document := Vector2(node.call("path_to_document_instance", path, point, instance)) if path >= 0 else point
 	return node.to_global(ShapeUtils.displayed_point_3d(node, document))
 
-func svg_point_from_world_3d(node: Node3D, world: Vector3, path := -1) -> Vector2:
+func svg_point_from_world_3d(node: Node3D, world: Vector3, path := -1, instance := 0) -> Vector2:
 	var local := node.to_local(world)
 	var size: Vector2 = node.call("get_svg_size")
 	var pixel := float(node.get("pixel_size"))
-	var point := Vector2(local.x / pixel + size.x * 0.5, -local.y / pixel + size.y * 0.5) \
-		- Vector2(node.get("offset"))
+	var offset := Vector2(node.get("offset"))
+	var point := Vector2(local.x / pixel + size.x * 0.5 - offset.x,
+		-local.y / pixel + size.y * 0.5 + offset.y)
 	if bool(node.get("flip_h")): point.x = size.x - point.x
 	if bool(node.get("flip_v")): point.y = size.y - point.y
-	return Vector2(node.call("document_to_path", path, point)) if path >= 0 else point
+	return Vector2(node.call("document_to_path_instance", path, point, instance)) if path >= 0 else point
 
 func pick_path_control_3d(node: Node3D, camera: Camera3D, screen_point: Vector2) -> Dictionary:
 	var best := PATH_HANDLE_RADIUS
 	var hit := {}
 	for p in int(node.call("get_path_count")):
-		for i in int(node.call("get_point_count", p)):
-			var anchor: Vector2 = node.call("get_path_point", p, i)
-			for part in ["point", "in", "out"]:
-				var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
-				if part != "point" and value.is_equal_approx(anchor): continue
-				var distance := camera.unproject_position(svg_world_3d(node, value, p)).distance_to(screen_point)
-				if distance <= best:
-					best = distance; hit = {"path": p, "point": i, "part": part, "value": value}
+		for instance in int(node.call("get_path_instance_count", p)):
+			for i in int(node.call("get_point_count", p)):
+				var anchor: Vector2 = node.call("get_path_point", p, i)
+				for part in ["point", "in", "out"]:
+					var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
+					if part != "point" and value.is_equal_approx(anchor): continue
+					var world := svg_world_3d(node, value, p, instance)
+					if camera.is_position_behind(world): continue
+					var distance := camera.unproject_position(world).distance_to(screen_point)
+					if distance <= best:
+						best = distance; hit = {"path": p, "instance": instance, "point": i, "part": part, "value": value}
 	return hit
 
 func _forward_3d_draw_over_viewport(control: Control) -> void:
@@ -572,20 +761,28 @@ func _forward_3d_draw_over_viewport(control: Control) -> void:
 		path_index = clampi(path_index, 0, paths - 1)
 		for path in paths:
 			var path_points: PackedVector2Array = selected.call("get_path_points", path)
-			for i in path_points.size():
-				var screen := camera.unproject_position(svg_world_3d(selected, path_points[i], path))
-				var active := path == path_index and i == point_index
-				control.draw_circle(screen, 5.0 if active else 3.5,
-					Color("#ffb52e") if active else Color.WHITE)
-				control.draw_string(ThemeDB.fallback_font, screen + Vector2(7, -7), "%d:%d" % [path, i],
-					HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+			for instance in int(selected.call("get_path_instance_count", path)):
+				for i in path_points.size():
+					var world := svg_world_3d(selected, path_points[i], path, instance)
+					if camera.is_position_behind(world): continue
+					var screen := camera.unproject_position(world)
+					var active := path == path_index and instance == path_instance and i == point_index
+					control.draw_circle(screen, 5.0 if active else 3.5,
+						Color("#ffb52e") if active else Color.WHITE)
+					control.draw_string(ThemeDB.fallback_font, screen + Vector2(7, -7), "%d:%d" % [path, i],
+						HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
 		var points: PackedVector2Array = selected.call("get_path_points", path_index)
 		if points.is_empty(): continue
 		point_index = clampi(point_index, 0, points.size() - 1)
-		var anchor := camera.unproject_position(svg_world_3d(selected, points[point_index], path_index))
+		path_instance = clampi(path_instance, 0, int(selected.call("get_path_instance_count", path_index)) - 1)
+		var anchor_world := svg_world_3d(selected, points[point_index], path_index, path_instance)
+		if camera.is_position_behind(anchor_world): continue
+		var anchor := camera.unproject_position(anchor_world)
 		for part in ["in", "out"]:
 			var handle: Vector2 = selected.call("get_%s_handle" % part, path_index, point_index)
 			if handle.is_equal_approx(points[point_index]): continue
-			var screen := camera.unproject_position(svg_world_3d(selected, handle, path_index))
+			var handle_world := svg_world_3d(selected, handle, path_index, path_instance)
+			if camera.is_position_behind(handle_world): continue
+			var screen := camera.unproject_position(handle_world)
 			control.draw_line(anchor, screen, Color("#62d7ff"), 1.5, true)
 			control.draw_circle(screen, 4.0, Color("#62d7ff"))

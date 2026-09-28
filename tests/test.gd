@@ -832,12 +832,30 @@ func check_svg_animate() -> void:
 	animation.track_set_path(track, NodePath(".:paths/path_0/point_1"))
 	animation.track_insert_key(track, 0.0, Vector2(44, 18))
 	animation.track_insert_key(track, 1.0, Vector2(48, 20))
+	var color_track := animation.add_track(Animation.TYPE_VALUE)
+	animation.track_set_path(color_track, NodePath(".:modulate"))
+	animation.track_insert_key(color_track, 0.0, Color.WHITE)
+	animation.track_insert_key(color_track, 1.0, Color(0.4, 0.8, 1.0))
 	library.add_animation("path_edit", animation)
 	player.add_animation_library("", library)
 	player.play("path_edit")
+	player.seek(0.0, true)
+	node.call("flush_paths")
+	var frame_start := hash(node.call("get_texture").get_image().get_data())
+	player.seek(0.5, true)
+	node.call("flush_paths")
+	var frame_middle := hash(node.call("get_texture").get_image().get_data())
+	check(Vector2(node.call("get_path_point", 0, 1)).distance_to(Vector2(46, 19)) < 0.01
+		and node.modulate.is_equal_approx(Color(0.7, 0.9, 1.0))
+		and frame_start != frame_middle,
+		"SVGAnimate2D point/color keys do not interpolate or deform the rendered image")
 	player.seek(1.0, true)
+	node.call("flush_paths")
 	check(node.call("get_path_point", 0, 1) == Vector2(48, 20),
 		"AnimationPlayerから接点番号プロパティをキーフレーム編集できないよ")
+	check(node.modulate.is_equal_approx(Color(0.4, 0.8, 1.0))
+		and hash(node.call("get_texture").get_image().get_data()) != frame_middle,
+		"SVGAnimate2D shape/color animation did not reach its final frame")
 	node.free()
 	# 接点とBezierハンドルがシーン保存後にも残り、パス数を変えないことを保証する。
 	var save_root := Node2D.new()
@@ -869,7 +887,74 @@ func check_svg_animate() -> void:
 	check(node3.call("get_path_point", 0, 2) == Vector2(54, 30)
 			and node3.call("get_texture") != null,
 		"SVGAnimate3Dの接点編集または再描画が動かないよ")
+	var player3 := AnimationPlayer.new()
+	node3.add_child(player3)
+	var animation3 := Animation.new()
+	var point_track3 := animation3.add_track(Animation.TYPE_VALUE)
+	animation3.track_set_path(point_track3, NodePath(".:paths/path_0/point_2"))
+	animation3.track_insert_key(point_track3, 0.0, Vector2(54, 30))
+	animation3.track_insert_key(point_track3, 1.0, Vector2(58, 34))
+	var color_track3 := animation3.add_track(Animation.TYPE_VALUE)
+	animation3.track_set_path(color_track3, NodePath(".:modulate"))
+	animation3.track_insert_key(color_track3, 0.0, Color.WHITE)
+	animation3.track_insert_key(color_track3, 1.0, Color(0.8, 0.4, 1.0))
+	var library3 := AnimationLibrary.new()
+	library3.add_animation("shape_and_color", animation3)
+	player3.add_animation_library("", library3)
+	player3.play("shape_and_color")
+	player3.pause()
+	player3.seek(0.0, true)
+	await process_frame
+	node3.call("flush_paths")
+	var image_start3 := hash(node3.call("get_texture").get_image().get_data())
+	player3.seek(0.5, true)
+	await process_frame
+	node3.call("flush_paths")
+	var middle_color3: Color = node3.get("modulate")
+	var image_middle3 := hash(node3.call("get_texture").get_image().get_data())
+	check(Vector2(node3.call("get_path_point", 0, 2)).distance_to(Vector2(56, 32)) < 0.01
+		and middle_color3.is_equal_approx(Color(0.9, 0.7, 1.0))
+		and image_middle3 != image_start3,
+		"SVGAnimate3D point/color keys do not interpolate or deform the rendered image")
+	player3.seek(1.0, true)
+	var final_color3: Color = node3.get("modulate")
+	check(Vector2(node3.call("get_path_point", 0, 2)).distance_to(Vector2(58, 34)) < 0.01
+		and final_color3.is_equal_approx(Color(0.8, 0.4, 1.0)),
+		"SVGAnimate3D shape/color animation did not reach its final frame")
 	node3.free()
+	# ファイル素材の基本図形も編集点を持ち、接点変更後だけパスへ展開する。
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var shapes: Node = ClassDB.instantiate(kind)
+		shapes.set("src", "res://tests/svg/hello.svg")
+		root.add_child(shapes)
+		await process_frame
+		check(shapes.call("get_path_count") == 2
+			and shapes.call("get_point_count", 0) == 4
+			and shapes.call("get_point_count", 1) == 3,
+			"%sが矩形と円の編集点をファイル素材から抽出できないよ" % kind)
+		check(shapes.get("src") == "res://tests/svg/hello.svg"
+			and shapes.call("get_texture") != null,
+			"%sの素材参照または画像表示が壊れたよ" % kind)
+		shapes.call("set_path_point", 0, 1, Vector2(65, 10))
+		shapes.call("flush_paths")
+		await process_frame
+		check(shapes.call("get_point_count", 0) == 4
+			and shapes.call("get_path_point", 0, 1) == Vector2(65, 10)
+			and shapes.call("get_texture") != null,
+			"%sの基本図形の接点編集を表示へ反映できないよ" % kind)
+		shapes.free()
+	var basic: Node3D = ClassDB.instantiate("SVGAnimate3D")
+	basic.set("src", "<svg width='200' height='160' viewBox='0 0 100 80'>"
+		+ "<rect x='10%' y='10%' width='20' height='10' rx='3'></rect>"
+		+ "<ellipse cx='50' cy='30' rx='10' ry='5'/>"
+		+ "<line x1='0' y1='0' x2='20%' y2='25%'/>"
+		+ "<polyline points='0,0 10,10 20,0'/>"
+		+ "<polygon points='30,0 40,10 50,0'/></svg>")
+	check(basic.call("get_path_count") == 5
+		and basic.call("get_path_point", 0, 0) == Vector2(13, 8)
+		and basic.call("get_path_point", 2, 1) == Vector2(20, 20),
+		"SVGAnimate3Dが基本図形・百分率・viewBoxの接点を読み違えたよ")
+	basic.free()
 
 	# 配布する3Dシーンそのものを読み、ジャンプ・回転・接点変形・着地を数値で確かめる。
 	var demo_scene := load("res://examples/stickman/stickman_movie_3d.tscn") as PackedScene

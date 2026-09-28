@@ -29,7 +29,7 @@ bash tests/build_all.sh
 
 `--force`は全対象を再構築する。通常実行でも指紋が合わなければビルドが始まるので、必要なツールとLinux用ランナーを先に確認する。
 
-Linuxランナーは`localhost/gd-linux-builder:latest`と`localhost/gd-linux-builder-x64:latest`を参照する。ローカルイメージなので、他の環境にあるとは限らない。イメージにSConsや対象コンパイラがなければ、[platforms.md](platforms.md) の独立コンテナ方式を使い、ビルド成功した成果物を所定の場所へ戻す。既存ランナーの共有マウントと、別のSConsプロセスを並行させない。
+LinuxランナーはPodmanの`localhost/gd-linux-builder:latest`と`localhost/gd-linux-builder-x64:latest`を優先する。Podmanへ接続できない場合はDockerの`gd-release-env:latest`を使い、x86_64はコンテナ内のクロスコンパイラへ切り替える。これらはローカルイメージなので、他の環境にあるとは限らない。イメージにSConsや対象コンパイラがなければ、[platforms.md](platforms.md) の独立コンテナ方式を使い、ビルド成功した成果物を所定の場所へ戻す。既存ランナーの共有マウントと、別のSConsプロセスを並行させない。
 
 Apple Silicon開発機の単独NDKは`/opt/homebrew/share/android-ndk`が候補。実在を確認し、SDK配下NDKと競合する場合は次の形を使う。
 
@@ -47,7 +47,7 @@ bash tests/build_all.sh
 
 2回目は`0 built, 14 unchanged`を確認する。`--adopt`は既存バイナリの来歴を検証しない。古い出力が残っている状態で実行しない。
 
-現行スクリプトの共通入力指紋には、`src/gen/`以外の`src/`全ファイルが入るため、オブジェクトも影響する。個別ビルドの途中で登録すると後続ビルドで指紋が変わる。登録は全対象の完了後に行う。新しい汎用スクリプトへこの方式をコピーする場合は、中間オブジェクトを除外する。
+共通入力指紋は`src/gen/`以外のC++ソースとヘッダーを対象とし、中間オブジェクトを含めない。個別ビルド後の指紋登録は、同じ入力で全対象が完成したことを確認してから行う。
 
 現行の指紋にはコンパイラ・SDK・NDK・コンテナイメージの版が含まれない。それらを変更した場合はキャッシュ一致だけで再利用せず、`--force`または対象ごとの手動ビルドで作り直す。検証後に指紋を登録する。
 

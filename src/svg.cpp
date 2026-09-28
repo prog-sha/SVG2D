@@ -932,6 +932,9 @@ static void inherit(const SVG::Elem &e, State &st) {
 // その札の形。形を持たない札なら空。
 static Path shape_of(const SVG::Elem &e, double tol, const State &st) {
 	const std::string &t = e.tag;
+	// 編集済み基本図形は札名を保つ。CSS の型セレクタを壊さず形だけ差し替える。
+	String edited = attr_of(e, "data-svg2d-path");
+	if (!edited.is_empty()) return parse_path(edited, tol);
 	if (t == "rect") return rect_path(e, tol, st);
 	if (t == "circle") {
 		double r = length_of(attr_of(e, "r"), 0, st.bd());
@@ -1305,6 +1308,19 @@ bool SVG::parse(const String &text) {
 			for (int i = 0; i < (int)xp->get_attribute_count(); i++)
 				e->attr[std::string(String(xp->get_attribute_name(i)).utf8().get_data())] =
 						xp->get_attribute_value(i);
+			// SVG名前空間を別名で宣言した札も標準形として読む。
+			size_t colon = e->tag.find(':');
+			if (colon != std::string::npos) {
+				std::string declaration = "xmlns:" + e->tag.substr(0, colon);
+				String uri;
+				auto own = e->attr.find(declaration);
+				if (own != e->attr.end()) uri = own->second;
+				else for (auto parent = stack.rbegin(); parent != stack.rend(); ++parent) {
+					auto inherited = (*parent)->attr.find(declaration);
+					if (inherited != (*parent)->attr.end()) { uri = inherited->second; break; }
+				}
+				if (uri == "http://www.w3.org/2000/svg") e->tag.erase(0, colon + 1);
+			}
 
 			bool empty = xp->is_empty();
 			if (stack.empty()) {
@@ -1839,13 +1855,23 @@ void SVG3D::_ensure_sprite() {
 }
 
 Vector2 SVG3D::_density() const {
-	if (!_adaptive || !is_inside_tree()) return Vector2(1.5f, 1.5f);
-	if (_editor_density_active) return _editor_density;
-	Viewport *view = get_viewport();
-	Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
-	if (camera == nullptr && Engine::get_singleton()->is_editor_hint())
-		return _editor_fallback_density();
-	return _density_for_camera(camera);
+	Vector2 density;
+	if (!_adaptive || !is_inside_tree()) density = Vector2(1.5f, 1.5f);
+	else if (_editor_density_active) density = _editor_density;
+	else {
+		Viewport *view = get_viewport();
+		Camera3D *camera = view == nullptr ? nullptr : view->get_camera_3d();
+		density = camera == nullptr && Engine::get_singleton()->is_editor_hint()
+				? _editor_fallback_density() : _density_for_camera(camera);
+	}
+	Vector2 size = _svg.draw_size();
+	if (size.x > 0 && size.y > 0) {
+		// 片軸だけ上限に当てると画像内へ余白が入り、3D板上の絵がつぶれる。
+		double common = std::min({(double)density.x, (double)density.y,
+				MAX_TEX / size.x, MAX_TEX / size.y});
+		density = Vector2((float)common, (float)common);
+	}
+	return density;
 }
 
 Vector2 SVG3D::_editor_fallback_density() const {
@@ -2032,7 +2058,7 @@ void SVG3D::set_editor_camera(Camera3D *camera) {
 	// エディター起動直後は、SVGのdeferred refreshが3D viewport/cameraの初期化より
 	// 先に走ることがある。その低い暫定画像をキャッシュしたままにせず、カメラの
 	// 投影寸法が届いた時点で自発的に更新する。Node::_processの実行順には依存しない。
-	if (_adaptive && changed && _svg.needs(_editor_density, _animation_pattern, true))
+	if (_adaptive && changed && _svg.needs(_density(), _animation_pattern, true))
 		_queue_refresh();
 }
 

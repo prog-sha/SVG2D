@@ -85,6 +85,6 @@ static func displayed_point_3d(node: Object, point: Vector2) -> Vector3:
 	var pixel_size := float(node.get("pixel_size"))
 	return Vector3(
 		(point.x - size.x * 0.5 + offset.x) * pixel_size,
-		-(point.y - size.y * 0.5 + offset.y) * pixel_size,
+		(-(point.y - size.y * 0.5) + offset.y) * pixel_size,
 		0.0
 	)

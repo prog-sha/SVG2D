@@ -3,8 +3,13 @@
 # 責務: godot-cpp と描画本体を結び、アドオン内の決まった場所へ成果物を置くこと。
 # 設計思想: Godot 公式テンプレートと同じ名前規則を使い、環境ごとの差を設定へ閉じ込める。
 
+import os
+
 scalar = ARGUMENTS.pop("svg2d_scalar", "no") == "yes"  # 通常CPU経路の検証切り替え
 base = Environment(tools=["default"], PLATFORM="")
+if os.environ.get("SVG2D_CC") and os.environ.get("SVG2D_CXX"):
+    base["CC"] = os.environ["SVG2D_CC"]  # 異なるCPU上でLinuxを組み立てる際のクロスコンパイラ
+    base["CXX"] = os.environ["SVG2D_CXX"]
 base["build_profile"] = "build_profile.json"  # SVG2D が使う型へ絞り、組み立て時間と容量を減らす
 env = SConscript("godot-cpp/SConstruct", {"env": base, "api_version": "4.7"})
 env = env.Clone()  # 拡張側の設定をgodot-cpp本体へ混ぜない

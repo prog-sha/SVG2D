@@ -6,6 +6,7 @@ const SVGSourceProperty = preload("res://addons/svg2d/editor/svg_source_property
 const SVGHitboxControl = preload("res://addons/svg2d/editor/svg_hitbox_control.gd")
 const SVGPathControl = preload("res://addons/svg2d/editor/svg_path_control.gd")
 const ShapeUtils = preload("res://addons/svg2d/editor/svg_shape_utils.gd")
+const TransformFixture = preload("res://tests/editor_transform_fixture.gd")
 
 var failed := false
 
@@ -23,6 +24,401 @@ func apply_inspector_change(
 		node: Object
 ) -> void:
 	node.set(property, value)
+
+func test_nested_transforms_2d(scene_root: Node2D, svg_plugin: Node) -> void:
+	var outer := Node2D.new()
+	outer.position = Vector2(245, -83)
+	outer.rotation = 0.31
+	outer.scale = Vector2(1.3, 0.8)
+	scene_root.add_child(outer)
+	var middle := Node2D.new()
+	middle.position = Vector2(45, 26)
+	middle.rotation = -0.43
+	middle.scale = Vector2(0.7, 1.5)
+	outer.add_child(middle)
+	var animate: Node2D = ClassDB.instantiate("SVGAnimate2D")
+	animate.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>" \
+		+ "<g transform='translate(7 9)'><g transform='rotate(20 50 50)'>" \
+		+ "<path transform='scale(1.2 0.8)' d='M15 20 C28 8 52 8 65 20 L70 75 L10 75 Z' fill='#fff'/>" \
+		+ "</g></g></svg>")
+	animate.position = Vector2(26, 22)
+	animate.rotation = 0.22
+	animate.scale = Vector2(1.2, 0.75)
+	animate.set("offset", Vector2(3, -2))
+	middle.add_child(animate)
+	var editor_canvas := EditorInterface.get_editor_viewport_2d().get_global_canvas_transform()
+	var path_point := Vector2(65, 20)
+	var local_svg := Vector2(7, 9) + Vector2(50, 50) \
+		+ Vector2(65 * 1.2 - 50, 20 * 0.8 - 50).rotated(deg_to_rad(20.0))
+	var scenarios := [
+		{"move": Vector2(0, 0), "scale": Vector2(0.7, 1.5), "turn": -0.43},
+		{"move": Vector2(32, -18), "scale": Vector2(0.7, 1.5), "turn": -0.43},
+		{"move": Vector2(32, -18), "scale": Vector2(1.4, 0.65), "turn": -0.43},
+		{"move": Vector2(32, -18), "scale": Vector2(1.4, 0.65), "turn": 0.57},
+	]
+	for scenario in scenarios:
+		animate.position = Vector2(26, 22) + Vector2(scenario.move)
+		middle.scale = Vector2(scenario.scale)
+		middle.rotation = float(scenario.turn)
+		var expected := editor_canvas * outer.transform * middle.transform * animate.transform \
+			* (local_svg + Vector2(3, -2))
+		var actual: Vector2 = svg_plugin.call("path_screen_2d", animate, path_point, 0)
+		check(actual.distance_to(expected) < 0.2,
+			"2D nested transforms misplaced path point: %s != %s" % [actual, expected])
+		check(Vector2(svg_plugin.call("path_point_from_screen_2d", animate, expected, 0))
+			.distance_to(path_point) < 0.2, "2D nested transforms failed inverse path mapping")
+		var hit: Dictionary = svg_plugin.call("pick_path_control_2d", animate, expected)
+		check(not hit.is_empty() and hit.path == 0 and hit.point == 1 and hit.part == "point",
+			"2D nested transforms made the visible anchor unclickable: %s" % hit)
+	# Exercise the actual editor drag path, not just the forward/inverse helper pair.
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(animate)
+	var inner_document := Vector2(7, 9) + Vector2(50, 50) \
+		+ Vector2(40 * 1.2 - 50, 50 * 0.8 - 50).rotated(deg_to_rad(20.0))
+	var inner_screen: Vector2 = svg_plugin.call("screen_transform", animate) \
+		* (inner_document + Vector2(3, -2))
+	var node_before := animate.position
+	var body_press := InputEventMouseButton.new()
+	body_press.button_index = MOUSE_BUTTON_LEFT
+	body_press.pressed = true
+	body_press.position = inner_screen
+	check(svg_plugin.call("_forward_canvas_gui_input", body_press),
+		"2D nested transforms made the visible body unclickable")
+	var body_motion := InputEventMouseMotion.new()
+	body_motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	body_motion.position = inner_screen + Vector2(22, 13)
+	var parent_inverse := (editor_canvas * outer.transform * middle.transform).affine_inverse()
+	var expected_node := node_before + parent_inverse * body_motion.position - parent_inverse * inner_screen
+	svg_plugin.call("_forward_canvas_gui_input", body_motion)
+	var body_release := InputEventMouseButton.new()
+	body_release.button_index = MOUSE_BUTTON_LEFT
+	body_release.position = body_motion.position
+	svg_plugin.call("_forward_canvas_gui_input", body_release)
+	check(animate.position.distance_to(expected_node) < 0.2,
+		"2D nested transforms displaced the dragged node: %s != %s" %
+		[animate.position, expected_node])
+	var anchor_screen: Vector2 = svg_plugin.call("path_screen_2d", animate, path_point, 0)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = anchor_screen
+	check(svg_plugin.call("_forward_canvas_gui_input", press),
+		"2D transformed path point cannot start a viewport drag")
+	var motion := InputEventMouseMotion.new()
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	motion.position = anchor_screen + Vector2(17, -11)
+	var expected_point: Vector2 = svg_plugin.call("path_point_from_screen_2d", animate, motion.position, 0)
+	svg_plugin.call("_forward_canvas_gui_input", motion)
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.position = motion.position
+	svg_plugin.call("_forward_canvas_gui_input", release)
+	check(Vector2(animate.call("get_path_point", 0, 1)).distance_to(expected_point) < 0.2,
+		"2D nested transforms displaced a dragged path point")
+	var in_handle: Vector2 = animate.call("get_in_handle", 0, 1)
+	var handle_screen: Vector2 = svg_plugin.call("path_screen_2d", animate, in_handle, 0)
+	var handle_hit: Dictionary = svg_plugin.call("pick_path_control_2d", animate, handle_screen)
+	check(not handle_hit.is_empty() and handle_hit.part == "in" and handle_hit.point == 1,
+		"2D nested transforms made the Bezier handle unclickable")
+	var right := InputEventMouseButton.new()
+	right.button_index = MOUSE_BUTTON_RIGHT
+	right.pressed = true
+	right.position = handle_screen
+	check(svg_plugin.call("_forward_canvas_gui_input", right),
+		"2D transformed handle right-click was not handled")
+	svg_plugin.call("_context_key_selected", 0)
+	var player2: AnimationPlayer = svg_plugin.call("_find_animation_player", animate)
+	var relative2: NodePath = player2.get_node_or_null(player2.root_node).get_path_to(animate)
+	check(player2.get_animation(player2.assigned_animation).find_track(
+		NodePath(String(relative2) + ":paths/path_0/point_1/in_handle"), Animation.TYPE_VALUE) >= 0,
+		"2D transformed handle right-click keyed the wrong node path")
+	player2.free()
+	outer.free()
+
+func test_nested_transforms_3d(scene_root: Node2D, svg_plugin: Node, camera: Camera3D) -> void:
+	var outer := Node3D.new()
+	outer.position = Vector3(0.08, -0.06, 0.1)
+	outer.rotation = Vector3(0.27, -0.35, 0.18)
+	outer.scale = Vector3(1.2, 0.8, 1.3)
+	scene_root.add_child(outer)
+	var middle := Node3D.new()
+	middle.position = Vector3(-0.06, 0.04, 0.03)
+	middle.rotation = Vector3(-0.25, 0.41, -0.3)
+	middle.scale = Vector3(0.7, 1.45, 0.9)
+	outer.add_child(middle)
+	var animate: Node3D = ClassDB.instantiate("SVGAnimate3D")
+	animate.set("src", "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'>" \
+		+ "<g transform='translate(7 9)'><g transform='rotate(20 50 50)'>" \
+		+ "<path transform='scale(1.2 0.8)' d='M15 20 C28 8 52 8 65 20 L70 75 L10 75 Z' fill='#fff'/>" \
+		+ "</g></g></svg>")
+	animate.position = Vector3(0.03, 0.02, 0.04)
+	animate.rotation = Vector3(0.13, -0.24, 0.28)
+	animate.scale = Vector3(1.1, 0.75, 1.0)
+	animate.set("offset", Vector2(3, -2))
+	middle.add_child(animate)
+	var path_point := Vector2(65, 20)
+	var local_svg := Vector2(7, 9) + Vector2(50, 50) \
+		+ Vector2(65 * 1.2 - 50, 20 * 0.8 - 50).rotated(deg_to_rad(20.0))
+	var scenarios := [
+		{"move": Vector3(0.0, 0.0, 0.0), "scale": Vector3(0.7, 1.45, 0.9), "turn": -0.3},
+		{"move": Vector3(0.12, -0.08, 0.03), "scale": Vector3(0.7, 1.45, 0.9), "turn": -0.3},
+		{"move": Vector3(0.12, -0.08, 0.03), "scale": Vector3(1.6, 0.65, 0.9), "turn": -0.3},
+		{"move": Vector3(0.12, -0.08, 0.03), "scale": Vector3(1.6, 0.65, 0.9), "turn": 0.6},
+	]
+	for scenario in scenarios:
+		animate.position = Vector3(0.03, 0.02, 0.04) + Vector3(scenario.move)
+		middle.scale = Vector3(scenario.scale)
+		middle.rotation.z = float(scenario.turn)
+		var local_draw := Vector3((local_svg.x - 50 + 3) * float(animate.get("pixel_size")),
+			(-(local_svg.y - 50) - 2) * float(animate.get("pixel_size")), 0)
+		var expected := outer.transform * middle.transform * animate.transform * local_draw
+		var actual: Vector3 = svg_plugin.call("svg_world_3d", animate, path_point, 0)
+		check(actual.distance_to(expected) < 0.0002,
+			"3D nested transforms misplaced path point: %s != %s" % [actual, expected])
+		check(Vector2(svg_plugin.call("svg_point_from_world_3d", animate, expected, 0))
+			.distance_to(path_point) < 0.2, "3D nested transforms failed inverse path mapping")
+		var screen := camera.unproject_position(expected)
+		var hit: Dictionary = svg_plugin.call("pick_path_control_3d", animate, camera, screen)
+		check(not hit.is_empty() and hit.path == 0 and hit.point == 1 and hit.part == "point",
+			"3D nested transforms made the visible anchor unclickable: %s" % hit)
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(animate)
+	var before: Vector2 = animate.call("get_path_point", 0, 1)
+	var point_world: Vector3 = svg_plugin.call("svg_world_3d", animate, before, 0)
+	var point_screen := camera.unproject_position(point_world)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = point_screen
+	check(svg_plugin.call("_forward_3d_gui_input", camera, press) == EditorPlugin.AFTER_GUI_INPUT_STOP,
+		"3D transformed path point cannot start a viewport drag")
+	var motion := InputEventMouseMotion.new()
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	motion.position = point_screen + Vector2(17, -11)
+	var normal := animate.global_transform.basis.x.cross(animate.global_transform.basis.y).normalized()
+	var ray_origin := camera.project_ray_origin(motion.position)
+	var ray_direction := camera.project_ray_normal(motion.position)
+	var plane_distance := normal.dot(animate.global_position - ray_origin) / normal.dot(ray_direction)
+	var expected_world := ray_origin + ray_direction * plane_distance
+	var expected_point: Vector2 = svg_plugin.call("svg_point_from_world_3d", animate, expected_world, 0)
+	svg_plugin.call("_forward_3d_gui_input", camera, motion)
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.position = motion.position
+	svg_plugin.call("_forward_3d_gui_input", camera, release)
+	check(Vector2(animate.call("get_path_point", 0, 1)).distance_to(expected_point) < 0.2,
+		"3D nested transforms displaced a dragged path point: %s != %s" %
+		[animate.call("get_path_point", 0, 1), expected_point])
+	var in_handle: Vector2 = animate.call("get_in_handle", 0, 1)
+	var handle_screen := camera.unproject_position(
+		Vector3(svg_plugin.call("svg_world_3d", animate, in_handle, 0)))
+	var handle_hit: Dictionary = svg_plugin.call("pick_path_control_3d", animate, camera, handle_screen)
+	check(not handle_hit.is_empty() and handle_hit.part == "in" and handle_hit.point == 1,
+		"3D nested transforms made the Bezier handle unclickable")
+	var right := InputEventMouseButton.new()
+	right.button_index = MOUSE_BUTTON_RIGHT
+	right.pressed = true
+	right.position = handle_screen
+	check(svg_plugin.call("_forward_3d_gui_input", camera, right) == EditorPlugin.AFTER_GUI_INPUT_STOP,
+		"3D transformed handle right-click was not handled")
+	svg_plugin.call("_context_key_selected", 0)
+	var player3: AnimationPlayer = svg_plugin.call("_find_animation_player", animate)
+	var relative3: NodePath = player3.get_node_or_null(player3.root_node).get_path_to(animate)
+	check(player3.get_animation(player3.assigned_animation).find_track(
+		NodePath(String(relative3) + ":paths/path_0/point_1/in_handle"), Animation.TYPE_VALUE) >= 0,
+		"3D transformed handle right-click keyed the wrong node path")
+	# A perspective editor camera must hit the same sheared SVG plane.
+	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	camera.fov = 45.0
+	camera.position = Vector3(0.15, -0.1, 2.5)
+	var perspective_point: Vector2 = animate.call("get_path_point", 0, 1)
+	var perspective_screen := camera.unproject_position(
+		Vector3(svg_plugin.call("svg_world_3d", animate, perspective_point, 0)))
+	var perspective_press := InputEventMouseButton.new()
+	perspective_press.button_index = MOUSE_BUTTON_LEFT
+	perspective_press.pressed = true
+	perspective_press.position = perspective_screen
+	check(svg_plugin.call("_forward_3d_gui_input", camera, perspective_press)
+		== EditorPlugin.AFTER_GUI_INPUT_STOP,
+		"3D perspective transformed path point cannot start a viewport drag")
+	var perspective_motion := InputEventMouseMotion.new()
+	perspective_motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	perspective_motion.position = perspective_screen + Vector2(-14, 9)
+	var perspective_ray_origin := camera.project_ray_origin(perspective_motion.position)
+	var perspective_ray_direction := camera.project_ray_normal(perspective_motion.position)
+	var perspective_distance := normal.dot(animate.global_position - perspective_ray_origin) \
+		/ normal.dot(perspective_ray_direction)
+	var perspective_world := perspective_ray_origin + perspective_ray_direction * perspective_distance
+	var perspective_expected: Vector2 = svg_plugin.call("svg_point_from_world_3d", animate, perspective_world, 0)
+	svg_plugin.call("_forward_3d_gui_input", camera, perspective_motion)
+	var perspective_release := InputEventMouseButton.new()
+	perspective_release.button_index = MOUSE_BUTTON_LEFT
+	perspective_release.position = perspective_motion.position
+	svg_plugin.call("_forward_3d_gui_input", camera, perspective_release)
+	check(Vector2(animate.call("get_path_point", 0, 1)).distance_to(perspective_expected) < 0.2,
+		"3D perspective nested transforms displaced a dragged path point")
+	player3.free()
+	outer.free()
+
+# A second hierarchy deliberately changes the SVG node's own non-uniform scale,
+# both flip flags, and the viewing camera. Expected positions are composed here
+# from the SVG markup, independently of the editor's coordinate helpers.
+func test_alternate_transform_stack_2d(scene_root: Node2D, svg_plugin: Node) -> void:
+	var fixture: Dictionary = TransformFixture.create_2d(scene_root)
+	var a: Node2D = fixture.a
+	var b: Node2D = fixture.b
+	var c: Node2D = fixture.c
+	var svg: Node2D = fixture.svg
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(svg)
+	await get_tree().process_frame
+	check(svg.has_signal("path_changed") and svg_plugin.get("overlay_path_node") == svg
+		and svg.is_connected(&"path_changed", Callable(svg_plugin, "update_overlays")),
+		"2D editor overlay does not subscribe to generic animated path changes")
+	var canvas := EditorInterface.get_editor_viewport_2d().get_global_canvas_transform()
+	for scenario in [
+		{"scale": Vector2(1.7, 0.55), "h": false, "v": false},
+		{"scale": Vector2(0.65, 1.85), "h": true, "v": false},
+		{"scale": Vector2(1.35, 0.8), "h": false, "v": true},
+		{"scale": Vector2(0.8, 1.4), "h": true, "v": true},
+		{"scale": Vector2(-0.9, 1.3), "h": true, "v": false},
+	]:
+		svg.scale = scenario.scale
+		svg.set("flip_h", scenario.h)
+		svg.set("flip_v", scenario.v)
+		var document := Vector2(8 + 72 * 0.8, 5 + 20 * 1.1)
+		if scenario.h: document.x = 100 - document.x
+		if scenario.v: document.y = 100 - document.y
+		var expected: Vector2 = canvas * a.transform * b.transform * c.transform * svg.transform \
+			* (document + Vector2(4, -6))
+		var actual: Vector2 = svg_plugin.call("path_screen_2d", svg, Vector2(72, 20), 0)
+		check(actual.distance_to(expected) < 0.2, "2D alternate hierarchy/flip placed anchor incorrectly")
+		var hit: Dictionary = svg_plugin.call("pick_path_control_2d", svg, expected)
+		check(not hit.is_empty() and hit.point == 1 and hit.part == "point",
+			"2D alternate hierarchy/flip made anchor unclickable: %s" % hit)
+		var press := InputEventMouseButton.new()
+		press.button_index = MOUSE_BUTTON_LEFT
+		press.pressed = true
+		press.position = expected
+		check(svg_plugin.call("_forward_canvas_gui_input", press),
+			"2D alternate hierarchy/flip did not accept point press")
+		var motion := InputEventMouseMotion.new()
+		motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		motion.position = expected + Vector2(8, -5)
+		var target_document: Vector2 = (canvas * a.transform * b.transform * c.transform \
+			* svg.transform).affine_inverse() * motion.position - Vector2(4, -6)
+		if scenario.h: target_document.x = 100 - target_document.x
+		if scenario.v: target_document.y = 100 - target_document.y
+		var target := Vector2((target_document.x - 8) / 0.8, (target_document.y - 5) / 1.1)
+		svg_plugin.call("_forward_canvas_gui_input", motion)
+		var release := InputEventMouseButton.new()
+		release.button_index = MOUSE_BUTTON_LEFT
+		release.position = motion.position
+		svg_plugin.call("_forward_canvas_gui_input", release)
+		check(Vector2(svg.call("get_path_point", 0, 1)).distance_to(target) < 0.2,
+			"2D alternate hierarchy/flip dragged anchor to wrong path coordinate")
+		svg.call("set_path_point", 0, 1, Vector2(72, 20))
+	a.free()
+
+func test_alternate_transform_stack_3d(scene_root: Node2D, svg_plugin: Node, camera: Camera3D) -> void:
+	var fixture: Dictionary = TransformFixture.create_3d(scene_root)
+	var a: Node3D = fixture.a
+	var b: Node3D = fixture.b
+	var c: Node3D = fixture.c
+	var svg: Node3D = fixture.svg
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(svg)
+	await get_tree().process_frame
+	check(svg.has_signal("path_changed") and svg_plugin.get("overlay_path_node") == svg
+		and svg.is_connected(&"path_changed", Callable(svg_plugin, "update_overlays")),
+		"3D editor overlay does not subscribe to generic animated path changes")
+	# Compare against Sprite3D's actual local quad, including its offset and
+	# adaptive texture scale. This catches a shared but wrong forward/inverse map.
+	var sprite := svg.get_node_or_null("SVG") as Sprite3D
+	check(sprite != null, "3D visual fixture did not create the Sprite3D renderer")
+	if sprite:
+		var rendered_center: Vector3 = sprite.transform * sprite.get_aabb().get_center()
+		var editor_center: Vector3 = ShapeUtils.displayed_point_3d(svg, Vector2(50, 50))
+		check(rendered_center.distance_to(editor_center) < 0.0002,
+			"3D editor coordinates disagree with Sprite3D's real offset/scale: %s != %s" %
+			[editor_center, rendered_center])
+	for scenario in [
+		{"scale": Vector3(1.7, 0.55, 1.2), "h": false, "v": false, "ortho": true,
+			"camera_offset": Vector3(0.8, 0.5, 2.2)},
+		{"scale": Vector3(0.65, 1.85, 0.8), "h": true, "v": false, "ortho": false,
+			"camera_offset": Vector3(-0.6, 0.35, 1.8)},
+		{"scale": Vector3(1.35, 0.8, 1.3), "h": false, "v": true, "ortho": false,
+			"camera_offset": Vector3(0.3, -0.6, 2.0)},
+		{"scale": Vector3(0.8, 1.4, 0.7), "h": true, "v": true, "ortho": true,
+			"camera_offset": Vector3(-0.75, -0.4, 2.4)},
+		{"scale": Vector3(-1.1, 0.85, 1.0), "h": true, "v": false, "ortho": false,
+			"camera_offset": Vector3(0.5, -0.35, 2.3)},
+	]:
+		svg.scale = scenario.scale
+		svg.set("flip_h", scenario.h)
+		svg.set("flip_v", scenario.v)
+		var document := Vector2(8 + 72 * 0.8, 5 + 20 * 1.1)
+		if scenario.h: document.x = 100 - document.x
+		if scenario.v: document.y = 100 - document.y
+		var pixel := float(svg.get("pixel_size"))
+		var local := Vector3((document.x - 50 + 4) * pixel, (-(document.y - 50) - 6) * pixel, 0)
+		var expected: Vector3 = a.transform * b.transform * c.transform * svg.transform * local
+		check(Vector3(svg_plugin.call("svg_world_3d", svg, Vector2(72, 20), 0))
+			.distance_to(expected) < 0.0002, "3D alternate hierarchy/flip placed anchor incorrectly")
+		camera.projection = Camera3D.PROJECTION_ORTHOGONAL if scenario.ortho \
+			else Camera3D.PROJECTION_PERSPECTIVE
+		camera.size = 1.5
+		camera.fov = 48.0
+		var focus := svg.global_position
+		camera.position = focus + Vector3(scenario.camera_offset)
+		camera.look_at(focus + Vector3(0.03, -0.02, 0.0), Vector3.UP)
+		check(not camera.is_position_behind(expected), "3D alternate camera put anchor behind viewer")
+		var interior_world := svg.to_global(ShapeUtils.displayed_point_3d(svg, Vector2(40, 50)))
+		var body_hit: Dictionary = svg_plugin.call("ray_hit_svg3d", svg, camera,
+			camera.unproject_position(interior_world))
+		check(not body_hit.is_empty(), "3D alternate hierarchy/flip made the visible SVG body unclickable")
+		var screen := camera.unproject_position(expected)
+		var hit: Dictionary = svg_plugin.call("pick_path_control_3d", svg, camera, screen)
+		check(not hit.is_empty() and hit.point == 1 and hit.part == "point",
+			"3D moved/rotated camera and flip made anchor unclickable: %s" % hit)
+		var press := InputEventMouseButton.new()
+		press.button_index = MOUSE_BUTTON_LEFT
+		press.pressed = true
+		press.position = screen
+		check(svg_plugin.call("_forward_3d_gui_input", camera, press) == EditorPlugin.AFTER_GUI_INPUT_STOP,
+			"3D moved/rotated camera did not accept point press")
+		var motion := InputEventMouseMotion.new()
+		motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		motion.position = screen + Vector2(10, -7)
+		var basis := svg.global_transform.basis
+		var normal := basis.x.cross(basis.y).normalized()
+		var ray_start := camera.project_ray_origin(motion.position)
+		var ray_dir := camera.project_ray_normal(motion.position)
+		var distance := normal.dot(svg.global_position - ray_start) / normal.dot(ray_dir)
+		check(distance > 0, "3D moved/rotated camera ray missed the visible SVG plane")
+		var point_local := svg.to_local(ray_start + ray_dir * distance)
+		var target_document := Vector2(point_local.x / pixel + 50 - 4, -point_local.y / pixel + 50 - 6)
+		if scenario.h: target_document.x = 100 - target_document.x
+		if scenario.v: target_document.y = 100 - target_document.y
+		var target := Vector2((target_document.x - 8) / 0.8, (target_document.y - 5) / 1.1)
+		svg_plugin.call("_forward_3d_gui_input", camera, motion)
+		var release := InputEventMouseButton.new()
+		release.button_index = MOUSE_BUTTON_LEFT
+		release.position = motion.position
+		svg_plugin.call("_forward_3d_gui_input", camera, release)
+		check(Vector2(svg.call("get_path_point", 0, 1)).distance_to(target) < 0.2,
+			"3D moved/rotated camera and flip dragged anchor to wrong path coordinate")
+		svg.call("set_path_point", 0, 1, Vector2(72, 20))
+	# Projecting a point behind the camera may produce plausible screen coordinates,
+	# but those coordinates must never be considered an editable visible anchor.
+	camera.position = svg.global_position + Vector3(0.3, 0.2, 2.0)
+	camera.look_at(svg.global_position + Vector3(0.3, 0.2, 4.0), Vector3.UP)
+	var hidden_world: Vector3 = svg_plugin.call("svg_world_3d", svg, Vector2(72, 20), 0)
+	check(camera.is_position_behind(hidden_world), "3D rear-camera regression fixture is invalid")
+	var hidden_screen := camera.unproject_position(hidden_world)
+	check(Dictionary(svg_plugin.call("pick_path_control_3d", svg, camera, hidden_screen)).is_empty(),
+		"3D camera incorrectly selected an SVG point behind the viewer")
+	a.free()
 
 func _enter_tree() -> void:
 	run_checks.call_deferred()
@@ -216,6 +612,29 @@ func run_checks() -> void:
 		var path_hit: Dictionary = svg_plugin.call("pick_path_control_2d", animate, anchor_screen)
 		check(path_hit.path == 0 and path_hit.point == 1 and path_hit.part == "point",
 			"2Dパスツールが接点番号を選択できないよ")
+		var right_click2 := InputEventMouseButton.new()
+		right_click2.button_index = MOUSE_BUTTON_RIGHT
+		right_click2.pressed = true
+		right_click2.position = anchor_screen
+		check(svg_plugin.call("_forward_canvas_gui_input", right_click2)
+			and svg_plugin.get("path_index") == 0 and svg_plugin.get("point_index") == 1,
+			"2Dパス点の右クリックからキー登録対象を選べないよ")
+		svg_plugin.call("_context_key_selected", 0)
+		var right_player2 := scene_root.get_node_or_null("AnimationPlayer") as AnimationPlayer
+		check(right_player2 != null and right_player2.has_animation("svg_path")
+			and right_player2.get_animation("svg_path").get_track_count() == 1,
+			"2D右クリックのキー登録でAnimationPlayerを自動生成できないよ")
+		var decoy := AnimationPlayer.new()
+		decoy.name = "CloserButUnrelatedPlayer"
+		animate.add_child(decoy)
+		decoy.owner = scene_root
+		var decoy_library := AnimationLibrary.new()
+		decoy_library.add_animation("idle", Animation.new())
+		decoy.add_animation_library("", decoy_library)
+		decoy.assigned_animation = &"idle"
+		check(svg_plugin.call("_find_animation_player", animate) == right_player2,
+			"SVG用トラックより近いだけの無関係なAnimationPlayerを選んだよ")
+		decoy.free()
 		var path_press := InputEventMouseButton.new()
 		path_press.button_index = MOUSE_BUTTON_LEFT
 		path_press.pressed = true
@@ -296,6 +715,13 @@ func run_checks() -> void:
 		check(path_control.get("path_select").item_count == 1
 			and int(path_control.get("point_select").max_value) == 2,
 			"Inspector Path Editorがパス番号と接点番号を列挙しないよ")
+		var mini_key := path_control.find_child("KeySelectedControlButton", true, false) as Button
+		var all_button := path_control.get_node_or_null("CreateAllPointsAnimationPlayerButton") as Button
+		check(mini_key != null and all_button != null,
+			"Inspectorに小型キー追加ボタンと全点AnimationPlayer作成ボタンがないよ")
+		svg_plugin.call("select_path_control", animate, 0, 1, "point")
+		check(int(path_control.get("point_select").value) == 1,
+			"Viewportのパス点選択がInspectorのPoint番号へ同期されないよ")
 		check(svg_plugin.call("insert_path_key", animate, 0, 1),
 			"接点番号をAnimationPlayerへ登録できないよ")
 		var key_player := scene_root.get_node_or_null("AnimationPlayer") as AnimationPlayer
@@ -303,6 +729,57 @@ func run_checks() -> void:
 		check(keyed != null and keyed.get_track_count() == 1
 			and String(keyed.track_get_path(0)).ends_with(":paths/path_0/point_1"),
 			"接点番号の値トラックがAnimationPlayerへ作られていないよ")
+		path_control.get("point_select").value = 1
+		path_control.call("_mode_pressed", "in")
+		path_control.call("_insert_key")
+		check(keyed != null and keyed.get_track_count() == 2
+			and String(keyed.track_get_path(1)).ends_with(":paths/path_0/point_1/in_handle"),
+			"InspectorのInハンドル選択から値トラックを作れないよ")
+		path_control.get("point_select").value = 0
+		path_control.call("_mode_pressed", "out")
+		path_control.call("_insert_key")
+		check(keyed != null and keyed.get_track_count() == 3
+			and String(keyed.track_get_path(2)).ends_with(":paths/path_0/point_0/out_handle"),
+			"InspectorのOutハンドル選択から値トラックを作れないよ")
+		if mini_key: mini_key.pressed.emit()
+		check(keyed != null and keyed.get_track_count() == 3,
+			"小型キー追加ボタンが選択中のハンドルを登録できないよ")
+		if all_button: all_button.pressed.emit()
+		var all_player2 := scene_root.get_node_or_null("SVGAllPointsAnimationPlayer") as AnimationPlayer
+		var all_animation2 := all_player2.get_animation("all_points") if all_player2 else null
+		var expected2: Array = svg_plugin.call("_all_svg_key_properties", animate)
+		check(all_player2 != null and all_player2.owner == scene_root
+			and all_animation2 != null and all_animation2.get_track_count() == expected2.size(),
+			"2D Inspectorから全SVG属性を持つ新規AnimationPlayerノードを作れないよ")
+		if all_animation2:
+			for property_name in expected2:
+				check(all_animation2.find_track(NodePath("%s:%s" % [animate.name, property_name]),
+					Animation.TYPE_VALUE) >= 0, "2Dの全属性トラックに%sがないよ" % property_name)
+		if all_player2:
+			animate.call("flush_paths")
+			var before_all2 := hash((animate.call("get_texture") as Texture2D).get_image().get_data())
+			all_player2.play("all_points")
+			all_player2.pause()
+			all_player2.seek(0.0, true)
+			animate.call("flush_paths")
+			check(before_all2 == hash((animate.call("get_texture") as Texture2D).get_image().get_data()),
+				"2D全属性の初期キーが編集済みSVGの見た目を変えたよ")
+		svg_plugin.call("_show_path_key_menu", animate,
+			{"instance": 0, "path": 0, "point": 1, "part": "point"})
+		var menu2: Array = svg_plugin.get("context_properties")
+		check(menu2.has("paths/path_0/point_1/in_handle")
+			and menu2.has("paths/path_0/fill_color") and menu2.has("paths/path_0/stroke_color")
+			and menu2.has("paths/path_0/stroke_width") and menu2.has("modulate") and menu2.has("*"),
+			"2D右クリックメニューから曲線・塗り・線・一括キーを選べないよ")
+		if menu2.has("paths/path_0/fill_color"):
+			svg_plugin.call("_context_key_selected", menu2.find("paths/path_0/fill_color"))
+			check(keyed.find_track(NodePath("%s:paths/path_0/fill_color" % animate.name),
+				Animation.TYPE_VALUE) >= 0, "2D右クリックで塗り色をキーにできないよ")
+		if menu2.has("*"):
+			svg_plugin.call("_context_key_selected", menu2.find("*"))
+			check(keyed.get_track_count() == expected2.size(),
+				"2D右クリックの一括キーで全SVG属性を登録できないよ")
+		if all_player2: all_player2.free()
 		path_control.free()
 		if key_player: key_player.free()
 		animate.free()
@@ -449,6 +926,19 @@ func run_checks() -> void:
 		var path_hit3: Dictionary = svg_plugin.call("pick_path_control_3d", animate3, test_camera, point_screen)
 		check(path_hit3.path == 0 and path_hit3.point == 1,
 			"3Dパスツールが接点番号を選択できないよ")
+		var right_click3 := InputEventMouseButton.new()
+		right_click3.button_index = MOUSE_BUTTON_RIGHT
+		right_click3.pressed = true
+		right_click3.position = point_screen
+		check(svg_plugin.call("_forward_3d_gui_input", test_camera, right_click3)
+			== EditorPlugin.AFTER_GUI_INPUT_STOP
+			and svg_plugin.get("path_index") == 0 and svg_plugin.get("point_index") == 1,
+			"3Dパス点の右クリックからキー登録対象を選べないよ")
+		svg_plugin.call("_context_key_selected", 0)
+		var right_player3 := scene_root.get_node_or_null("AnimationPlayer") as AnimationPlayer
+		check(right_player3 != null and right_player3.has_animation("svg_path")
+			and right_player3.get_animation("svg_path").get_track_count() == 1,
+			"3D右クリックのキー登録でAnimationPlayerを自動生成できないよ")
 		var path_press3 := InputEventMouseButton.new()
 		path_press3.button_index = MOUSE_BUTTON_LEFT
 		path_press3.pressed = true
@@ -504,8 +994,76 @@ func run_checks() -> void:
 		var keyed3 := key_player3.get_animation("svg_path") if key_player3 else null
 		check(keyed3 != null and String(keyed3.track_get_path(0)).ends_with(":paths/path_0/point_1"),
 			"SVGAnimate3D接点番号の値トラックが作られていないよ")
+		var path_control3 := SVGPathControl.new()
+		path_control3.setup(animate3)
+		add_child(path_control3)
+		path_control3.get("point_select").value = 1
+		var mini_key3 := path_control3.find_child("KeySelectedControlButton", true, false) as Button
+		var all_button3 := path_control3.get_node_or_null("CreateAllPointsAnimationPlayerButton") as Button
+		if mini_key3: mini_key3.pressed.emit()
+		check(mini_key3 != null and keyed3 != null and keyed3.get_track_count() == 1,
+			"3D Inspectorの小型キー追加ボタンが接点を登録できないよ")
+		if all_button3: all_button3.pressed.emit()
+		var all_player3 := scene_root.get_node_or_null("SVGAllPointsAnimationPlayer") as AnimationPlayer
+		var all_animation3 := all_player3.get_animation("all_points") if all_player3 else null
+		var expected3: Array = svg_plugin.call("_all_svg_key_properties", animate3)
+		check(all_button3 != null and all_player3 != null and all_animation3 != null
+			and all_animation3.get_track_count() == expected3.size(),
+			"3D Inspectorから全SVG属性を持つ新規AnimationPlayerノードを作れないよ")
+		if all_animation3:
+			for property_name in expected3:
+				check(all_animation3.find_track(NodePath("%s:%s" % [animate3.name, property_name]),
+					Animation.TYPE_VALUE) >= 0, "3Dの全属性トラックに%sがないよ" % property_name)
+		if all_player3:
+			animate3.call("flush_paths")
+			var before_all3 := hash((animate3.call("get_texture") as Texture2D).get_image().get_data())
+			all_player3.play("all_points")
+			all_player3.pause()
+			all_player3.seek(0.0, true)
+			animate3.call("flush_paths")
+			check(before_all3 == hash((animate3.call("get_texture") as Texture2D).get_image().get_data()),
+				"3D全属性の初期キーがSVGの見た目を変えたよ")
+		svg_plugin.call("_show_path_key_menu", animate3,
+			{"instance": 0, "path": 0, "point": 1, "part": "point"})
+		var menu3: Array = svg_plugin.get("context_properties")
+		check(menu3.has("paths/path_0/point_1/in_handle")
+			and menu3.has("paths/path_0/fill_color") and menu3.has("paths/path_0/stroke_paint")
+			and menu3.has("paths/path_0/fill_opacity") and menu3.has("modulate") and menu3.has("*"),
+			"3D右クリックメニューから曲線・塗り・線・一括キーを選べないよ")
+		if menu3.has("paths/path_0/fill_color"):
+			svg_plugin.call("_context_key_selected", menu3.find("paths/path_0/fill_color"))
+			check(keyed3.find_track(NodePath("%s:paths/path_0/fill_color" % animate3.name),
+					Animation.TYPE_VALUE) >= 0, "3D右クリックで塗り色をキーにできないよ")
+		if menu3.has("*"):
+			svg_plugin.call("_context_key_selected", menu3.find("*"))
+			check(keyed3.get_track_count() == expected3.size(),
+				"3D右クリックの一括キーで全SVG属性を登録できないよ")
+		path_control3.free()
+		if all_player3: all_player3.free()
 		if key_player3: key_player3.free()
 		animate3.free()
+		# ファイル素材の基本図形も3D編集画面で接点を選べる。
+		var shape3: Node3D = ClassDB.instantiate("SVGAnimate3D")
+		scene_root.add_child(shape3)
+		shape3.owner = scene_root
+		var shape_source := SVGSourceProperty.new()
+		shape_source.set_object_and_property(shape3, &"src")
+		shape_source.property_changed.connect(apply_inspector_change.bind(shape3))
+		shape_source.call("_file_selected", "res://tests/svg/hello.svg")
+		var shape_paths := SVGPathControl.new()
+		shape_paths.setup(shape3)
+		check(shape3.get("src") == "res://tests/svg/hello.svg"
+			and shape_paths.get("path_select").item_count == 2,
+			"InspectorからSVGAnimate3Dへ基本図形SVGを設定しても接点一覧が出ないよ")
+		var shape_screen := test_camera.unproject_position(
+			Vector3(svg_plugin.call("svg_world_3d", shape3, Vector2(10, 10), 0)))
+		var shape_hit: Dictionary = svg_plugin.call("pick_path_control_3d", shape3, test_camera, shape_screen)
+		check(shape3.call("get_path_count") == 2 and shape_hit.get("path", -1) == 0
+			and shape_hit.get("point", -1) == 0,
+			"SVGAnimate3Dがファイル素材の矩形接点をエディターで選択できないよ")
+		shape_paths.free()
+		shape_source.free()
+		shape3.free()
 
 	# InspectorのRect / ShapeがSprite3D等と同じ標準のStaticBody + Collision子ノードを作る。
 	# Shapeは穴を無視し、離れた2つの塗りを2つの外周として残す。
@@ -535,6 +1093,7 @@ func run_checks() -> void:
 
 	var hit_node_3d: Node3D = ClassDB.instantiate("SVG3D")
 	hit_node_3d.set("src", silhouette_svg)
+	hit_node_3d.set("offset", Vector2(4, -6))
 	scene_root.add_child(hit_node_3d)
 	hit_node_3d.owner = scene_root
 	await get_tree().process_frame
@@ -546,6 +1105,10 @@ func run_checks() -> void:
 	check(rect_area_3d != null and rect_area_3d.get_child(0) is CollisionShape3D
 		and (rect_area_3d.get_child(0) as CollisionShape3D).shape is BoxShape3D,
 		"SVG3D RectがStaticBody3D/CollisionShape3D構成を作らないよ")
+	if rect_area_3d:
+		check((rect_area_3d.get_child(0) as CollisionShape3D).position.distance_to(
+			Vector3(0.04, -0.06, 0.0)) < 0.0001,
+			"SVG3D Rect collision does not follow Sprite3D's Y offset")
 	hitbox_3d.call("_create_shape")
 	var shape_area_3d := hit_node_3d.get_node_or_null("SVGShapeBody3D") as StaticBody3D
 	var shape_collision_3d := shape_area_3d.get_child(0) as CollisionShape3D if shape_area_3d else null
@@ -555,6 +1118,11 @@ func run_checks() -> void:
 	check(shape_area_3d != null and shape_area_3d.owner == scene_root
 		and shape_collision_3d.owner == scene_root,
 		"作った3D当たり判定がシーン保存対象になっていないよ")
+	if svg_plugin:
+		test_nested_transforms_2d(scene_root, svg_plugin)
+		test_nested_transforms_3d(scene_root, svg_plugin, test_camera)
+		await test_alternate_transform_stack_2d(scene_root, svg_plugin)
+		await test_alternate_transform_stack_3d(scene_root, svg_plugin, test_camera)
 	hitbox_2d.free()
 	hitbox_3d.free()
 	if svg_plugin:

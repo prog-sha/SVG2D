@@ -25,7 +25,8 @@ generated_digest() {
 
 # 共通入力は起動ごとに1回だけ読む。説明XMLはdebug対象だけへ影響させる。
 common_digest=$({
-	find "$root/src" -type f ! -path "$root/src/gen/*" -print | LC_ALL=C sort | while IFS= read -r file; do
+	find "$root/src" -type f \( -name '*.cpp' -o -name '*.h' \) ! -path "$root/src/gen/*" -print \
+		| LC_ALL=C sort | while IFS= read -r file; do
 		printf '%s %s\n' "${file#$root/}" "$(file_digest "$file")"
 	done
 	for file in "$root/SConstruct" "$root/build_profile.json" "$root/tests/build_all.sh"; do
@@ -63,10 +64,25 @@ run_build() {
 		local) (cd "$root" && scons $action platform="$platform" target="$target" arch="$arch") ;;
 		android) (cd "$root" && ANDROID_HOME= scons $action platform=android target="$target" arch=arm64) ;;
 		web) (cd "$root" && scons $action platform=web target="$target" arch=wasm32 threads=no) ;;
-		linux-arm64) podman run --rm -v "$root:/src" -w /src localhost/gd-linux-builder:latest \
-			bash -lc "scons $action platform=linux target=$target arch=arm64" ;;
-		linux-x86_64) podman run --rm --platform linux/amd64 -v "$root:/src" -w /src \
-			localhost/gd-linux-builder-x64:latest bash -lc "scons -j2 $action platform=linux target=$target arch=x86_64" ;;
+		linux-arm64|linux-x86_64)
+			if podman info >/dev/null 2>&1; then
+				if [ "$runner" = linux-arm64 ]; then
+					podman run --rm -v "$root:/src" -w /src localhost/gd-linux-builder:latest \
+						bash -lc "scons $action platform=linux target=$target arch=arm64"
+				else
+					podman run --rm --platform linux/amd64 -v "$root:/src" -w /src \
+						localhost/gd-linux-builder-x64:latest bash -lc "scons -j2 $action platform=linux target=$target arch=x86_64"
+				fi
+			else
+				# Podman VMが停止中でも、既存のDockerクロスビルド環境を使える。
+				local cross_cc= cross_cxx=
+				if [ "$runner" = linux-x86_64 ]; then
+					cross_cc=x86_64-linux-gnu-gcc; cross_cxx=x86_64-linux-gnu-g++
+				fi
+				docker run --rm -v "$root:/src" -w /src \
+					-e SVG2D_CC="$cross_cc" -e SVG2D_CXX="$cross_cxx" gd-release-env:latest \
+					bash -lc "scons -j2 $action platform=linux target=$target arch=$arch"
+			fi ;;
 	 esac
 }
 

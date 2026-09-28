@@ -105,7 +105,7 @@ func _rect_3d() -> StaticBody3D:
 	shape.size = Vector3(size.x * pixel_size, size.y * pixel_size, _depth_3d(size, pixel_size))
 	collision.shape = shape
 	var offset := Vector2(target.get("offset")) * pixel_size
-	collision.position = Vector3(offset.x, -offset.y, 0.0)
+	collision.position = Vector3(offset.x, offset.y, 0.0)
 	body.add_child(collision)
 	return body
 

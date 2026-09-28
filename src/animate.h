@@ -42,6 +42,7 @@ public:
 	int64_t get_animation_cache_hits() const;
 	int64_t get_animation_cache_misses() const;
 	int get_path_count() const;
+	int get_path_instance_count(int path) const;
 	int get_point_count(int path) const;
 	godot::Vector2 get_path_point(int path, int point) const;
 	void set_path_point(int path, int point, const godot::Vector2 &value);
@@ -49,9 +50,13 @@ public:
 	void set_in_handle(int path, int point, const godot::Vector2 &value);
 	godot::Vector2 get_out_handle(int path, int point) const;
 	void set_out_handle(int path, int point, const godot::Vector2 &value);
+	bool has_in_handle(int path, int point) const;
+	bool has_out_handle(int path, int point) const;
 	godot::PackedVector2Array get_path_points(int path) const;
 	godot::Vector2 path_to_document(int path, const godot::Vector2 &point) const;
 	godot::Vector2 document_to_path(int path, const godot::Vector2 &point) const;
+	godot::Vector2 path_to_document_instance(int path, const godot::Vector2 &point, int instance) const;
+	godot::Vector2 document_to_path_instance(int path, const godot::Vector2 &point, int instance) const;
 	bool _set(const godot::StringName &name, const godot::Variant &value);
 	bool _get(const godot::StringName &name, godot::Variant &value) const;
 	void _get_property_list(godot::List<godot::PropertyInfo> *list) const;
@@ -85,6 +90,7 @@ public:
 	int64_t get_animation_cache_hits() const;
 	int64_t get_animation_cache_misses() const;
 	int get_path_count() const;
+	int get_path_instance_count(int path) const;
 	int get_point_count(int path) const;
 	godot::Vector2 get_path_point(int path, int point) const;
 	void set_path_point(int path, int point, const godot::Vector2 &value);
@@ -92,9 +98,13 @@ public:
 	void set_in_handle(int path, int point, const godot::Vector2 &value);
 	godot::Vector2 get_out_handle(int path, int point) const;
 	void set_out_handle(int path, int point, const godot::Vector2 &value);
+	bool has_in_handle(int path, int point) const;
+	bool has_out_handle(int path, int point) const;
 	godot::PackedVector2Array get_path_points(int path) const;
 	godot::Vector2 path_to_document(int path, const godot::Vector2 &point) const;
 	godot::Vector2 document_to_path(int path, const godot::Vector2 &point) const;
+	godot::Vector2 path_to_document_instance(int path, const godot::Vector2 &point, int instance) const;
+	godot::Vector2 document_to_path_instance(int path, const godot::Vector2 &point, int instance) const;
 	bool _set(const godot::StringName &name, const godot::Variant &value);
 	bool _get(const godot::StringName &name, godot::Variant &value) const;
 	void _get_property_list(godot::List<godot::PropertyInfo> *list) const;

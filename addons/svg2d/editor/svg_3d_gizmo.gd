@@ -24,8 +24,8 @@ func _redraw(gizmo: EditorNode3DGizmo) -> void:
 	var half := size * pixel * 0.5
 	var left := -half.x + offset.x
 	var right := half.x + offset.x
-	var top := half.y - offset.y
-	var bottom := -half.y - offset.y
+	var top := half.y + offset.y
+	var bottom := -half.y + offset.y
 	var outline := PackedVector3Array([
 		Vector3(left, top, 0), Vector3(right, top, 0),
 		Vector3(right, top, 0), Vector3(right, bottom, 0),
