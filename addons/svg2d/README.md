@@ -1,8 +1,8 @@
 # SVG2D
 
-**English** | [日本語](README.ja.md)
+Language: **English** | [日本語](README.ja.md) · [Repository guide](https://github.com/prog-sha/SVG2D/blob/main/README.md)
 
-SVG2D is a lightweight GDExtension add-on that renders SVG markup in Godot 2D and 3D scenes. It reuses cached textures while projected dimensions stay unchanged. `SVG3D` rasterizes at least 1.5 times its projected pixel size and generates mipmaps for cleaner lines.
+SVG2D is a GDExtension add-on for SVG rendering, path animation, and texture or SVG ropes in Godot 2D and 3D scenes. It reuses textures while projected dimensions stay unchanged. `SVG3D` rasterizes at least 1.5 times its projected pixel size and generates mipmaps for cleaner lines.
 
 ## Compatibility
 
@@ -39,7 +39,7 @@ Use `SVGAnimate2D` or `SVGAnimate3D` when existing SVG paths must be animated. S
 
 To key a specific control in the editor: select the `SVGAnimate2D` or `SVGAnimate3D` node in the Scene tree; scroll to **Path Editor** at the bottom of the Inspector; choose **Path N**, enter the point number shown beside the viewport dot as `N:point`, then select **Anchor (A)**, **In (I)** or **Out (O)**. Select an `AnimationPlayer` in the same scene, create or select an animation, move its timeline to the desired time, then reselect the SVG node and press the small key-plus button beside the point number. Alternatively, right-click a viewport control to key the selected point, either cubic handle, that path's fill/stroke paint, fill/stroke opacity, stroke width, node modulate, or all SVG properties at once. `K` keys the selected control. If no player exists, one is created automatically; existing tracks targeting the SVG are preferred over other players. **Create AnimationPlayer (All SVG Properties)** creates a separate player node with initial tracks for every anchor, actual cubic handle, path paint/stroke setting and node modulate. Change a value and key it again at another time to animate it. The standard Inspector key buttons on the dynamic path properties also work. Solid `fill_color` and `stroke_color` interpolate as colors; `fill_paint` and `stroke_paint` preserve `none`, gradient references and other non-solid paints as discrete strings. Only actual cubic handles are offered, so straight and arc segments are not silently changed into cubic segments.
 
-Path overlays use the same rendered `viewBox`, `preserveAspectRatio`, nested group transforms, and path transforms in both directions. They stay aligned when the node moves, when the 2D editor is panned, and in both 2D and 3D views.
+Path overlays use the same rendered `viewBox`, `preserveAspectRatio`, nested group transforms, and path transforms in both directions. They stay aligned with node transforms, `flip_h` / `flip_v`, editor panning, and 2D/3D camera movement. Hand-drawn jitter affects the rendered outline only; editor points and saved coordinates remain unjittered.
 
 `SpriteRope2D` and `SpriteRope3D` accept any standard `Texture2D`, including PNG, WebP, and Godot-imported SVG resources. `SVGRope2D` and `SVGRope3D` are separate SVG-source variants with the `src` picker and supersampled SVG rendering. Both use a PBD rope pinned at the node origin; rows from top to bottom follow the particle chain. Enable `line_mode` for a plain rope configured by `line_width` and `line_color`. `max_length` set to zero derives the length from the texture or SVG height. Ropes use their World's system gravity by default; `gravity_scale` adjusts its strength. Disable `use_system_gravity` only when the local `gravity` override is needed.
 
@@ -62,7 +62,7 @@ image_rope.texture = preload("res://banner.png")
 add_child(image_rope)
 ```
 
-Animation is disabled by default. Enable `animation_enabled` to deform path outlines without translating the whole shape. `jitter_amount` is the maximum peak-to-peak deformation as a ratio of the document dimensions (0.0008 by default, capped at 0.3). Four deterministic frames using seeds 1 through 4 are cached and cycled every `animation_interval` frames (10 by default). Disabling animation releases its three extra cached textures. Both nodes support `flip_h`, `flip_v`, `offset`, and `modulate` (the 2D modulate is the inherited CanvasItem property).
+Hand-drawn outline animation is disabled by default on SVG and SVGAnimate nodes. Enable `animation_enabled` to deform outlines without translating the whole shape. `jitter_amount` is the peak-to-peak deformation as a ratio of document dimensions (0.0008 by default, capped at 0.3). Four deterministic patterns cycle every `animation_interval` frames (10 by default). Whether four textures are retained depends on `cache_animation_frames`; SVGAnimate defaults to one reused texture during path edits. The nodes also support `flip_h`, `flip_v`, `offset`, and `modulate` (2D inherits CanvasItem's modulate).
 
 The `adaptive` property is enabled by default. It follows 2D editor zoom and display scale with at least 1.5x supersampling, as well as runtime cameras and the 3D editor camera. `SVG3D` applies the larger projected local-axis density to both texture axes, preserving the SVG aspect ratio while rotated. Disable adaptive rendering to keep a fixed resolution, capped at 4096 pixels on either axis. `SVG3D` still uses 1.5 times the natural document resolution in fixed mode.
 
@@ -84,8 +84,12 @@ See `LICENSE` in this folder.
 
 | Inspector setting | Nodes | Effect |
 | --- | --- | --- |
+| `adaptive` | SVG2D / 3D and SVGAnimate | Enabled by default; follows editor and camera scale. Disable for a fixed raster resolution. |
 | `deferred_updates` | SVGAnimate2D / 3D | On by default. Combines path edits until idle time, rebuilding and parsing the SVG once per batch. |
 | `keep_render_cache` | SVG2D / 3D and subclasses | Disable to release intermediate buffers after rasterization. Rerendering requires more allocation and computation; the displayed texture is retained. |
+| `cache_animation_frames` | SVG2D / 3D and SVGAnimate | Keep four jitter textures for an unchanged shape. SVGAnimate defaults to off; SVG2D / 3D defaults to on. |
+| `animation_cache_mode` | SVGAnimate2D / 3D | Exact Frames reuses previous identical path states; Disabled retains no history. |
+| `animation_cache_limit_mb` | SVGAnimate2D / 3D | History budget: 1–256 MiB, 32 MiB by default and at most 512 frames. |
 | `dynamic_mesh` | SpriteRope3D / SVGRope3D | On by default. Updates vertices and bounds while retaining UVs and triangle indices. |
 
 Point getters and scene saving always use current edits. Call `flush_paths()` before immediately reading an edited 2D texture with deferred updates enabled. 3D texture refresh occurs at idle time. `get_render_cache_bytes()` reports estimated intermediate buffer usage.
@@ -104,10 +108,12 @@ Use `get_animation_cache_hits()`, `get_animation_cache_misses()`, `get_animation
 
 ### Cutting ropes and two-way physics
 
+`cut_segment(from, to)` cuts where the input **global-coordinate** segment first intersects the rope. It inserts a particle at the intersection, preserving the pieces' current positions, velocities, rest lengths, mass and matching texture regions. The 3D overload takes an optional `tolerance` (default `0.001` world units) for closest-point intersection. A miss, parallel overlap, rope endpoint, or invalid input returns `null`. Apply the operation to both pieces to cut multiple crossings. The [stickman rope scene](https://github.com/prog-sha/SVG2D/blob/main/tests/stickman_rope_swing.tscn) lets you drag the character and draw a cut across the background; its rotation is locked.
+
 `cut_at(point_index)` splits at an interior particle, creates the same built-in rope class through `ClassDB.instantiate`, adds it to the same parent and returns it. The original keeps the upper part; the new rope has a free start. Current shape, linear/angular velocities and texture regions are preserved, and length and mass are divided. An attachment at or beyond the cut moves to the new rope. Valid indices are `1` through `segments - 2`. Endpoints, invalid indices and nodes outside the tree return `null` without changes. Runtime only; scripts, children and signal connections are not copied. Use `call_deferred` when cutting from physics query callbacks.
 
 ```gdscript
-var fallen_rope = $Rope.cut_at(3)
+var fallen_rope = $Rope.cut_segment(Vector2(200, 100), Vector2(450, 100))
 # fallen_rope.get_parent() == $Rope.get_parent()
 ```
 

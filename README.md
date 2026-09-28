@@ -1,10 +1,24 @@
 # SVG2D
 
-**English** | [日本語](README.ja.md)
+Language: **English** | [日本語](README.ja.md)
 
-SVG2D is a lightweight GDExtension add-on that renders and edits SVG markup in Godot 2D and 3D scenes. `SVGAnimate2D` / `SVGAnimate3D` expose topology-preserving path anchors for editor manipulation and AnimationPlayer keyframes. It also provides `SpriteRope2D` / `SpriteRope3D` for arbitrary textures and separate SVG-source rope nodes. Rope particles can attach `PhysicsBody2D` / `PhysicsBody3D` nodes through native Godot pin joints.
+SVG2D is a GDExtension for rendering SVGs, animating their paths, and simulating textured or plain ropes in Godot 2D and 3D scenes. `SVGAnimate2D` / `SVGAnimate3D` expose path anchors, cubic handles, fill and stroke settings to the editor and `AnimationPlayer`. `SpriteRope2D` / `SpriteRope3D` use standard textures; `SVGRope2D` / `SVGRope3D` render SVG sources. Ropes can attach `PhysicsBody2D` / `PhysicsBody3D` nodes through Godot pin joints.
 
-The packaged add-on supports Godot 4.7 or later on Windows x86_64, macOS Universal, iOS arm64, Linux x86_64/arm64, Android arm64, and Web wasm32 without threads. See [`addons/svg2d/README.md`](addons/svg2d/README.md) for installation, usage, and supported SVG features.
+The packaged add-on supports Godot 4.7 or later on Windows x86_64, macOS Universal, iOS arm64, Linux x86_64/arm64, Android arm64, and threadless Web wasm32. See the [English add-on guide](addons/svg2d/README.md) or [Japanese add-on guide](addons/svg2d/README.ja.md) for installation, editor controls, and SVG support.
+
+## Quick start
+
+Copy `addons/svg2d` into your project's `addons` directory and enable **SVG2D** under **Project Settings → Plugins**. Add an `SVG2D` or `SVG3D` node and choose a file with **Open SVG…** beside `src` in the Inspector.
+
+```gdscript
+var picture := SVG2D.new()
+picture.src = "res://picture.svg"
+add_child(picture)
+```
+
+For animation, select an `SVGAnimate2D` or `SVGAnimate3D` node, drag its numbered points or cubic handles in the editor, and insert keys with the **Path Editor** or a point's right-click menu. **Create AnimationPlayer (All SVG Properties)** adds initial tracks for all editable points, actual cubic handles, path paint and stroke, and node `modulate`. Solid `fill_color` and `stroke_color` interpolate; `fill_paint` and `stroke_paint` switch non-solid values such as gradients and `none` discretely. Arcs and straight segments retain their SVG command type and do not expose cubic handles. Try the [2D](examples/stickman/stickman_movie.tscn) and [3D](examples/stickman/stickman_movie_3d.tscn) stickman scenes.
+
+![Colorful stickman SVG used by the animation examples](examples/stickman/stickman.svg)
 
 ## Building from source
 
@@ -21,17 +35,18 @@ Replace `platform` and `arch` when building for another supported target. Androi
 
 ## Testing
 
-On macOS, the test script automatically looks for Godot 4.7.1. Set `GODOT` when Godot is installed elsewhere.
+On macOS, the test scripts look for Godot 4.7.2 by default. Set `GODOT` when Godot is installed elsewhere.
 
 ```sh
-GODOT=/path/to/godot sh tests/test.sh
+sh tests/test.sh
+sh tests/test_editor_visual.sh
 ```
 
 Set `SVG2D_SCALAR=yes` to verify the scalar CPU fallback without SSE2 or NEON.
 
 Run `sh tests/test_simd.sh` on macOS to verify that both paths produce the same pixel SHA-256.
 
-Run `./tests/build_all.sh` to build macOS, iOS, Windows, Linux, Android and Web packages. Per-target content fingerprints skip unchanged builds; use `--force` to invoke every target while retaining SCons's file-level incremental compilation. Run `uv run python tests/test_binaries.py` to verify every packaged format and architecture.
+The editor visual test captures the stickman in real 2D and 3D editor views, including nested transforms, flips, multiple handles, color keys, and camera movement. Run `bash tests/build_all.sh` to build all 14 macOS, iOS, Windows, Linux, Android and Web configurations. Per-target content fingerprints skip unchanged builds; use `--force` to invoke every target while retaining SCons's file-level incremental compilation. Run `uv run --no-project python tests/test_binaries.py` to verify every packaged format and architecture.
 
 ## Performance and memory settings
 

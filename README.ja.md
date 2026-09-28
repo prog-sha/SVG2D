@@ -1,12 +1,26 @@
 # SVG2D
 
-[English](README.md) | **日本語**
+言語: [English](README.md) | **日本語**
 
-SVG2D は、SVG を Godot の 2D・3D シーンに表示・編集するための軽量な GDExtension アドオンだよ。`SVGAnimate2D` / `SVGAnimate3D` ではトポロジーを変えずに接点とカーブを編集し、AnimationPlayerへ点番号ごとのキーを登録できるよ。画像素材のPBD紐には `SpriteRope2D` / `SpriteRope3D`、SVG素材には別クラスの `SVGRope2D` / `SVGRope3D` を使おう。紐の粒子にはGodot標準のPinJointを通して `PhysicsBody2D` / `PhysicsBody3D` を接続できるよ。
+SVG2D は、Godotの2D・3DシーンでSVGを表示し、パスをアニメーションし、画像付きまたは線だけのロープを動かすGDExtension。`SVGAnimate2D` / `SVGAnimate3D` は接点・三次曲線ハンドル・塗りと線の設定をエディターと `AnimationPlayer` に公開する。`SpriteRope2D` / `SpriteRope3D` は標準テクスチャ、`SVGRope2D` / `SVGRope3D` はSVG素材を使う。ロープにはGodotのPinJointを通して `PhysicsBody2D` / `PhysicsBody3D` を接続できる。
 
 エディターではSVGの不透明な絵をクリックして2D・3Dノードをドラッグできるよ。Inspectorの **Create Hitbox** にある **Rect** はGodot標準の `StaticBody` + 矩形Collision子ノードを、**Shape** は透明な穴を除いたSVG外周から2Dポリゴンまたは薄い3D形状を自動生成するよ。
 
-英語版を基準文書とし、配布済みのアドオンは Godot 4.7 以降、Windows x86_64、macOS Universal、iOS arm64、Linux x86_64/arm64、Android arm64、Web wasm32（スレッドなし）に対応しているよ。導入方法、使い方、対応している SVG 機能は [`addons/svg2d/README.ja.md`](addons/svg2d/README.ja.md) を見てね。
+配布アドオンはGodot 4.7以降、Windows x86_64、macOS Universal、iOS arm64、Linux x86_64/arm64、Android arm64、Web wasm32（スレッドなし）に対応。[日本語のアドオンガイド](addons/svg2d/README.ja.md)と[英語のアドオンガイド](addons/svg2d/README.md)に導入方法、エディター操作、SVG対応範囲を記載。
+
+## まず使う
+
+`addons/svg2d` を自分のプロジェクトの `addons` にコピーし、**プロジェクト設定 → プラグイン** で **SVG2D** を有効にする。`SVG2D` または `SVG3D` ノードを追加し、Inspectorの `src` にある **Open SVG…** からファイルを選ぶ。
+
+```gdscript
+var picture := SVG2D.new()
+picture.src = "res://picture.svg"
+add_child(picture)
+```
+
+アニメーションには `SVGAnimate2D` または `SVGAnimate3D` を使う。番号付きの接点や三次曲線ハンドルをエディターで動かし、**Path Editor** または点の右クリックメニューからキーを登録する。**Create AnimationPlayer (All SVG Properties)** は編集できる全接点・実際に存在する三次曲線ハンドル・パスの塗りと線・ノードの `modulate` に初期トラックを作る。単色の `fill_color` と `stroke_color` は色補間される。グラデーションや `none` は `fill_paint` と `stroke_paint` の離散的な切り替えとなる。円弧と直線は元のSVGコマンドを保ち、三次曲線ハンドルは表示しない。[2D](examples/stickman/stickman_movie.tscn)と[3D](examples/stickman/stickman_movie_3d.tscn)の棒人間シーンも参照。
+
+![アニメーション例に使う色付き棒人間SVG](examples/stickman/stickman.svg)
 
 ## ソースから組み立てよう
 
@@ -23,17 +37,18 @@ scons platform=macos target=template_release
 
 ## 確かめよう
 
-macOS ではテスト用スクリプトが Godot 4.7.1 を自動で探すよ。Godot が別の場所にあるときは `GODOT` を指定しよう。
+macOSでは試験スクリプトが既定でGodot 4.7.2を探す。別の場所なら `GODOT` を指定する。
 
 ```sh
-GODOT=/path/to/godot sh tests/test.sh
+sh tests/test.sh
+sh tests/test_editor_visual.sh
 ```
 
 SSE2やNEONを使わない通常CPU経路を確かめるときは、`SVG2D_SCALAR=yes` を付けよう。
 
 macOSで両方の画素がSHA-256まで一致するか確かめるときは、`sh tests/test_simd.sh` を実行しよう。
 
-配布用のmacOS、iOS、Windows、Linux、Android、Webをまとめて組み立てるには`./tests/build_all.sh`を使う。対象別の内容指紋で変更のない対象は省く。`--force`なら全対象を呼び出しつつ、SConsのファイル単位の差分コンパイルは維持できる。全GDExtensionパスの形式・アーキテクチャは`uv run python tests/test_binaries.py`で確認できるよ。
+エディター画面試験では棒人間を使い、入れ子のtransform、flip、複数ハンドル、色キー、カメラ移動を含む実際の2D・3D画面を撮影する。`bash tests/build_all.sh` は配布用14構成をまとめてビルドし、内容が変わらない対象を省く。`--force`なら全対象を呼び出しつつ、SConsのファイル単位の差分コンパイルは維持できる。全バイナリの形式とアーキテクチャは `uv run --no-project python tests/test_binaries.py` で確認する。
 
 `SVGAnimate2D` と `AnimationPlayer` で棒人間の接点を動かす例は [`examples/stickman/stickman_movie.tscn`](examples/stickman/stickman_movie.tscn)、`SVGAnimate3D` でジャンプ・1回転・着地させる例は [`examples/stickman/stickman_movie_3d.tscn`](examples/stickman/stickman_movie_3d.tscn) だよ。どちらもスクリプトを使わず、ノードとキーフレームをTSCNへ保存しているよ。Godot MovieWriterで各60フレームを書き出して自動確認するにはffmpegを用意して次を実行しよう。
 

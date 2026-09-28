@@ -1,8 +1,8 @@
 # SVG2D
 
-[English](README.md) | **日本語**
+[English](README.md) | **日本語** · [リポジトリのガイド](https://github.com/prog-sha/SVG2D/blob/main/README.ja.md)
 
-SVG2D は、SVG を Godot の 2D・3D シーンに表示するための軽量な GDExtension アドオンだよ。画面上の描画領域を見て解像度を更新し、同じ画素数では作った画像を使い回すよ。`SVG3D` は投影寸法の1.5倍以上で画像化し、ミップマップも作るよ。
+SVG2D は、Godotの2D・3DシーンでSVGを表示し、パスをアニメーションし、画像やSVG素材のロープを動かすGDExtensionアドオン。画面上の大きさに応じて解像度を更新し、表示条件が同じなら画像を使い回す。`SVG3D` は投影寸法の1.5倍以上で画像化し、ミップマップを作る。
 
 ## 対応環境
 
@@ -14,7 +14,7 @@ SVG2D は、SVG を Godot の 2D・3D シーンに表示するための軽量な
 - Android arm64
 - Web wasm32（スレッドなし）
 
-配布ファイルには、上記すべてのデバッグ用・配布用バイナリーが入っているよ。英語版READMEを基準文書としているよ。
+配布ファイルには上記すべてのdebug/releaseバイナリを含む。
 
 ## 導入しよう
 
@@ -35,9 +35,11 @@ picture.scale = Vector2(2, 2)
 add_child(picture)
 ```
 
-既存SVGパスをアニメにするときは `SVGAnimate2D` / `SVGAnimate3D` を使おう。選択すると2D・3Dエディターへ全パスの番号付き接点と、選択接点のBezierハンドルが出るよ。接点またはハンドルをドラッグし、Shiftで縦横へ制限できる。通常のハンドル移動は反対側の接線を滑らかに保ち、Altを押すと片側だけを折れる。`A`（または`V`）、`I`、`O`で接点・入ハンドル・出ハンドルを切り替え、Tab / Shift+Tabで接点、`[` / `]`でパス番号を移動するよ。Inspectorの **Path Editor** から番号を直接選べ、**Insert Point Key** または`K`で現在のAnimationPlayerへ接点の値トラックとキーを登録できる。Inspectorの各接点 `paths/path_N/point_N` にあるGodot標準の鍵ボタンも使える。パス・接点・セグメントの追加削除はせず、円弧は円弧、直線は直線のまま保つよ。
+既存SVGパスをアニメーションするときは `SVGAnimate2D` / `SVGAnimate3D` を使う。選択すると2D・3Dエディターへ番号付き接点と、実際に存在する三次ベジェ曲線のハンドルが出る。ドラッグ中のShiftで縦横を制限し、Altで反対側の接線との連動を外せる。`A`（または`V`）、`I`、`O`で接点・入ハンドル・出ハンドルを選択し、Tab / Shift+Tabで接点、`[` / `]`でパスを切り替える。Inspectorの **Path Editor** で番号を選んで `+` ボタン、または `K` で選択中の値をキー登録できる。点の右クリックメニューからは接点、両ハンドル、パスの塗り・線・不透明度・線幅、ノードの `modulate` を個別または一括で登録できる。**Create AnimationPlayer (All SVG Properties)** はこれらの初期トラックを作る。既存のパス・接点・セグメントは増減せず、円弧は円弧、直線は直線として保つ。円弧や直線には三次ベジェハンドルを表示しない。
 
-パス点のオーバーレイは、実描画と同じ `viewBox`、`preserveAspectRatio`、入れ子のグループとパスの `transform` を通して表示・逆変換する。ノードの移動、エディターのパン、2D/3Dのどちらでも絵と接点が一致するよ。
+パスごとの単色の塗りと線は、Inspectorの `paths/path_N/fill_color` と `stroke_color` を変更してキー登録する。色はキー間で補間する。グラデーションや `none` には `fill_paint` / `stroke_paint` の文字列プロパティを使い、値を離散的に切り替える。`fill_opacity`、`stroke_opacity`、`stroke_width` もアニメーションできる。標準のInspector鍵ボタンからも登録できる。
+
+パス点のオーバーレイは、実描画と同じ `viewBox`、`preserveAspectRatio`、入れ子のグループとパスの `transform` を通して表示・逆変換する。ノードの変形、`flip_h` / `flip_v`、エディターのパン、2D/3Dのカメラ移動にも追従する。うごメモ風の輪郭揺れは描画だけに作用し、編集点や保存座標は揺れない。
 
 `SpriteRope2D` と `SpriteRope3D` はPNG・WebP・GodotでインポートしたSVGなど、標準の `Texture2D` を受け取るPBD紐だよ。`SVGRope2D` と `SVGRope3D` は `src` 選択と高解像度SVG生成を持つ別のSVG専用クラスだよ。どちらも上から下の各段を粒子列へ追従させる。`line_mode` をONにすれば素材なしで `line_width` と `line_color` の普通の紐になるよ。`max_length` が0なら素材の高さから長さを自動算出するよ。既定では所属するWorldのシステム重力を使い、`gravity_scale` で倍率を変えられるよ。独自のローカル重力を使う場合だけ `use_system_gravity` をOFFにして `gravity` を設定しよう。
 
@@ -60,7 +62,7 @@ image_rope.texture = preload("res://banner.png")
 add_child(image_rope)
 ```
 
-アニメーションは初めはOFFだよ。`animation_enabled` をONにすると、形全体は移動させず、`jitter_amount`（既定0.0008、最大0.3）を絵の縦横に対する輪郭の最大変形率として使うよ。seed 1〜4で固定した4枚だけを作り、`animation_interval`（既定10フレーム）ごとに順番に切り替えるよ。OFFに戻すとアニメ用3枚のキャッシュも解放するよ。
+SVGとSVGAnimateのうごメモ風アニメーションは既定OFF。`animation_enabled` をONにすると、形全体は移動させず輪郭を変形する。`jitter_amount` は文書寸法に対する変形率（既定0.0008、最大0.3）。4種類の決定的な模様を `animation_interval`（既定10フレーム）ごとに切り替える。4枚の画像を保持するかは `cache_animation_frames` による。SVGAnimateはパスの連続変形向けに、画像1枚を更新する設定が既定。
 
 2D・3Dとも `flip_h`、`flip_v`、`offset` を使えるよ。色と透明度は `modulate` で変えよう（2DではCanvasItem共通のVisibility欄、3DではAppearance欄）。
 
@@ -84,8 +86,12 @@ add_child(image_rope)
 
 | Inspector設定 | 対象 | 効果 |
 | --- | --- | --- |
+| `adaptive` | SVG2D / 3D、SVGAnimate | 既定ON。エディターとカメラの倍率に追従。OFFで固定解像度。 |
 | `deferred_updates` | SVGAnimate2D / 3D | 既定ON。同じ更新周期の接点編集をまとめ、SVGの再構築・再解析を1回にする。 |
 | `keep_render_cache` | SVG2D / 3Dとその派生 | OFFで画像化後の中間バッファを解放。再描画時の再計算は増える。表示テクスチャは残る。 |
+| `cache_animation_frames` | SVG2D / 3D、SVGAnimate | 形が変わらない場合の輪郭揺れ4枚を保持。SVGAnimateは既定OFF、SVG2D/3Dは既定ON。 |
+| `animation_cache_mode` | SVGAnimate2D / 3D | Exact Framesは過去の同一パス状態を再利用。Disabledは履歴なし。 |
+| `animation_cache_limit_mb` | SVGAnimate2D / 3D | 履歴上限1〜256 MiB。既定32 MiB、最大512枚。 |
 | `dynamic_mesh` | SpriteRope3D / SVGRope3D | 既定ON。頂点と境界だけ更新し、UV・三角形の再生成と転送を省く。 |
 
 接点の取得・シーン保存は常に最新の編集値を使う。遅延更新中に2Dテクスチャをすぐ取得する場合は `flush_paths()` を先に呼ぶ。3Dテクスチャの表示反映はidle時に行う。`get_render_cache_bytes()` で中間バッファの概算を確認できる。
@@ -104,10 +110,12 @@ SVGAnimateの **Animation Cache → Animation Cache Mode** は **Exact Frames** 
 
 ### ロープの切断と物理接続
 
+`cut_segment(from, to)` は入力した**グローバル座標**の線分とロープの最初の交点で切る。交点に粒子を追加し、各切断片の現在位置・速度・元の長さ・質量・画像範囲を保つ。3D版では最近接点のワールド距離の許容値 `tolerance`（既定 `0.001`）も指定できる。交差なし・平行な重なり・ロープ端点・無効な入力では `null`。複数箇所を切る場合は両方の切断片へ再び適用する。[棒人間とロープのシーン](https://github.com/prog-sha/SVG2D/blob/main/tests/stickman_rope_swing.tscn)では棒人間をドラッグでき、背景をドラッグして切断線を引ける。棒人間の回転は固定。
+
 `cut_at(point_index)` は途中の接点でロープを切り、同じクラスの新しいノードを `ClassDB.instantiate` で作って同じ親に追加し、返す。元のロープは上側、新しいロープは開始点が自由な下側になる。現在の形・速度・回転速度・素材の切れ目を引き継ぎ、長さと質量を分配する。切断点以降の接続物も下側へ移る。切れる範囲は `1` から `segments - 2` で、端点・範囲外・ツリー外では変更せず `null` を返す。実行中専用で、スクリプト・子ノード・シグナル接続は複製しない。衝突通知から呼ぶ場合は `call_deferred` を使おう。
 
 ```gdscript
-var fallen_rope = $Rope.cut_at(3)
+var fallen_rope = $Rope.cut_segment(Vector2(200, 100), Vector2(450, 100))
 # fallen_rope.get_parent() == $Rope.get_parent()
 ```
 

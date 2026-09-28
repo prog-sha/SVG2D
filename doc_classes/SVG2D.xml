@@ -27,7 +27,7 @@
 		<member name="cache_animation_frames" type="bool" setter="set_cache_animation_frames" getter="is_cache_animation_frames" default="true">Keeps four jitter textures for reuse on unchanged shapes. Disable to update one texture in place, reducing retained texture memory by up to 75% but rasterizing again at each pattern change. Pattern timing and pixels are identical in both modes.</member>
 		<member name="keep_render_cache" type="bool" setter="set_keep_render_cache" getter="is_keep_render_cache" default="true">Keeps geometry, gradient, clip and pixel work buffers for subsequent rasterization. Disable to release them after each render while retaining the displayed texture and parsed document. This reduces retained memory but increases allocation and recomputation during zoom or jitter animation.</member>
 		<member name="animation_enabled" type="bool" setter="set_animation_enabled" getter="is_animation_enabled" default="false">
-			Enables the four-frame path jitter animation. Disabled nodes keep one normal texture and do not retain the three animation textures.
+			Cycles four deterministic outline-jitter patterns. How many textures are retained depends on [member cache_animation_frames].
 		</member>
 		<member name="animation_interval" type="int" setter="set_animation_interval" getter="get_animation_interval" default="10">
 			Number of rendered frames to hold each jitter pattern. The four fixed patterns cycle in order.
@@ -42,13 +42,13 @@
 			Mirrors the SVG vertically inside its natural rectangle.
 		</member>
 		<member name="jitter_amount" type="float" setter="set_jitter_amount" getter="get_jitter_amount" default="0.0008">
-			Maximum peak-to-peak outline deformation across the four cached frames, as a ratio of the SVG document dimensions. No whole-shape translation is added. Used when [member animation_enabled] is enabled.
+			Maximum peak-to-peak outline deformation across the four patterns, as a ratio of the SVG document dimensions. No whole-shape translation is added. Used when [member animation_enabled] is enabled.
 		</member>
 		<member name="offset" type="Vector2" setter="set_offset" getter="get_offset" default="Vector2(0, 0)">
 			Moves the rendered SVG in its local coordinate system without changing its raster resolution.
 		</member>
 		<member name="src" type="String" setter="set_src" getter="get_src" default="&quot;&quot;">
-			An SVG file path to render, such as [code]res://art/icon.svg[/code]. Complete SVG markup is also accepted for compatibility and generated images.
+			An SVG file path, such as [code]res://art/icon.svg[/code], or complete inline SVG markup. Assigning a file path again reloads its current contents.
 		</member>
 	</members>
 	<signals>

@@ -5,7 +5,7 @@ Use these values when submitting SVG2D to the Godot Asset Library.
 | Field | Value |
 | --- | --- |
 | Asset Name | SVG2D |
-| Description | SVG2D adds lightweight SVG2D and SVG3D nodes, topology-safe path animation, and PBD texture/SVG ropes with PhysicsBody pin-joint attachments. Adaptive rendering keeps zoomed SVGs sharp without rasterizing every frame. Pixel conversion uses SSE2 on x86_64 and NEON on arm64. It supports shapes, paths, fills, strokes, gradients, clipping paths, use elements, nested SVG elements, viewBox, and basic CSS selectors. This release includes Windows x86_64, macOS Universal, Linux x86_64/arm64, Android arm64, iOS arm64, and threadless Web wasm32 binaries and requires Godot 4.7 or later. |
+| Description | SVG2D adds adaptive SVG2D/SVG3D rendering, editor path and color animation through AnimationPlayer, hand-drawn outline jitter, and texture/SVG ropes in 2D and 3D. Ropes can attach PhysicsBody nodes through Godot pin joints and can be cut by a global-coordinate line segment. SVGAnimate offers an exact-frame history cache; render-buffer and jitter-frame caching are separately configurable. Basic shapes, paths, gradients, clips, use elements, nested SVG elements, viewBox, and basic CSS selectors are supported. Prebuilt debug and release libraries cover Windows x86_64, macOS Universal, Linux x86_64/arm64, Android arm64, iOS arm64, and threadless Web wasm32. Requires Godot 4.7 or later. |
 | Category | 2D Tools |
 | License | MIT |
 | Repository host | GitHub |
@@ -23,4 +23,4 @@ Before submitting:
 1. Build and test the debug and release binaries for Windows x86_64, macOS Universal, Linux x86_64/arm64, Android arm64, iOS arm64, and threadless Web wasm32 with the release source.
 2. Update `version` in `addons/svg2d/plugin.cfg` and the Asset Version above together.
 3. Commit all release files and use the resulting full commit SHA as Download Commit.
-4. Verify the generated archive contains only `addons/svg2d/` and that the add-on installs into a clean Godot 4.7 project.
+4. Verify the generated archive contains only `addons/svg2d/` and that the add-on installs into a clean Godot 4.7 or later project.
