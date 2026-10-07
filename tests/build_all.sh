@@ -17,10 +17,7 @@ file_digest() { shasum -a 256 "$1" | awk '{print $1}'; }
 
 # godot-cppの生成ヘッダーは全対象で共有されるため、外部ビルドによる汚染も検出する。
 generated_digest() {
-	find "$root/godot-cpp/gen" -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cpp' \) \
-		-print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
-		printf '%s %s\n' "${file#$root/}" "$(file_digest "$file")"
-	done | digest
+	uv run --no-project python "$root/tests/build_fingerprint.py" "$root"
 }
 
 # 共通入力は起動ごとに1回だけ読む。説明XMLはdebug対象だけへ影響させる。
@@ -29,7 +26,7 @@ common_digest=$({
 		| LC_ALL=C sort | while IFS= read -r file; do
 		printf '%s %s\n' "${file#$root/}" "$(file_digest "$file")"
 	done
-	for file in "$root/SConstruct" "$root/build_profile.json" "$root/tests/build_all.sh"; do
+	for file in "$root/SConstruct" "$root/build_profile.json" "$root/tests/build_all.sh" "$root/tests/build_fingerprint.py"; do
 		printf '%s %s\n' "${file#$root/}" "$(file_digest "$file")"
 	done
 	git -C "$root/godot-cpp" rev-parse HEAD

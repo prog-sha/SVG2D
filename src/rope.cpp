@@ -461,6 +461,7 @@ void SpriteRope3D::_ensure_mesh() {
 
 void SpriteRope3D::reset_simulation() {
 	_clear_attachment();
+	_mesh_points = 0; // 均等化する素材座標も次の描画で作り直す。
 	_points.resize((size_t)_segments);
 	_previous.resize((size_t)_segments);
 	_coords.resize((size_t)_segments);

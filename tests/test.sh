@@ -49,6 +49,18 @@ if printf '%s\n' "$animation_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
 	echo "SVG animation properties test reported an error"
 	exit 1
 fi
+# ダミー描画では更新済み画像を読み戻せないため、不透明度マスクは実GPUで検証する。
+if mask_result=$("$godot" --resolution 64x48 --path "$root" --script tests/editor_mask_test.gd 2>&1); then
+  :
+else
+  printf '%s\n' "$mask_result"
+  exit 1
+fi
+printf '%s\n' "$mask_result"
+printf '%s\n' "$mask_result" | grep -q 'SVG editor alpha mask: PASSED'
+if printf '%s\n' "$mask_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
+  exit 1
+fi
 # 実シーンの描画・物理を通し、OSS由来の観点を独立した期待値と比較する。
 if integration_result=$("$godot" --resolution 64x48 --path "$root" --script tests/oss_integration.gd 2>&1); then
   :

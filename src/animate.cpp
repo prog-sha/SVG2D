@@ -915,6 +915,7 @@ void CLASS::flush_paths() { if (!_path_dirty) return; _path_dirty = false; BASE:
 void CLASS::set_deferred_updates(bool enabled) { _deferred_updates = enabled; if (!enabled) flush_paths(); } \
 void CLASS::set_src(const String &src) { bool same = src == _paths->source && src.strip_edges().begins_with("<") && !_path_dirty && _paths->pending.empty() && _paths->style_pending.empty() && _paths->pristine(); _path_dirty = false; if (!same) _paths->parse(src); bool restored = false; for (const auto &entry : _paths->pending) { int path, point; PathPropertyPart part; if (!property_indices(entry.first, path, point, part) || !_paths->valid(path, point)) continue; if (part == PATH_ANCHOR) _paths->move_point(path, point, entry.second); else _paths->set_handle(path, point, entry.second, part == PATH_IN_HANDLE); restored = true; } _paths->pending.clear(); for (const auto &entry : _paths->style_pending) { int path; String part; if (style_indices(entry.first, path, part) && _paths->set_style(path, part, entry.second)) restored = true; } _paths->style_pending.clear(); BASE::set_src(restored ? _paths->rebuilt() : src); notify_property_list_changed(); emit_signal("path_changed"); } \
 String CLASS::get_src() const { return _paths->source; } \
+String CLASS::get_edited_svg() { return _paths->rebuilt(); } \
 int CLASS::get_path_count() const { return (int)_paths->slots.size(); } \
 int CLASS::get_path_instance_count(int path) const { return _paths->instance_count(path); } \
 int CLASS::get_point_count(int path) const { return path >= 0 && path < get_path_count() ? (int)_paths->slots[(size_t)path].path.points.size() : 0; } \
@@ -951,6 +952,7 @@ void CLASS::_bind_methods() { \
 	ClassDB::bind_method(D_METHOD("set_deferred_updates", "enabled"), &CLASS::set_deferred_updates); \
 	ClassDB::bind_method(D_METHOD("is_deferred_updates"), &CLASS::is_deferred_updates); \
 	ClassDB::bind_method(D_METHOD("flush_paths"), &CLASS::flush_paths); \
+	ClassDB::bind_method(D_METHOD("get_edited_svg"), &CLASS::get_edited_svg); \
 	ADD_GROUP("Path Updates", ""); \
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "deferred_updates"), "set_deferred_updates", "is_deferred_updates"); \
 	ClassDB::bind_method(D_METHOD("get_path_count"), &CLASS::get_path_count); ClassDB::bind_method(D_METHOD("get_point_count", "path"), &CLASS::get_point_count); \

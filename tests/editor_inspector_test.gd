@@ -16,6 +16,136 @@ func check(ok: bool, message: String) -> void:
 	failed = true
 	push_error(message)
 
+# 編集済みの形・曲線・色・透明度を、自然寸法画像と当たり判定の輪郭へ渡す。
+static func test_animated_shape_image(probe: Object, utils: GDScript = ShapeUtils) -> void:
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.set("src", "<svg width='100' height='100'><path d='M10 20 C20 10 40 10 50 20 L50 60 L10 60 Z' fill='red'/></svg>")
+		var initial: Image = utils.natural_image(node)
+		node.call("set_path_point", 0, 2, Vector2(75, 60))
+		var pending: Image = utils.natural_image(node)
+		probe.check(pending.get_data() != initial.get_data(), kind + " natural image ignored pending anchor edit")
+		node.call("flush_paths")
+		var moved: Image = utils.natural_image(node)
+		probe.check(moved.get_data() == pending.get_data(), kind + " flushing changed pending natural image")
+		probe.check(moved.get_data() != initial.get_data(), kind + " natural image ignored anchor edit")
+		var polygons: Array[PackedVector2Array] = utils.outer_polygons(node)
+		var right := 0.0
+		for polygon in polygons:
+			for point in polygon: right = maxf(right, point.x)
+		probe.check(right > 70, kind + " collision outline ignored anchor edit")
+		node.call("set_in_handle", 0, 1, Vector2(40, 45))
+		node.call("flush_paths")
+		var curved: Image = utils.natural_image(node)
+		probe.check(curved.get_data() != moved.get_data(), kind + " natural image ignored handle edit")
+		node.set("paths/path_0/fill_color", Color.BLUE)
+		node.call("flush_paths")
+		var blue: Image = utils.natural_image(node)
+		probe.check(blue.get_pixel(25, 40).b > 0.9 and blue.get_pixel(25, 40).r < 0.1,
+			kind + " natural image ignored fill color edit")
+		node.set("paths/path_0/fill_opacity", 0.0)
+		node.call("flush_paths")
+		probe.check(utils.natural_image(node).get_used_rect().size == Vector2i.ZERO,
+			kind + " natural image ignored fill opacity edit")
+		probe.check(utils.outer_polygons(node).is_empty(), kind + " collision outline retained transparent fill")
+		node.free()
+
+# use側で継承した塗りと輪郭を保ち、明示したスタイル編集だけを反映する。
+static func test_natural_use_style(probe: Object) -> void:
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		for style in ["fill='red'", "fill='none' stroke='red' stroke-width='10'"]:
+			var node: Node = ClassDB.instantiate(kind)
+			node.set("src", "<svg width='64' height='64'><defs><path id='s' d='M16 16H48V48H16Z'/></defs><use href='#s' %s/></svg>" % style)
+			var outline: bool = style.begins_with("fill='none'")
+			var initial := ShapeUtils.natural_image(node)
+			probe.check(initial.get_pixel(32, 32).a < 0.01 if outline else initial.get_pixel(32, 32).r > 0.99,
+				kind + " natural image changed inherited use fill: " + style)
+			probe.check(initial.get_pixel(17, 32).r > 0.99, kind + " natural image lost inherited use paint")
+			var polygons := ShapeUtils.outer_polygons(node)
+			var left := 64.0
+			for polygon in polygons:
+				for point in polygon: left = minf(left, point.x)
+			probe.check(left < 13.0 if outline else left >= 15.0,
+				kind + " natural outline changed inherited stroke width")
+			node.set("paths/path_0/fill_color", Color.BLUE)
+			probe.check(ShapeUtils.natural_image(node).get_pixel(32, 32).b > 0.99,
+				kind + " natural image ignored pending inherited fill edit")
+			node.call("flush_paths")
+			var edited := ShapeUtils.natural_image(node)
+			probe.check(edited.get_pixel(32, 32).b > 0.99,
+				kind + " explicit style edit did not override inherited use fill")
+			if outline:
+				probe.check(edited.get_pixel(12, 32).r > 0.99,
+					kind + " explicit fill edit lost inherited use stroke")
+			node.free()
+
+# ShapeUtilsが保持する不透明度マスクを再利用し、画像更新時には古い判定を捨てる。
+static func test_opaque_mask(probe: Object) -> void:
+	var tree: SceneTree = probe as SceneTree if probe is SceneTree else probe.get_tree()
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.set("adaptive", false)
+		node.set("animation_enabled", false)
+		node.set("cache_animation_frames", false)
+		node.set("animation_cache_mode", 0)
+		node.set("src", "<svg width='64' height='64'><path fill='red' fill-rule='evenodd' d='M8 8H40V40H8Z M16 16H32V32H16Z'/></svg>")
+		tree.root.add_child(node)
+		await tree.process_frame
+		var texture: Texture2D = node.call("get_texture")
+		for repeat in 3:
+			probe.check(ShapeUtils.opaque_at(node, Vector2(12, 12)), kind + " repeated opaque hit failed")
+			probe.check(not ShapeUtils.opaque_at(node, Vector2(24, 24)), kind + " transparent hole became opaque")
+			probe.check(not ShapeUtils.opaque_at(node, Vector2(56, 56)), kind + " empty background became opaque")
+		node.set("flip_h", true)
+		probe.check(ShapeUtils.opaque_at(node, Vector2(52, 12)), kind + " horizontal flip missed opaque hit")
+		node.set("flip_v", true)
+		probe.check(ShapeUtils.opaque_at(node, Vector2(52, 52)), kind + " both flips missed opaque hit")
+		probe.check(not ShapeUtils.opaque_at(node, Vector2(40, 40)), kind + " flipped transparent hole became opaque")
+		for opacity in [0.0, 1.0, 0.0, 1.0]:
+			node.set("paths/path_0/fill_opacity", opacity)
+			node.call("flush_paths")
+			await tree.process_frame
+			probe.check(node.call("get_texture") == texture, kind + " mask fixture replaced the texture")
+			probe.check(ShapeUtils.opaque_at(node, Vector2(52, 52)) == (opacity > 0),
+				kind + " same-texture update kept the old alpha mask at opacity " + str(opacity))
+		var other: Node = ClassDB.instantiate("SVG2D")
+		other.set("adaptive", false)
+		other.set("animation_enabled", false)
+		other.set("src", "<svg width='64' height='64'><rect width='64' height='64' fill='blue'/></svg>")
+		probe.check(ShapeUtils.opaque_at(other, Vector2(12, 12)), kind + " switching to another texture lost its mask")
+		var other_texture: Texture2D = other.call("get_texture")
+		var other_mask := ShapeUtils._texture_mask(other_texture)
+		probe.check(not texture.changed.is_connected(ShapeUtils._clear_mask),
+			kind + " previous texture kept its mask invalidation connection")
+		node.set("paths/path_0/fill_opacity", 0.0)
+		node.call("flush_paths")
+		await tree.process_frame
+		node.call("get_texture")
+		probe.check(ShapeUtils._texture_mask(other_texture) == other_mask,
+			kind + " previous texture update invalidated the active texture mask")
+		probe.check(not ShapeUtils.opaque_at(node, Vector2(52, 52)),
+			kind + " returning to an updated texture reused its stale mask")
+		other.free()
+		node.free()
+
+# 実エディターの四つの編集枠を、各枠のControlから対応カメラへ識別する。
+func test_overlay_cameras(svg_plugin: Node) -> void:
+	for index in 4:
+		var viewport := EditorInterface.get_editor_viewport_3d(index)
+		check(viewport != null, "3D editor viewport missing: " + str(index))
+		if viewport == null: continue
+		var control := viewport.get_parent() as Control
+		check(control != null, "3D editor viewport control missing: " + str(index))
+		if control:
+			check(svg_plugin.call("camera_for_overlay", control) == viewport.get_camera_3d(),
+				"3D overlay chose another viewport camera: " + str(index))
+	var unrelated := Control.new()
+	var orphan := Control.new()
+	unrelated.add_child(orphan)
+	check(svg_plugin.call("camera_for_overlay", orphan) == null,
+		"unrelated overlay received an editor camera")
+	unrelated.free()
+
 func apply_inspector_change(
 		property: StringName,
 		value: Variant,
@@ -433,6 +563,10 @@ func run_checks() -> void:
 	if failed:
 		get_tree().quit(1)
 		return
+	test_animated_shape_image(self)
+	test_natural_use_style(self)
+	# 同じGPU画像の更新はheadlessのダミー描画では読み戻せない。
+	if DisplayServer.get_name() != "headless": await test_opaque_mask(self)
 	var scene_root := Node2D.new()
 	scene_root.name = "EditorTest"
 	EditorInterface.add_root_node(scene_root)
@@ -463,6 +597,7 @@ func run_checks() -> void:
 	check(svg_plugin != null, "SVG2Dの2D編集プラグインが動いていないよ")
 	if svg_plugin:
 		await get_tree().process_frame
+		test_overlay_cameras(svg_plugin)
 		var canvas_input := svg_plugin.get("canvas_input_control") as Control
 		check(canvas_input != null,
 			"未選択時のクリックを受ける2D編集Viewport入力面へ接続していないよ")

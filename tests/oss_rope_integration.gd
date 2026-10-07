@@ -92,6 +92,37 @@ static func run(tree: SceneTree) -> void:
 		host.free()
 
 	await textured_cut(tree)
+	reset_cut_uv(tree)
+
+# 切断後の不均等区間を初期化したとき、点数不変でも素材座標を更新する。
+static func reset_cut_uv(tree: SceneTree) -> void:
+	var rope := ClassDB.instantiate("SVGRope3D") as Node3D
+	rope.set("src", "<svg width='8' height='48'><rect width='8' height='48' fill='red'/></svg>")
+	rope.set("segments", 5)
+	rope.set("simulation_enabled", false)
+	rope.set("max_length", 0.48)
+	tree.root.add_child(rope)
+	var tail: Node = rope.call("cut_segment", Vector3(-1, -0.1725, 0), Vector3(1, -0.1725, 0))
+	tree.check(tail != null, "3D reset UV fixture did not cut")
+	if tail == null:
+		rope.free()
+		return
+	for part in [rope, tail]:
+		var count := int(part.call("get_rope_points").size())
+		var span: Vector2 = part.get("uv_range")
+		part.call("reset_simulation")
+		tree.check(part.call("get_rope_points").size() == count and part.get("uv_range") == span,
+			"3D reset changed cut point count or material range")
+		var meshes: Array[Node] = part.get_children(true).filter(func(child): return child is MeshInstance3D)
+		var mesh: ArrayMesh = meshes[0].mesh
+		var uvs: PackedVector2Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV]
+		for i in count:
+			var expected := lerpf(span.x, span.y, float(i) / (count - 1))
+			tree.check(absf(uvs[i * 2].y - expected) < 0.00001
+				and absf(uvs[i * 2 + 1].y - expected) < 0.00001,
+				"3D reset kept unequal cut UV at point %d: %s != %s" % [i, uvs[i * 2].y, expected])
+	tail.free()
+	rope.free()
 
 # SVG素材から描いた帯が、切断によって伸びたり画像範囲を繰り返したりしないことを調べる。
 static func textured_cut(tree: SceneTree) -> void:

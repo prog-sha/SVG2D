@@ -56,10 +56,13 @@ public:
 	}
 
 	V &keep(uint64_t key, V &&v, size_t bytes) {
-		// 同じ鍵で入れ直されたら、前のぶんを引いてから足す。引かないと、
-		// 抱えている量がふくらんで、捨てるほうが止まらなくなる
+		// 置換対象は今回使用中として守り、間引きで旧量を二重に引かない。
 		auto old = _map.find(key);
-		if (old != _map.end()) _bytes -= old->second.bytes;
+		if (old != _map.end()) {
+			_bytes -= old->second.bytes;
+			old->second.bytes = 0;
+			old->second.used = _turn;
+		}
 		if (_bytes + bytes > _cap) _trim(bytes);
 		Slot s;
 		s.val = std::move(v);

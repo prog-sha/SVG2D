@@ -32,6 +32,7 @@ public:
 	void set_deferred_updates(bool enabled);
 	bool is_deferred_updates() const { return _deferred_updates; }
 	void flush_paths();
+	godot::String get_edited_svg();
 	void set_animation_cache_mode(int mode);
 	int get_animation_cache_mode() const;
 	void set_animation_cache_limit_mb(int limit);
@@ -80,6 +81,7 @@ public:
 	void set_deferred_updates(bool enabled);
 	bool is_deferred_updates() const { return _deferred_updates; }
 	void flush_paths();
+	godot::String get_edited_svg();
 	void set_animation_cache_mode(int mode);
 	int get_animation_cache_mode() const;
 	void set_animation_cache_limit_mb(int limit);

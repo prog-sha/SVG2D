@@ -277,17 +277,17 @@ static Path parse_path(const String &d, double tol) {
 		}
 		cur.p.clear();
 	};
-	auto take = [&](int n) {
-		std::vector<double> v;
+	// 各命令の引数は最大6値。短命なvectorの割り当てを避ける。
+	auto take = [&](double *v, int n) {
 		for (int i = 0; i < n; i++) {
 			while (*p && (*p == ' ' || *p == ',' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
 			char *end = nullptr;
 			double x = std::strtod(p, &end);
-			if (end == p) return std::vector<double>();
-			v.push_back(x);
+			if (end == p || !std::isfinite(x) || !std::isfinite((float)x)) return false;
+			v[i] = x;
 			p = end;
 		}
-		return v;
+		return true;
 	};
 	// 円弧の 4 つ目と 5 つ目は 0 か 1 の 1 文字で、続けて書かれることがある
 	auto take_flag = [&]() -> int {
@@ -309,31 +309,27 @@ static Path parse_path(const String &d, double tol) {
 		bool rel = std::islower((unsigned char)cmd);
 		char up = (char)std::toupper((unsigned char)cmd);
 		Vector2 base = rel ? at : Vector2(0, 0);
+		double v[6]; // 三次曲線が1回に読む最大引数数
 		if (up == 'M') {
-			std::vector<double> v = take(2);
-			if (v.size() < 2) break;
+			if (!take(v, 2)) break;
 			flush(false);
 			at = base + Vector2((float)v[0], (float)v[1]);
 			start = at;
 			cur.p.push_back(at);
 		} else if (up == 'L') {
-			std::vector<double> v = take(2);
-			if (v.size() < 2) break;
+			if (!take(v, 2)) break;
 			at = base + Vector2((float)v[0], (float)v[1]);
 			cur.p.push_back(at);
 		} else if (up == 'H') {
-			std::vector<double> v = take(1);
-			if (v.empty()) break;
+			if (!take(v, 1)) break;
 			at.x = (float)(rel ? at.x + v[0] : v[0]);
 			cur.p.push_back(at);
 		} else if (up == 'V') {
-			std::vector<double> v = take(1);
-			if (v.empty()) break;
+			if (!take(v, 1)) break;
 			at.y = (float)(rel ? at.y + v[0] : v[0]);
 			cur.p.push_back(at);
 		} else if (up == 'C' || up == 'S') {
-			std::vector<double> v = take(up == 'C' ? 6 : 4);
-			if (v.size() < (size_t)(up == 'C' ? 6 : 4)) break;
+			if (!take(v, up == 'C' ? 6 : 4)) break;
 			Vector2 c1, c2, e;
 			if (up == 'C') {
 				c1 = base + Vector2((float)v[0], (float)v[1]);
@@ -350,8 +346,7 @@ static Path parse_path(const String &d, double tol) {
 			c_prev = c2;
 			at = e;
 		} else if (up == 'Q' || up == 'T') {
-			std::vector<double> v = take(up == 'Q' ? 4 : 2);
-			if (v.size() < (size_t)(up == 'Q' ? 4 : 2)) break;
+			if (!take(v, up == 'Q' ? 4 : 2)) break;
 			Vector2 c1, e;
 			if (up == 'Q') {
 				c1 = base + Vector2((float)v[0], (float)v[1]);
@@ -366,12 +361,11 @@ static Path parse_path(const String &d, double tol) {
 			q_prev = c1;
 			at = e;
 		} else if (up == 'A') {
-			std::vector<double> r = take(3);
-			if (r.size() < 3) break;
+			double r[3]; // 円弧の半径と回転角
+			if (!take(r, 3)) break;
 			int fa = take_flag(), fs = take_flag();
 			if (fa < 0 || fs < 0) break;
-			std::vector<double> v = take(2);
-			if (v.size() < 2) break;
+			if (!take(v, 2)) break;
 			Vector2 e = base + Vector2((float)v[0], (float)v[1]);
 			if (cur.p.empty()) cur.p.push_back(at);
 			add_arc(cur.p, at, r[0], r[1], r[2] * Math::PI / 180.0, fa != 0, fs != 0, e, tol);
@@ -383,7 +377,8 @@ static Path parse_path(const String &d, double tol) {
 		} else {
 			break;
 		}
-		last = cmd;
+		// Zは引数を消費しないため、後続数値による暗黙の繰り返しを許さない。
+		last = up == 'Z' ? 0 : cmd;
 	}
 	flush(false);
 	return out;
@@ -523,6 +518,7 @@ struct SVG::Store {
 		clip.turn(turn);
 		if (pw != w || ph != h) {
 			pool.clear();
+			clip.clear(); // 画面外で切り詰めた被覆を異なる寸法へ使い回さない。
 			cv.make(w, h);
 			pw = w;
 			ph = h;
@@ -1030,9 +1026,9 @@ static void box_walk(const Ctx &c, const SVG::Elem &e, State st, Rect2 &out, boo
 // 切り抜きを 1 つ用意する。同じ札を同じ置きかたで使うなら、控えたものを返す。
 static std::shared_ptr<const Cover> clip_of(Ctx &c, const SVG::Elem &clip, const State &st) {
 	const void *ep = &clip;
-	const float look[] = { st.m.columns[0].x, st.m.columns[0].y, st.m.columns[1].x,
+	const double look[] = { st.m.columns[0].x, st.m.columns[0].y, st.m.columns[1].x,
 		st.m.columns[1].y, st.m.columns[2].x, st.m.columns[2].y,
-		st.clip_evenodd ? 1.0f : 0.0f };
+		st.clip_evenodd ? 1.0 : 0.0, st.vw, st.vh };
 	uint64_t key = mix(mix(SEED, &ep, sizeof(ep)), look, sizeof(look));
 	auto *got = c.store->clip.find(key);
 	if (got != nullptr) return *got;
@@ -1105,6 +1101,7 @@ static void draw_elem(Ctx &c, const SVG::Elem &e, State st, const SVG::Elem *ins
 	// その札固有のもの。受け継がない
 	String op_s = attr_of(e, "opacity");
 	double op = op_s.is_empty() ? 1.0 : std::clamp(length_of(op_s, 1.0, 1.0), 0.0, 1.0);
+	if (op <= 0.0) return; // 完全透明なら子の描画と全画面レイヤー確保も不要。
 	String clip_s = attr_of(e, "clip-path");
 
 	// 薄さが掛かっているまとまりは、別の紙へ描いてから重ねる。

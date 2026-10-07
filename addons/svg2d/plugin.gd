@@ -751,8 +751,18 @@ func pick_path_control_3d(node: Node3D, camera: Camera3D, screen_point: Vector2)
 						best = distance; hit = {"path": p, "instance": instance, "point": i, "part": part, "value": value}
 	return hit
 
+# オーバーレイと同じ編集枠のViewportを選び、分割表示でも投影を一致させる。
+func camera_for_overlay(control: Control) -> Camera3D:
+	var parent := control.get_parent()
+	if parent == null: return null
+	for index in 4:
+		var viewport := EditorInterface.get_editor_viewport_3d(index)
+		if viewport != null and parent.is_ancestor_of(viewport):
+			return viewport.get_camera_3d()
+	return null
+
 func _forward_3d_draw_over_viewport(control: Control) -> void:
-	var camera := EditorInterface.get_editor_viewport_3d(0).get_camera_3d()
+	var camera := camera_for_overlay(control)
 	if camera == null: return
 	for selected in EditorInterface.get_selection().get_selected_nodes():
 		if not selected.is_class("SVGAnimate3D"): continue

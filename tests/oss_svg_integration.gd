@@ -24,6 +24,8 @@ static func inspect(tree: SceneTree, image: Image, label: String, red: bool = tr
 	tree.check(image.get_pixelv(Vector2i(Vector2(9, 15) * Vector2(image.get_size()) / Vector2(64, 48))).a < 0.01, label + " symbol transform missing")
 
 static func run(tree: SceneTree) -> void:
+	closed_path_inputs(tree)
+	clip_cache_inputs(tree)
 	var source := FileAccess.get_file_as_string(SOURCE)
 	for kind in ["SVG2D", "SVG3D", "SVGAnimate2D", "SVGAnimate3D"]:
 		var node: Node = ClassDB.instantiate(kind)
@@ -131,3 +133,87 @@ static func run(tree: SceneTree) -> void:
 			await frame(tree)
 			inspect(tree, view.get_texture().get_image(), kind + " packed scene")
 		view.free()
+
+# 終了しない不正入力を避け、有効な先頭部分と各命令の描画を保つ。
+static func closed_path_inputs(tree: SceneTree) -> void:
+	var prefix := "M8 8 L24 8 L24 24 L8 24"
+	var reference := path_image(prefix + "Z")
+	for close in ["Z", "z"]:
+		for suffix in [" 1", " -1.5", " ,1 2", " ?", " 1 M40 40 L56 40 L56 56 Z"]:
+			tree.check(path_image(prefix + close + suffix).get_data() == reference.get_data(),
+				"closed path did not preserve valid prefix: " + close + suffix)
+		var next := " M40 40 L56 40 L56 56 L40 56 Z"
+		var moved := path_image(prefix + close + next)
+		tree.check(moved.get_pixel(48, 48).a > 0.99 and moved.get_pixel(12, 12).a > 0.99,
+			"explicit M after close lost a subpath: " + close)
+		var line := " L40 8 L40 24 L8 24 Z"
+		tree.check(path_image(prefix + close + line).get_data()
+			== path_image(prefix + "Z M8 8" + line).get_data(),
+			"explicit L after close lost the current point: " + close)
+	# 円弧の連続フラグを各組合せで分離表記と照合する。
+	for flags in ["00", "01", "10", "11"]:
+		var compact := "M16 32 A16 16 0 %s48 32 A16 16 0 %s16 32 Z" % [flags, flags]
+		var separated := "M16 32 A16 16 0 %s %s 48 32 A16 16 0 %s %s 16 32 Z" \
+			% [flags[0], flags[1], flags[0], flags[1]]
+		tree.check(path_image(compact).get_data() == path_image(separated).get_data(),
+			"adjacent arc flags changed pixels: " + flags)
+	var circle := path_image("M16 32 A16 16 0 0148 32 A16 16 0 0116 32 Z")
+	tree.check(circle.get_pixel(32, 32).a > 0.99 and circle.get_pixel(8, 32).a < 0.01,
+		"compact arc flags lost circle pixels")
+	# 固定個数の数値読取りへ替えても省略命令と符号区切りを保持する。
+	for pair in [
+		["M8 8 24 8 24 24 8 24Z", "M8 8L24 8L24 24L8 24Z"],
+		["M8 8h16v16h-16z", "M8 8H24V24H8Z"],
+		["M8 32C16 8 24 8 32 32S48 56 56 32L56 56H8Z", "M8 32C16 8 24 8 32 32C40 56 48 56 56 32L56 56H8Z"],
+		["M8 32Q20 8 32 32T56 32L56 56H8Z", "M8 32Q20 8 32 32Q44 56 56 32L56 56H8Z"],
+	]:
+		tree.check(path_image(pair[0]).get_data() == path_image(pair[1]).get_data(),
+			"valid path command changed pixels: " + pair[0])
+
+# 自然寸法へ揃えた塗り画像を返し、画面や描画更新の待機を不要にする。
+static func path_image(data: String) -> Image:
+	var node: Node = ClassDB.instantiate("SVG2D")
+	node.set("adaptive", false)
+	node.set("animation_enabled", false)
+	node.set("src", "<svg width='64' height='64'><path fill='red' d='%s'/></svg>" % data)
+	var image: Image = node.call("get_texture").get_image()
+	node.free()
+	image.resize(64, 64, Image.INTERPOLATE_NEAREST)
+	return image
+
+# 同じ変換でも割合の基準寸法や描画面積が異なる切り抜きを共有しない。
+static func clip_cache_inputs(tree: SceneTree) -> void:
+	var node: Node2D = ClassDB.instantiate("SVG2D")
+	node.set("animation_enabled", false)
+	node.set("src", "<svg width='200' height='100'><defs><clipPath id='c'><rect width='50%' height='100%'/></clipPath></defs>"
+		+ "<svg width='100' height='100' overflow='visible'><rect width='100' height='100' fill='red' clip-path='url(#c)'/></svg>"
+		+ "<svg width='200' height='100' overflow='visible'><rect width='200' height='100' fill='blue' clip-path='url(#c)'/></svg></svg>")
+	var nested: Image = node.call("get_texture").get_image()
+	tree.check(nested.get_pixel(75, 50).b > 0.99 and nested.get_pixel(125, 50).a < 0.01,
+		"percentage clip reused a different nested viewport size")
+	node.set("src", "<svg width='100' height='100' viewBox='0 0 100 100' preserveAspectRatio='xMinYMin meet'>"
+		+ "<defs><clipPath id='c'><rect width='200' height='100'/></clipPath></defs>"
+		+ "<rect width='200' height='100' fill='red' clip-path='url(#c)'/></svg>")
+	tree.root.add_child(node)
+	var small: Image = node.call("get_texture").get_image()
+	tree.check(small.get_size() == Vector2i(100, 100), "clip resize fixture had unexpected initial density")
+	node.scale = Vector2(2, 1)
+	var wide: Image = node.call("get_texture").get_image()
+	tree.check(wide.get_size() == Vector2i(200, 100) and wide.get_pixel(150, 50).r > 0.99,
+		"clip cache retained old canvas bounds after density change")
+	node.free()
+	# 完全透明の深いまとまりに、可視図形用の中間画面を追加確保しない。
+	var plain: Node = ClassDB.instantiate("SVG2D")
+	var hidden: Node = ClassDB.instantiate("SVG2D")
+	for item in [plain, hidden]: item.set("animation_enabled", false)
+	var visible := "<rect x='8' y='8' width='16' height='16' fill='red'/>"
+	plain.set("src", "<svg width='64' height='64'>" + visible + "</svg>")
+	hidden.set("src", "<svg width='64' height='64'>" + visible + "<g opacity='0'>".repeat(10)
+		+ "<rect width='64' height='64' fill='blue'/>" + "</g>".repeat(10) + "</svg>")
+	var baseline: Image = plain.call("get_texture").get_image()
+	var transparent: Image = hidden.call("get_texture").get_image()
+	tree.check(transparent.get_data() == baseline.get_data(), "transparent groups changed visible pixels")
+	var extra := int(hidden.call("get_render_cache_bytes")) - int(plain.call("get_render_cache_bytes"))
+	tree.check(extra <= 1024, "transparent groups retained unnecessary canvas bytes: " + str(extra))
+	plain.free()
+	hidden.free()
