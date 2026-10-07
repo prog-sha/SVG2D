@@ -41,7 +41,6 @@ func _enter_tree() -> void:
 	path_context_menu = PopupMenu.new()
 	path_context_menu.name = "SVGPathKeyMenu"
 	EditorInterface.get_base_control().add_child(path_context_menu)
-	var editor_control := EditorInterface.get_base_control()
 	path_context_menu.id_pressed.connect(_context_key_selected)
 	# 選択済みノードの種類に依存せず、透明画素を除いた独自判定へ入力を渡す。
 	set_input_event_forwarding_always_enabled()
@@ -187,7 +186,7 @@ func screen_to_parent(node: Node2D, point: Vector2) -> Vector2:
 		if parent else node.get_canvas_transform().affine_inverse() * canvas_point
 
 func collect_svg2d(node: Node, found: Array[Node2D]) -> void:
-	if node.is_class("SVG2D") and node is Node2D and node.is_visible_in_tree():
+	if node.is_class("SVG2D") and node is Node2D and node.is_visible_in_tree() and not node.has_meta(&"_edit_lock_"):
 		found.push_back(node)
 	for child in node.get_children():
 		collect_svg2d(child, found)
@@ -320,6 +319,7 @@ func _player_controls_node(player: AnimationPlayer, node: Node) -> bool:
 	var names := [player.assigned_animation] if not String(player.assigned_animation).is_empty() \
 		else player.get_animation_list()
 	for name in names:
+		if not player.has_animation(name): continue
 		var animation := player.get_animation(name)
 		for track in animation.get_track_count():
 			var path := animation.track_get_path(track)
@@ -333,8 +333,14 @@ func _new_animation_player(root: Node, name: String) -> AnimationPlayer:
 	root.add_child(player, true)
 	player.owner = root
 	player.root_node = NodePath("..")
-	EditorInterface.mark_scene_as_unsaved()
 	return player
+
+# 新しいプレイヤーの寿命を履歴に預け、Undoでシーンから取り外す。
+func _record_player(undo: EditorUndoRedoManager, player: AnimationPlayer, root: Node) -> void:
+	undo.add_do_method(root, "add_child", player, true)
+	undo.add_do_method(player, "set_owner", root)
+	undo.add_undo_method(root, "remove_child", player)
+	undo.add_do_reference(player)
 
 func _find_animation_player(node: Node) -> AnimationPlayer:
 	var root := EditorInterface.get_edited_scene_root()
@@ -355,7 +361,7 @@ func _find_animation_player(node: Node) -> AnimationPlayer:
 		if score < best_score:
 			best = player
 			best_score = score
-	return best if best != null else _new_animation_player(root, "AnimationPlayer")
+	return best
 
 func _path_style_properties(node: Node, path: int) -> Array[String]:
 	var result: Array[String] = []
@@ -395,7 +401,10 @@ func create_all_point_animation_player(node: Node) -> AnimationPlayer:
 	library.add_animation("all_points", animation)
 	player.add_animation_library("", library)
 	player.assigned_animation = &"all_points"
-	EditorInterface.mark_scene_as_unsaved()
+	var undo := EditorInterface.get_editor_undo_redo()
+	undo.create_action("Create SVG AnimationPlayer", UndoRedo.MERGE_DISABLE, node, true)
+	_record_player(undo, player, root)
+	undo.commit_action(false)
 	return player
 
 func _show_path_key_menu(node: Node, hit: Dictionary) -> void:
@@ -430,8 +439,7 @@ func _context_key_selected(id: int) -> void:
 	if not is_instance_valid(path_node) or id < 0 or id >= context_properties.size(): return
 	var property := context_properties[id]
 	if property == "*":
-		for name in _all_svg_key_properties(path_node):
-			insert_svg_property_key(path_node, name)
+		_insert_svg_keys(path_node, _all_svg_key_properties(path_node))
 	else:
 		insert_svg_property_key(path_node, property)
 
@@ -450,35 +458,79 @@ func insert_path_key(node: Node, path: int, point: int, part := "point") -> bool
 	return insert_svg_property_key(node, "paths/path_%d/point_%d%s" % [path, point, suffix])
 
 func insert_svg_property_key(node: Node, property: String) -> bool:
+	return _insert_svg_keys(node, [property])
+
+# 一括登録でもプレイヤー探索と履歴作成は一度だけ行う。
+func _insert_svg_keys(node: Node, properties: Array[String]) -> bool:
 	if not is_instance_valid(node) or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
 		return false
-	if property != "modulate" and not property.begins_with("paths/path_"): return false
+	var root := EditorInterface.get_edited_scene_root()
+	if root == null or not (root == node or root.is_ancestor_of(node)): return false
+	var available := {}
+	for property in _all_svg_key_properties(node): available[property] = true
+	for property in properties:
+		if property not in available: return false
+	if properties.is_empty(): return false
+	var undo := EditorInterface.get_editor_undo_redo()
+	undo.create_action("Insert SVG Keys", UndoRedo.MERGE_DISABLE, node, true)
 	var player := _find_animation_player(node)
-	if player == null: return false
+	if player == null:
+		player = _new_animation_player(root, "AnimationPlayer")
+		_record_player(undo, player, root)
 	var animation_name := StringName(player.assigned_animation)
 	if animation_name == &"" or not player.has_animation(animation_name):
 		animation_name = &"svg_path"
 		if not player.has_animation_library(&""):
-			player.add_animation_library(&"", AnimationLibrary.new())
+			var created_library := AnimationLibrary.new()
+			player.add_animation_library(&"", created_library)
+			undo.add_do_method(player, "add_animation_library", &"", created_library)
+			undo.add_undo_method(player, "remove_animation_library", &"")
 		var library := player.get_animation_library(&"")
 		if not library.has_animation(animation_name):
 			var created := Animation.new()
 			created.length = 1.0
 			library.add_animation(animation_name, created)
+			undo.add_do_method(library, "add_animation", animation_name, created)
+			undo.add_undo_method(library, "remove_animation", animation_name)
+		undo.add_do_property(player, &"assigned_animation", animation_name)
+		# 元は有効な割当なし。Godotは空名を受理しないので停止後に追加分を取り除く。
+		undo.add_undo_method(player, "stop", true)
 		player.assigned_animation = animation_name
 	var animation := player.get_animation(animation_name)
 	var base := player.get_node_or_null(player.root_node)
 	if base == null: base = player.get_parent()
 	var relative := base.get_path_to(node)
 	var node_path := "." if relative.is_empty() else String(relative)
-	var track_path := NodePath(node_path + ":" + property)
-	var track := animation.find_track(track_path, Animation.TYPE_VALUE)
-	if track < 0:
-		track = animation.add_track(Animation.TYPE_VALUE)
-		animation.track_set_path(track, track_path)
-	var time := player.current_animation_position
-	animation.track_insert_key(track, time, node.get(property))
-	EditorInterface.mark_scene_as_unsaved()
+	# 停止中は現在時刻のgetterが無効になるため、先頭へ登録する。
+	var time := player.current_animation_position if player.is_animation_active() else 0.0
+	# 各プロパティごとの全トラック検索を避ける。
+	var tracks := {}
+	for index in animation.get_track_count():
+		if animation.track_get_type(index) == Animation.TYPE_VALUE:
+			var path := animation.track_get_path(index)
+			if not tracks.has(path): tracks[path] = index
+	for property in properties:
+		var track_path := NodePath(node_path + ":" + property)
+		var track: int = tracks.get(track_path, -1)
+		if track < 0:
+			track = animation.add_track(Animation.TYPE_VALUE)
+			animation.track_set_path(track, track_path)
+			tracks[track_path] = track
+			undo.add_do_method(animation, "add_track", Animation.TYPE_VALUE, track)
+			undo.add_do_method(animation, "track_set_path", track, track_path)
+			undo.add_undo_method(animation, "remove_track", track)
+		else:
+			var key := animation.track_find_key(track, time, Animation.FIND_MODE_APPROX)
+			if key >= 0:
+				undo.add_undo_method(animation, "track_insert_key", track,
+					animation.track_get_key_time(track, key), animation.track_get_key_value(track, key),
+					animation.track_get_key_transition(track, key))
+			else:
+				undo.add_undo_method(animation, "track_remove_key_at_time", track, time)
+		var value = node.get(property)
+		animation.track_insert_key(track, time, value)
+		undo.add_do_method(animation, "track_insert_key", track, time, value)
+	undo.commit_action(false)
 	return true
 
 func finish_path_drag() -> void:
@@ -516,7 +568,9 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 	if event.has_meta(&"svg2d_editor_handled"): return true
 	var selected := EditorInterface.get_selection().get_selected_nodes()
 	var animate := selected[0] as Node2D if selected.size() == 1 and selected[0].is_class("SVGAnimate2D") else null
-	if event is InputEventKey and event.pressed and not event.echo and animate:
+	if animate and animate.has_meta(&"_edit_lock_"): animate = null
+	if event is InputEventKey and event.pressed and not event.echo and animate \
+			and not (event.ctrl_pressed or event.meta_pressed or event.alt_pressed):
 		if event.keycode == KEY_A or event.keycode == KEY_V: path_part = "point"
 		elif event.keycode == KEY_I: path_part = "in"
 		elif event.keycode == KEY_O: path_part = "out"
@@ -551,8 +605,13 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 			var picked := pick_svg2d(event.position)
 			if picked == null:
 				return false
-			EditorInterface.get_selection().clear()
-			EditorInterface.get_selection().add_node(picked)
+			var selection := EditorInterface.get_selection()
+			if event.shift_pressed:
+				if picked in selected: selection.remove_node(picked)
+				else: selection.add_node(picked)
+				return _canvas_handled(event)
+			selection.clear()
+			selection.add_node(picked)
 			drag_node = picked
 			drag_start = picked.position
 			drag_offset = screen_to_parent(picked, event.position) - picked.position
@@ -660,7 +719,9 @@ func intersect_drag_plane(camera: Camera3D, screen_point: Vector2) -> Variant:
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	var selected := EditorInterface.get_selection().get_selected_nodes()
 	var animate := selected[0] as Node3D if selected.size() == 1 and selected[0].is_class("SVGAnimate3D") else null
-	if event is InputEventKey and event.pressed and not event.echo and animate:
+	if animate and animate.has_meta(&"_edit_lock_"): animate = null
+	if event is InputEventKey and event.pressed and not event.echo and animate \
+			and not (event.ctrl_pressed or event.meta_pressed or event.alt_pressed):
 		if event.keycode == KEY_A or event.keycode == KEY_V: path_part = "point"
 		elif event.keycode == KEY_I: path_part = "in"
 		elif event.keycode == KEY_O: path_part = "out"

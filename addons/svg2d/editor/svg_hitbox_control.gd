@@ -125,7 +125,10 @@ func _extruded_faces(polygons: Array[PackedVector2Array]) -> PackedVector3Array:
 	var size: Vector2 = target.call("get_svg_size")
 	var depth := _depth_3d(size, float(target.get("pixel_size")))
 	var half := depth * 0.5
-	for polygon in polygons:
+	for source in polygons:
+		# 側面も三角分割と同じ反時計回りの輪郭から作る。
+		var polygon := source.duplicate()
+		if Geometry2D.is_polygon_clockwise(polygon): polygon.reverse()
 		var triangles := Geometry2D.triangulate_polygon(polygon)
 		for i in range(0, triangles.size(), 3):
 			var a := ShapeUtils.displayed_point_3d(target, polygon[triangles[i]])
@@ -142,6 +145,12 @@ func _extruded_faces(polygons: Array[PackedVector2Array]) -> PackedVector3Array:
 				Vector3(a.x, a.y, -half), Vector3(b.x, b.y, -half), Vector3(b.x, b.y, half),
 				Vector3(a.x, a.y, -half), Vector3(b.x, b.y, half), Vector3(a.x, a.y, half),
 			]))
+	# 片方だけの反転で裏返る面を戻し、外側からの衝突を維持する。
+	if bool(target.get("flip_h")) != bool(target.get("flip_v")):
+		for index in range(0, faces.size(), 3):
+			var point := faces[index + 1]
+			faces[index + 1] = faces[index + 2]
+			faces[index + 2] = point
 	return faces
 
 func _depth_3d(size: Vector2, pixel_size: float) -> float:

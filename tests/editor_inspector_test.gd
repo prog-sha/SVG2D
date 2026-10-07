@@ -550,6 +550,316 @@ func test_alternate_transform_stack_3d(scene_root: Node2D, svg_plugin: Node, cam
 		"3D camera incorrectly selected an SVG point behind the viewer")
 	a.free()
 
+# 保存・複製で未編集のuse継承と明示編集を区別する。
+static func test_style_roundtrip(probe: Object) -> void:
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		for edit in [false, true]:
+			var node: Node = ClassDB.instantiate(kind)
+			node.set("src", "<svg width='64' height='64'><defs><path id='s' d='M16 16H48V48H16Z'/></defs><use href='#s' fill='none' stroke='red' stroke-width='10'/></svg>")
+			if edit: node.set("paths/path_0/fill_color", Color.BLUE)
+			node.name = "StyleFixture"
+			var before := ShapeUtils.natural_image(node).get_data()
+			var packed := PackedScene.new()
+			probe.check(packed.pack(node) == OK, kind + " scene pack failed")
+			var restored := packed.instantiate()
+			probe.check(ShapeUtils.natural_image(restored).get_data() == before,
+				kind + " PackedScene changed inherited style, edited=" + str(edit))
+			var copy := node.duplicate()
+			probe.check(ShapeUtils.natural_image(copy).get_data() == before,
+				kind + " duplicate changed inherited style, edited=" + str(edit))
+			restored.free()
+			copy.free()
+			node.free()
+
+# キー・補間・トラック順を独立に読み、Undoの完全復元を比較する。
+static func animation_state(animation: Animation) -> Array:
+	var result: Array = []
+	for track in animation.get_track_count():
+		var keys: Array = []
+		for key in animation.track_get_key_count(track):
+			keys.append([animation.track_get_key_time(track, key),
+				animation.track_get_key_value(track, key), animation.track_get_key_transition(track, key)])
+		result.append([animation.track_get_path(track), animation.track_get_type(track),
+			animation.track_get_interpolation_type(track), animation.track_is_enabled(track),
+			animation.track_get_interpolation_loop_wrap(track), animation.value_track_get_update_mode(track), keys])
+	return result
+
+# キー操作全体を実シーン履歴の一操作として戻し、再実行できることを確認する。
+func test_key_undo(root: Node, plugin: Node) -> void:
+	var manager := EditorInterface.get_editor_undo_redo()
+	var history_id := manager.get_object_history_id(root)
+	var history := manager.get_history_undo_redo(history_id)
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		for mode in ["all_player", "new_player", "new_library", "new_animation", "new_track", "new_key", "overwrite", "unassigned_existing", "all_keys"]:
+			manager.clear_history(history_id)
+			var node: Node = ClassDB.instantiate(kind)
+			node.name = "UndoSVG"
+			node.set("src", "<svg width='64' height='64'><path d='M10 10 C20 10 40 10 50 20 L50 50Z' fill='red'/></svg>")
+			root.add_child(node)
+			node.owner = root
+			var player: AnimationPlayer
+			var library: AnimationLibrary
+			var animation: Animation
+			var property := "paths/path_0/point_0"
+			var existing_name := &"svg_path" if mode == "unassigned_existing" else &"existing"
+			if mode not in ["all_player", "new_player"]:
+				player = AnimationPlayer.new()
+				player.name = "UndoPlayer"
+				root.add_child(player)
+				player.owner = root
+				if mode != "new_library":
+					library = AnimationLibrary.new()
+					player.add_animation_library(&"", library)
+				if mode not in ["new_library", "new_animation"]:
+					animation = Animation.new()
+					library.add_animation(existing_name, animation)
+					if mode != "unassigned_existing": player.assigned_animation = existing_name
+					var track := animation.add_track(Animation.TYPE_VALUE)
+					animation.track_set_path(track, NodePath("UndoSVG:" + (property if mode != "new_track" else "modulate")))
+					animation.track_set_interpolation_type(track, Animation.INTERPOLATION_NEAREST)
+					animation.track_set_interpolation_loop_wrap(track, false)
+					animation.value_track_set_update_mode(track, Animation.UPDATE_DISCRETE)
+					animation.track_insert_key(track, 0.0, Vector2(3, 4) if mode != "new_track" else Color.GREEN, 0.37)
+					animation.track_insert_key(track, 0.8, Vector2(5, 6) if mode != "new_track" else Color.BLUE, 0.65)
+			if mode == "new_key": player.seek(0.4, false)
+			var before := animation_state(animation) if animation else []
+			var old_name := player.assigned_animation if player else &""
+			var version := history.get_version()
+			var count := history.get_history_count()
+			if mode == "all_player":
+				player = plugin.call("create_all_point_animation_player", node)
+			elif mode == "all_keys":
+				plugin.set("path_node", node)
+				plugin.set("context_properties", ["*"] as Array[String])
+				plugin.call("_context_key_selected", 0)
+			else:
+				check(plugin.call("insert_svg_property_key", node, property), kind + " key insertion failed " + mode)
+				if player == null:
+					player = plugin.call("_find_animation_player", node)
+			check(player != null, kind + " missing key player " + mode)
+			if player == null:
+				node.free()
+				continue
+			var added_animation := player.get_animation(player.assigned_animation)
+			var after := animation_state(added_animation)
+			var registered := history.get_history_count() == count + 1 and history.get_version() > version
+			print("Undo case %s %s: history %d->%d version %d->%d" % [kind, mode, count, history.get_history_count(), version, history.get_version()])
+			check(registered, kind + " key operation did not register one scene Undo action: " + mode)
+			if registered:
+				check(history.undo(), kind + " Undo failed " + mode)
+				if mode in ["all_player", "new_player"]:
+					check(player.get_parent() == null, kind + " Undo retained new player " + mode)
+				else:
+					# Godotは停止後も最後のassigned名を保持するため、空だった場合は実効状態を比較する。
+					var assignment_ok := player.assigned_animation == old_name if old_name != &"" else \
+						not player.is_animation_active() \
+						and not player.is_playing() and player.current_animation == &""
+					check(player.get_parent() == root and assignment_ok,
+						kind + " Undo changed existing player assignment " + mode)
+					if mode == "new_library":
+						check(not player.has_animation_library(&""), kind + " Undo retained new library")
+					elif mode == "new_animation":
+						check(player.get_animation_library(&"") == library and library.get_animation_list().is_empty(),
+							kind + " Undo retained new animation or replaced library")
+					else:
+						check(player.get_animation(existing_name) == animation and animation_state(animation) == before,
+							kind + " Undo did not restore all original tracks/keys/transitions " + mode)
+				check(history.redo(), kind + " Redo failed " + mode)
+				check(player.get_parent() == root and player.owner == root,
+					kind + " Redo lost player ownership " + mode)
+				check(animation_state(player.get_animation(player.assigned_animation)) == after,
+					kind + " Redo did not restore keyed data " + mode)
+				# 未割当playerへUndo後に再登録しても、停止中の時刻getterを呼ばない。
+				if mode == "unassigned_existing":
+					check(history.undo(), kind + " repeated Undo failed")
+					check(plugin.call("insert_svg_property_key", node, property), kind + " stopped player rejected reinsertion")
+					check(animation_state(animation) == after, kind + " stopped player reinsertion used wrong key time")
+					check(history.undo() and animation_state(animation) == before, kind + " reinsert Undo did not restore original data")
+			manager.clear_history(history_id)
+			if is_instance_valid(player): player.free()
+			node.free()
+
+# src確定後の無効な値を捨て、初回復元前の最新値だけを適用する。
+static func test_pending_properties(probe: Object) -> void:
+	var first := "<svg width='64' height='64'><path d='M10 10L40 10L40 40Z' fill='green'/></svg>"
+	var paths := ""
+	for index in 100: paths += "<path d='M10 10L40 10L40 40L10 40Z' fill='green'/>"
+	var future := "<svg width='64' height='64'>" + paths + "</svg>"
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.set("src", first)
+		for repeat in 32:
+			node.set("paths/path_0/point_3", Vector2(90 + repeat, 91))
+			node.set("paths/path_99/fill_color", Color.RED)
+		node.set("src", future)
+		probe.check(node.call("get_path_point", 0, 3) == Vector2(10, 40),
+			kind + " invalid point leaked into later source")
+		probe.check(node.get("paths/path_99/fill_color") == Color(0, 0.5019608, 0, 1),
+			kind + " invalid style leaked into later source")
+		node.free()
+		var restored: Node = ClassDB.instantiate(kind)
+		restored.set("paths/path_0/point_0", Vector2(1, 2))
+		restored.set("paths/path_0/point_0", Vector2(3, 4))
+		restored.set("paths/path_0/fill_color", Color.RED)
+		restored.set("paths/path_0/fill_color", Color.BLUE)
+		restored.set("src", first)
+		probe.check(restored.call("get_path_point", 0, 0) == Vector2(3, 4),
+			kind + " pre-source point restoration did not retain latest value")
+		probe.check(restored.get("paths/path_0/fill_color") == Color.BLUE,
+			kind + " pre-source style restoration did not retain latest value")
+		restored.free()
+
+# 反転4通りの実衝突面へ外からrayを当て、面の向きを独立に比較する。
+func test_flipped_shape_rays() -> void:
+	var space := PhysicsServer3D.space_create()
+	PhysicsServer3D.space_set_active(space, true)
+	for h in [false, true]:
+		for v in [false, true]:
+			var node: Node = ClassDB.instantiate("SVG3D")
+			node.set("src", "<svg width='64' height='64'><rect width='64' height='64' fill='red'/></svg>")
+			node.set("pixel_size", 0.01)
+			node.set("flip_h", h)
+			node.set("flip_v", v)
+			var control := SVGHitboxControl.new()
+			control.setup(node)
+			var generated: StaticBody3D = control.call("_shape_3d", ShapeUtils.outer_polygons(node))
+			var shape := (generated.get_child(0) as CollisionShape3D).shape as ConcavePolygonShape3D
+			check(not shape.backface_collision, "Shape enabled backface collision instead of preserving winding")
+			var body := PhysicsServer3D.body_create()
+			PhysicsServer3D.body_set_mode(body, PhysicsServer3D.BODY_MODE_STATIC)
+			PhysicsServer3D.body_add_shape(body, shape.get_rid())
+			PhysicsServer3D.body_set_space(body, space)
+			await get_tree().process_frame
+			var state := PhysicsServer3D.space_get_direct_state(space)
+			for direction in [Vector3(0, 0, 1), Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 1, 0), Vector3(0, -1, 0)]:
+				var query := PhysicsRayQueryParameters3D.create(direction, Vector3.ZERO)
+				query.hit_back_faces = false
+				var hit := state.intersect_ray(query)
+				var expected: Vector3 = direction * (0.005 if direction.z != 0 else 0.32)
+				check(not hit.is_empty(), "Shape external ray missed flip=%s,%s direction=%s" % [h, v, direction])
+				if not hit.is_empty():
+					check(Vector3(hit.position).distance_to(expected) < 0.011 and Vector3(hit.normal).dot(direction) > 0.99,
+						"Shape external ray hit wrong face flip=%s,%s direction=%s" % [h, v, direction])
+			PhysicsServer3D.free_rid(body)
+			generated.free()
+			control.free()
+			node.free()
+	PhysicsServer3D.free_rid(space)
+
+# 標準ショートカットと編集ロックを尊重し、Shift本体選択を追加・除去する。
+func test_editor_input_rules(root: Node, plugin: Node) -> void:
+	var selection := EditorInterface.get_selection()
+	var source := "<svg width='64' height='64'><path d='M0 0C20 0 44 0 64 0L64 64L0 64Z' fill='red'/></svg>"
+	var point_node: Node2D = ClassDB.instantiate("SVGAnimate2D")
+	point_node.set("src", source)
+	point_node.position = Vector2(120, 120)
+	root.add_child(point_node)
+	var body_node: Node2D = ClassDB.instantiate("SVG2D")
+	body_node.set("src", source)
+	body_node.position = Vector2(260, 120)
+	root.add_child(body_node)
+	await get_tree().process_frame
+	selection.clear()
+	selection.add_node(point_node)
+	for modifier in ["ctrl_pressed", "meta_pressed"]:
+		for code in [KEY_A, KEY_I, KEY_O, KEY_K]:
+			plugin.set("path_part", "out")
+			var event := InputEventKey.new()
+			event.pressed = true
+			event.keycode = code
+			event.set(modifier, true)
+			check(not plugin.call("_forward_canvas_gui_input", event)
+				and plugin.get("path_part") == "out" and not event.has_meta(&"svg2d_editor_handled"),
+				"2D intercepted standard shortcut " + modifier + " " + str(code))
+	point_node.set_meta(&"_edit_lock_", true)
+	var anchor: Vector2 = point_node.call("get_path_point", 0, 0)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = plugin.call("path_screen_2d", point_node, anchor, 0)
+	check(not plugin.call("_forward_canvas_gui_input", press), "2D locked anchor consumed drag press")
+	var motion := InputEventMouseMotion.new()
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	motion.position = press.position + Vector2(12, 8)
+	plugin.call("_forward_canvas_gui_input", motion)
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.position = motion.position
+	plugin.call("_forward_canvas_gui_input", release)
+	check(point_node.call("get_path_point", 0, 0) == anchor and point_node.position == Vector2(120, 120),
+		"2D locked anchor/body moved")
+	point_node.remove_meta(&"_edit_lock_")
+	body_node.set_meta(&"_edit_lock_", true)
+	selection.clear()
+	selection.add_node(body_node)
+	press = InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = plugin.call("screen_transform", body_node) * Vector2(32, 32)
+	check(not plugin.call("_forward_canvas_gui_input", press), "2D locked body consumed drag press")
+	motion.position = press.position + Vector2(12, 8)
+	plugin.call("_forward_canvas_gui_input", motion)
+	release.position = motion.position
+	plugin.call("_forward_canvas_gui_input", release)
+	check(body_node.position == Vector2(260, 120), "2D locked body moved")
+	body_node.remove_meta(&"_edit_lock_")
+	selection.clear()
+	selection.add_node(point_node)
+	for add in [true, false]:
+		press = InputEventMouseButton.new()
+		press.button_index = MOUSE_BUTTON_LEFT
+		press.pressed = true
+		press.shift_pressed = true
+		press.position = plugin.call("screen_transform", body_node) * Vector2(32, 32)
+		check(plugin.call("_forward_canvas_gui_input", press), "Shift body selection was ignored")
+		check((body_node in selection.get_selected_nodes()) == add
+			and point_node in selection.get_selected_nodes(), "Shift body selection replaced or retained wrong nodes")
+		release = InputEventMouseButton.new()
+		release.button_index = MOUSE_BUTTON_LEFT
+		release.position = press.position
+		plugin.call("_forward_canvas_gui_input", release)
+	selection.clear()
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(800, 600)
+	root.add_child(viewport)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = 2.0
+	camera.position = Vector3(0, 0, 10)
+	viewport.add_child(camera)
+	camera.current = true
+	var point3: Node3D = ClassDB.instantiate("SVGAnimate3D")
+	point3.set("src", source)
+	viewport.add_child(point3)
+	selection.add_node(point3)
+	await get_tree().process_frame
+	for modifier in ["ctrl_pressed", "meta_pressed"]:
+		for code in [KEY_A, KEY_I, KEY_O, KEY_K]:
+			plugin.set("path_part", "out")
+			var event := InputEventKey.new()
+			event.pressed = true
+			event.keycode = code
+			event.set(modifier, true)
+			check(plugin.call("_forward_3d_gui_input", camera, event) == EditorPlugin.AFTER_GUI_INPUT_PASS
+				and plugin.get("path_part") == "out", "3D intercepted standard shortcut " + modifier + " " + str(code))
+	point3.set_meta(&"_edit_lock_", true)
+	var anchor3: Vector2 = point3.call("get_path_point", 0, 0)
+	press = InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = camera.unproject_position(plugin.call("svg_world_3d", point3, anchor3, 0))
+	check(plugin.call("_forward_3d_gui_input", camera, press) == EditorPlugin.AFTER_GUI_INPUT_PASS,
+		"3D locked anchor consumed drag press")
+	motion.position = press.position + Vector2(12, 8)
+	plugin.call("_forward_3d_gui_input", camera, motion)
+	release.position = motion.position
+	plugin.call("_forward_3d_gui_input", camera, release)
+	check(point3.call("get_path_point", 0, 0) == anchor3, "3D locked anchor moved")
+	selection.clear()
+	viewport.free()
+	point_node.free()
+	body_node.free()
+
 func _enter_tree() -> void:
 	run_checks.call_deferred()
 
@@ -565,6 +875,9 @@ func run_checks() -> void:
 		return
 	test_animated_shape_image(self)
 	test_natural_use_style(self)
+	test_style_roundtrip(self)
+	test_pending_properties(self)
+	await test_flipped_shape_rays()
 	# 同じGPU画像の更新はheadlessのダミー描画では読み戻せない。
 	if DisplayServer.get_name() != "headless": await test_opaque_mask(self)
 	var scene_root := Node2D.new()
@@ -598,6 +911,8 @@ func run_checks() -> void:
 	if svg_plugin:
 		await get_tree().process_frame
 		test_overlay_cameras(svg_plugin)
+		test_key_undo(scene_root, svg_plugin)
+		await test_editor_input_rules(scene_root, svg_plugin)
 		var canvas_input := svg_plugin.get("canvas_input_control") as Control
 		check(canvas_input != null,
 			"未選択時のクリックを受ける2D編集Viewport入力面へ接続していないよ")
