@@ -14,11 +14,14 @@ func _ready() -> void:
 		key_button.icon = get_theme_icon("Key", "EditorIcons")
 	# InspectorPluginはsetup後にControlをSceneTreeへ追加する。
 	# 追加済みになった時点で初めてEditorPluginと状態を同期する。
-	if is_instance_valid(target):
-		_sync_plugin("point")
 	var plugin := _plugin()
 	if plugin != null and not plugin.path_control_selected.is_connected(_on_plugin_selected):
 		plugin.path_control_selected.connect(_on_plugin_selected)
+	if is_instance_valid(target):
+		if plugin != null and plugin.get("path_node") == target:
+			_on_plugin_selected(target, int(plugin.get("path_index")), int(plugin.get("point_index")), String(plugin.get("path_part")))
+		else:
+			_sync_plugin("point")
 
 func _exit_tree() -> void:
 	var plugin := _plugin()
@@ -78,8 +81,9 @@ func setup(node: Node) -> void:
 func _on_plugin_selected(node: Node, path: int, point: int, part: String) -> void:
 	if node != target or path_select == null or point_select == null:
 		return
+	if path_select.item_count == 0: return
 	syncing_from_plugin = true
-	path_select.select(path)
+	path_select.select(clampi(path, 0, path_select.item_count - 1))
 	_refresh_point_range()
 	point_select.value = point
 	for index in mode_buttons.size():

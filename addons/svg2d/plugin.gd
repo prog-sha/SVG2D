@@ -38,6 +38,8 @@ func _enter_tree() -> void:
 	svg_3d_gizmo = SVG3DGizmo.new()
 	add_node_3d_gizmo_plugin(svg_3d_gizmo)
 	add_to_group("svg2d_editor_plugin")
+	add_undo_redo_inspector_hook_callback(_src_undo)
+	scene_changed.connect(_scene_changed)
 	path_context_menu = PopupMenu.new()
 	path_context_menu.name = "SVGPathKeyMenu"
 	EditorInterface.get_base_control().add_child(path_context_menu)
@@ -52,6 +54,8 @@ func _handles(object: Object) -> bool:
 	return object != null and (object.is_class("SVG2D") or object.is_class("SVG3D"))
 
 func _exit_tree() -> void:
+	_apply_changes()
+	remove_undo_redo_inspector_hook_callback(_src_undo)
 	set_process(false)
 	# シーン切替中に解放された編集対象を、遅れて届く入力から参照しない。
 	drag_node = null
@@ -75,6 +79,37 @@ func _exit_tree() -> void:
 		remove_node_3d_gizmo_plugin(svg_3d_gizmo)
 		svg_3d_gizmo = null
 
+# 保存・シーン切替の前に、表示へ反映済みのドラッグを履歴へ確定する。
+func _apply_changes() -> void:
+	finish_path_drag()
+	if is_instance_valid(drag_node): finish_drag()
+
+func _clear() -> void:
+	_apply_changes()
+	path_node = null
+	drag_node = null
+	path_dragging = false
+	if path_context_menu: path_context_menu.hide()
+	context_properties.clear()
+	_disconnect_path_overlay()
+
+func _scene_changed(_root: Node) -> void:
+	_clear()
+	_sync_selected_path_overlay()
+
+# srcの置換で消える編集値を、元srcを戻す操作の後に復元する。
+func _src_undo(undo: Object, node: Object, property: String, _value: Variant) -> void:
+	if property != "src" or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")): return
+	for info in node.get_property_list():
+		if String(info.name).begins_with("paths/") and (int(info.usage) & PROPERTY_USAGE_STORAGE) != 0:
+			undo.add_undo_property(node, info.name, node.get(info.name))
+
+# 素材が交換された後に、旧接点の座標を新しい素材へ書き戻さない。
+func _path_source_changed() -> void:
+	path_dragging = false
+	if is_instance_valid(path_node):
+		select_path_control(path_node, path_index, point_index, path_part)
+
 # 2D編集画面のズームと画面倍率、3D編集カメラを各ノードへ渡す。
 # どちらもシーンのViewport変換だけではエディター固有の表示密度を取得できない。
 func _process(_delta: float) -> void:
@@ -94,6 +129,8 @@ func _process(_delta: float) -> void:
 			update_overlays()
 
 func _disconnect_path_overlay() -> void:
+	if is_instance_valid(overlay_path_node) and overlay_path_node.source_changed.is_connected(_path_source_changed):
+		overlay_path_node.source_changed.disconnect(_path_source_changed)
 	if is_instance_valid(overlay_path_node) and overlay_path_node.is_connected(&"path_changed", update_overlays):
 		overlay_path_node.disconnect(&"path_changed", update_overlays)
 	overlay_path_node = null
@@ -101,16 +138,24 @@ func _disconnect_path_overlay() -> void:
 
 func _sync_selected_path_overlay() -> void:
 	var selected := EditorInterface.get_selection().get_selected_nodes()
+	# 選択通知は遅延する。クリック自身の通知で新しいドラッグを終了しない。
+	if path_dragging and (selected.size() != 1 or selected[0] != path_node): finish_path_drag()
+	if is_instance_valid(drag_node) and drag_node not in selected: finish_drag()
 	var node: Node = null
 	if selected.size() == 1 and (selected[0].is_class("SVGAnimate2D") \
 			or selected[0].is_class("SVGAnimate3D")):
 		node = selected[0]
+	if node != path_node:
+		path_node = null
+		if path_context_menu: path_context_menu.hide()
+		context_properties.clear()
 	if node == overlay_path_node:
 		return
 	_disconnect_path_overlay()
 	if node and node.has_signal("path_changed"):
 		overlay_path_node = node
 		overlay_path_node.connect(&"path_changed", update_overlays)
+		overlay_path_node.source_changed.connect(_path_source_changed)
 
 # set_input_event_forwarding_always_enabled()が常時化するのは3D入力だけなので、
 # 2D編集Viewportの入力面にも接続し、未選択のSVGを最初のクリックから拾う。
@@ -287,6 +332,16 @@ func set_path_control(node: Node, value: Vector2) -> void:
 	else:
 		node.call("set_%s_handle" % path_part, path_index, point_index, value)
 
+# 選択通知とドラッグ開始を同じ順番で行い、Inspectorの再構築を先に済ませる。
+func _start_path_drag(node: Node, hit: Dictionary) -> void:
+	_apply_changes()
+	select_path_control(node, int(hit.path), int(hit.point), String(hit.part))
+	path_instance = int(hit.instance)
+	path_drag_before = hit.value
+	path_opposite_before = node.call("get_%s_handle" % opposite_part(path_part), path_index, point_index) \
+		if path_part != "point" else Vector2.ZERO
+	path_dragging = true
+
 func opposite_part(part: String) -> String:
 	return "out" if part == "in" else "in"
 
@@ -305,10 +360,15 @@ func mirror_opposite_handle(node: Node, moved: Vector2) -> void:
 func select_path_control(node: Node, path: int, point: int, part := "") -> void:
 	if not is_instance_valid(node) or not (node.is_class("SVGAnimate2D") or node.is_class("SVGAnimate3D")):
 		return
+	if path_dragging and (path_node != node or path_index != path or point_index != point or (not part.is_empty() and path_part != part)):
+		finish_path_drag()
+	if path_node != node or path_index != path: path_instance = 0
 	path_node = node
 	path_index = clampi(path, 0, maxi(0, int(node.call("get_path_count")) - 1))
 	point_index = clampi(point, 0, maxi(0, int(node.call("get_point_count", path_index)) - 1))
 	if part in ["point", "in", "out"]: path_part = part
+	if path_part != "point" and not node.call("has_%s_handle" % path_part, path_index, point_index):
+		path_part = "point"
 	path_control_selected.emit(node, path_index, point_index, path_part)
 	update_overlays()
 
@@ -408,8 +468,8 @@ func create_all_point_animation_player(node: Node) -> AnimationPlayer:
 	return player
 
 func _show_path_key_menu(node: Node, hit: Dictionary) -> void:
-	path_instance = int(hit.instance)
 	select_path_control(node, int(hit.path), int(hit.point), String(hit.part))
+	path_instance = int(hit.instance)
 	context_properties.clear()
 	path_context_menu.clear()
 	var base := "paths/path_%d/point_%d" % [path_index, point_index]
@@ -533,6 +593,11 @@ func _insert_svg_keys(node: Node, properties: Array[String]) -> bool:
 	undo.commit_action(false)
 	return true
 
+# シーン切替後の旧対象は現在シーンの履歴へ入れない。
+func _in_edited_scene(node: Node) -> bool:
+	var root := EditorInterface.get_edited_scene_root()
+	return root != null and (root == node or root.is_ancestor_of(node))
+
 func finish_path_drag() -> void:
 	if not path_dragging:
 		return
@@ -542,6 +607,13 @@ func finish_path_drag() -> void:
 		update_overlays()
 		return
 	var node := path_node
+	if not _in_edited_scene(node):
+		path_dragging = false
+		set_path_control(node, path_drag_before)
+		if path_part != "point":
+			node.call("set_%s_handle" % opposite_part(path_part), path_index, point_index, path_opposite_before)
+		update_overlays()
+		return
 	var finish: Vector2 = node.call("get_path_point" if path_part == "point" else "get_%s_handle" % path_part,
 		path_index, point_index)
 	var opposite := opposite_part(path_part) if path_part != "point" else ""
@@ -553,7 +625,7 @@ func finish_path_drag() -> void:
 		if not opposite.is_empty():
 			node.call("set_%s_handle" % opposite, path_index, point_index, path_opposite_before)
 		var undo := EditorInterface.get_editor_undo_redo()
-		undo.create_action("Edit SVG Path Point")
+		undo.create_action("Edit SVG Path Point", UndoRedo.MERGE_DISABLE, node)
 		var method := "set_path_point" if path_part == "point" else "set_%s_handle" % path_part
 		undo.add_do_method(node, method, path_index, point_index, finish)
 		undo.add_undo_method(node, method, path_index, point_index, path_drag_before)
@@ -565,12 +637,17 @@ func finish_path_drag() -> void:
 
 # 絵の内側をつかめるようにし、移動をUndo/Redoへ記録する。
 func _forward_canvas_gui_input(event: InputEvent) -> bool:
+	if event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
+		_apply_changes()
 	if event.has_meta(&"svg2d_editor_handled"): return true
 	var selected := EditorInterface.get_selection().get_selected_nodes()
 	var animate := selected[0] as Node2D if selected.size() == 1 and selected[0].is_class("SVGAnimate2D") else null
 	if animate and animate.has_meta(&"_edit_lock_"): animate = null
 	if event is InputEventKey and event.pressed and not event.echo and animate \
 			and not (event.ctrl_pressed or event.meta_pressed or event.alt_pressed):
+		if event.keycode not in [KEY_A, KEY_V, KEY_I, KEY_O, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_K, KEY_TAB]:
+			return false
+		_apply_changes()
 		if event.keycode == KEY_A or event.keycode == KEY_V: path_part = "point"
 		elif event.keycode == KEY_I: path_part = "in"
 		elif event.keycode == KEY_O: path_part = "out"
@@ -585,7 +662,7 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 			var n := int(animate.call("get_point_count", path_index))
 			if n > 0: point_index = wrapi(point_index + (-1 if event.shift_pressed else 1), 0, n)
 		else: return false
-		update_overlays()
+		select_path_control(animate, path_index, point_index, path_part)
 		return _canvas_handled(event)
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and animate:
 		var right_hit := pick_path_control_2d(animate, event.position)
@@ -597,10 +674,7 @@ func _forward_canvas_gui_input(event: InputEvent) -> bool:
 			if animate:
 				var control := pick_path_control_2d(animate, event.position)
 				if not control.is_empty():
-					path_node = animate; path_index = control.path; path_instance = control.instance; point_index = control.point
-					path_part = control.part; path_drag_before = control.value; path_dragging = true
-					path_opposite_before = animate.call("get_%s_handle" % opposite_part(path_part), path_index, point_index) \
-						if path_part != "point" else Vector2.ZERO
+					_start_path_drag(animate, control)
 					update_overlays(); return _canvas_handled(event)
 			var picked := pick_svg2d(event.position)
 			if picked == null:
@@ -645,12 +719,17 @@ func finish_drag() -> void:
 		update_overlays()
 		return
 	var moved := drag_node
+	if not _in_edited_scene(moved):
+		drag_node = null
+		moved.position = drag_start
+		update_overlays()
+		return
 	var finish := moved.position
 	drag_node = null
 	if finish != drag_start:
 		moved.position = drag_start
 		var undo := EditorInterface.get_editor_undo_redo()
-		undo.create_action("Move SVG2D")
+		undo.create_action("Move SVG2D", UndoRedo.MERGE_DISABLE, moved)
 		undo.add_do_property(moved, &"position", finish)
 		undo.add_undo_property(moved, &"position", drag_start)
 		undo.commit_action()
@@ -717,11 +796,16 @@ func intersect_drag_plane(camera: Camera3D, screen_point: Vector2) -> Variant:
 	return origin + direction * distance if distance >= 0.0 else null
 
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
+	if event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
+		_apply_changes()
 	var selected := EditorInterface.get_selection().get_selected_nodes()
 	var animate := selected[0] as Node3D if selected.size() == 1 and selected[0].is_class("SVGAnimate3D") else null
 	if animate and animate.has_meta(&"_edit_lock_"): animate = null
 	if event is InputEventKey and event.pressed and not event.echo and animate \
 			and not (event.ctrl_pressed or event.meta_pressed or event.alt_pressed):
+		if event.keycode not in [KEY_A, KEY_V, KEY_I, KEY_O, KEY_BRACKETLEFT, KEY_BRACKETRIGHT, KEY_K, KEY_TAB]:
+			return EditorPlugin.AFTER_GUI_INPUT_PASS
+		_apply_changes()
 		if event.keycode == KEY_A or event.keycode == KEY_V: path_part = "point"
 		elif event.keycode == KEY_I: path_part = "in"
 		elif event.keycode == KEY_O: path_part = "out"
@@ -737,7 +821,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			var n := int(animate.call("get_point_count", path_index))
 			if n > 0: point_index = wrapi(point_index + (-1 if event.shift_pressed else 1), 0, n)
 		else: return EditorPlugin.AFTER_GUI_INPUT_PASS
-		update_overlays()
+		select_path_control(animate, path_index, point_index, path_part)
 		return EditorPlugin.AFTER_GUI_INPUT_STOP
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and animate:
 		var right_hit := pick_path_control_3d(animate, camera, event.position)
@@ -749,10 +833,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			if animate:
 				var control := pick_path_control_3d(animate, camera, event.position)
 				if not control.is_empty():
-					path_node = animate; path_index = control.path; path_instance = control.instance; point_index = control.point
-					path_part = control.part; path_drag_before = control.value; path_dragging = true
-					path_opposite_before = animate.call("get_%s_handle" % opposite_part(path_part), path_index, point_index) \
-						if path_part != "point" else Vector2.ZERO
+					_start_path_drag(animate, control)
 					drag_plane_point = animate.global_position
 					var basis := animate.global_transform.basis
 					# Non-uniform scales below rotated parents shear the basis; Z is then not

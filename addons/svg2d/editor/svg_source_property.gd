@@ -11,6 +11,21 @@ var error_label: Label
 var open_button: Button
 var clear_button: Button
 var dialog: FileDialog
+var cached_value := ""
+var preview_valid := false
+var cached_stamp := 0
+
+# 同じ素材の再インポートと再読込だけ、プレビューの控えを破棄する。
+func _ready() -> void:
+	var filesystem := EditorInterface.get_resource_filesystem()
+	filesystem.resources_reimported.connect(_resources_changed)
+	filesystem.resources_reload.connect(_resources_changed)
+
+func _resources_changed(paths: PackedStringArray) -> void:
+	if ResourceUID.ensure_path(cached_value.strip_edges()) not in paths: return
+	preview_valid = false
+	_render_value(cached_value)
+
 
 func _init() -> void:
 	var content := VBoxContainer.new()
@@ -92,8 +107,14 @@ func _current_path() -> String:
 	return value if value.begins_with("res://") and value.get_extension().to_lower() == "svg" else ""
 
 func _render_value(value: String) -> void:
-	var clean := value.strip_edges()
+	var clean := ResourceUID.ensure_path(value.strip_edges())
 	var is_path := clean.begins_with("res://") or clean.begins_with("user://")
+	var stamp := FileAccess.get_modified_time(clean) if is_path and FileAccess.file_exists(clean) else 0
+	if preview_valid and cached_value == value and cached_stamp == stamp: return
+	cached_value = value
+	cached_stamp = stamp
+	# user://はエディタの素材監視外なので、通知に依存した再利用をしない。
+	preview_valid = not clean.begins_with("user://")
 	path_label.text = clean if is_path else ("Embedded SVG" if not clean.is_empty() else "No SVG selected")
 	path_label.tooltip_text = path_label.text
 	clear_button.disabled = clean.is_empty()

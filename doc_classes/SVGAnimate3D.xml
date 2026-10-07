@@ -27,6 +27,9 @@
 		<method name="get_animation_cache_hits" qualifiers="const"><return type="int" /><description>Returns successful history lookups since the last clear, source replacement or mode change. Repeated reads of the already current texture do not increment this counter.</description></method>
 		<method name="get_animation_cache_misses" qualifiers="const"><return type="int" /><description>Returns failed history lookups since the last clear, source replacement or mode change.</description></method>
 	</methods>
+	<signals>
+		<signal name="source_changed"><description>Emitted after src is set and the editable geometry has been replaced. Path and paint edits alone do not emit this signal.</description></signal>
+	</signals>
 	<members>
 		<member name="animation_cache_mode" type="int" setter="set_animation_cache_mode" getter="get_animation_cache_mode" default="1">0: Disabled. 1: Exact Frames. Exact Frames is the default. It reuses immutable textures when the same serialized path state, integer resolution, jitter amount, jitter pattern and mipmap setting recur, skipping SVG parsing, rasterization and texture upload on a hit. No time or coordinate quantization is applied. Best suited to repeated poses or deterministic frame sampling; continuously varying poses may not hit. Explicit src replacement clears history. Editor anchors and handles retain their original coordinates.</member>
 		<member name="animation_cache_limit_mb" type="int" setter="set_animation_cache_limit_mb" getter="get_animation_cache_limit_mb" default="32">History budget in MiB (1–256). Least recently used frames are evicted first. A single frame exceeding the budget is rendered without retention. Lowering the limit trims history immediately. Current display references and renderer work buffers are separate from this budget.</member>

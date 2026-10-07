@@ -860,6 +860,435 @@ func test_editor_input_rules(root: Node, plugin: Node) -> void:
 	point_node.free()
 	body_node.free()
 
+# 同じ素材のInspector更新では既存preview画像を使い、src変更だけ描き直す。
+func test_preview_reuse() -> void:
+	var node: Node = ClassDB.instantiate("SVG2D")
+	node.set("src", "<svg width='64' height='64'><rect width='64' height='64' fill='red'/></svg>")
+	var property := SVGSourceProperty.new()
+	property.set_object_and_property(node, &"src")
+	add_child(property)
+	property.call("_update_property")
+	var initial: Texture2D = property.preview.texture
+	var changed := 0
+	var start := Time.get_ticks_usec()
+	for repeat in 32:
+		property.call("_update_property")
+		if property.preview.texture != initial: changed += 1
+	print("Preview identical source 32 updates: %d us, replaced %d textures" % [Time.get_ticks_usec() - start, changed])
+	check(changed == 0, "Identical Inspector source regenerated preview texture")
+	node.set("src", "<svg width='64' height='64'><rect width='64' height='64' fill='blue'/></svg>")
+	property.call("_update_property")
+	check(property.preview.texture != initial and property.preview.texture.get_image().get_pixel(32, 32).b > 0.99,
+		"Changed Inspector source did not refresh preview")
+	DirAccess.make_dir_recursive_absolute("res://tmp")
+	var path := "res://tmp/review3-preview.svg"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string("<svg width='64' height='64'><rect width='64' height='64' fill='red'/></svg>")
+	file.close()
+	node.set("src", path)
+	property.call("_update_property")
+	var original: Texture2D = property.preview.texture
+	var stamp := FileAccess.get_modified_time(path)
+	var filesystem := EditorInterface.get_resource_filesystem()
+	filesystem.resources_reimported.emit(PackedStringArray(["res://tmp/unrelated-preview.svg"]))
+	check(property.preview.texture == original, "Unrelated import regenerated preview")
+	for signal_name in ["resources_reimported", "resources_reload"]:
+		file = FileAccess.open(path, FileAccess.WRITE)
+		file.store_string("<svg width='64' height='64'><rect width='64' height='64' fill='blue'/></svg>")
+		file.close()
+		var previous: Texture2D = property.preview.texture
+		filesystem.emit_signal(signal_name, PackedStringArray([path]))
+		check(property.preview.texture != previous and property.preview.texture.get_image().get_pixel(32, 32).b > 0.99,
+			"Same-file " + signal_name + " did not refresh preview")
+	print("Preview import/reload same mtime: ", FileAccess.get_modified_time(path) == stamp)
+	property.free()
+	node.free()
+
+# ドラッグ中のキー選択変更をUndo対象から分離し、選択解除後の入力から旧対象を守る。
+func test_drag_selection_state(root: Node, plugin: Node) -> void:
+	var manager := EditorInterface.get_editor_undo_redo()
+	var history_id := manager.get_object_history_id(root)
+	var history := manager.get_history_undo_redo(history_id)
+	var selection := EditorInterface.get_selection()
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(800, 600)
+	root.add_child(viewport)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = 2.0
+	camera.position = Vector3(0, 0, 10)
+	viewport.add_child(camera)
+	camera.current = true
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.set("src", "<svg width='100' height='100'><path d='M10 20C20 10 40 10 50 20L50 60L10 60Z'/><path d='M70 70L90 70L90 90Z'/></svg>")
+		(root if kind.ends_with("2D") else viewport).add_child(node)
+		selection.clear()
+		selection.add_node(node)
+		await get_tree().process_frame
+		var inspector := SVGPathControl.new()
+		inspector.setup(node)
+		add_child(inspector)
+		for keycode in [KEY_TAB, KEY_A, KEY_I, KEY_O, KEY_BRACKETRIGHT]:
+			manager.clear_history(history_id)
+			plugin.call("select_path_control", node, 0, 0, "point")
+			var before: Array[Vector2] = []
+			for point in 4: before.append(node.call("get_path_point", 0, point))
+			var press := InputEventMouseButton.new()
+			press.button_index = MOUSE_BUTTON_LEFT
+			press.pressed = true
+			press.position = plugin.call("path_screen_2d", node, before[0], 0) if kind.ends_with("2D") else \
+				camera.unproject_position(plugin.call("svg_world_3d", node, before[0], 0))
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", press)
+			else: plugin.call("_forward_3d_gui_input", camera, press)
+			var motion := InputEventMouseMotion.new()
+			motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+			motion.position = press.position + Vector2(12, 8)
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", motion)
+			else: plugin.call("_forward_3d_gui_input", camera, motion)
+			node.notify_property_list_changed()
+			await get_tree().process_frame
+			check(bool(plugin.get("path_dragging")), kind + " property-list refresh cancelled drag")
+			var key := InputEventKey.new()
+			key.pressed = true
+			key.keycode = keycode
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", key)
+			else: plugin.call("_forward_3d_gui_input", camera, key)
+			var release := InputEventMouseButton.new()
+			release.button_index = MOUSE_BUTTON_LEFT
+			release.position = motion.position
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", release)
+			else: plugin.call("_forward_3d_gui_input", camera, release)
+			for point in range(1, 4):
+				check(node.call("get_path_point", 0, point) == before[point],
+					kind + " drag keyboard changed another point: " + str(keycode))
+			check(history.has_undo(), kind + " drag keyboard lost Undo: " + str(keycode))
+			if history.has_undo(): history.undo()
+			for point in 4:
+				check(node.call("get_path_point", 0, point) == before[point],
+					kind + " drag Undo restored another point: " + str(keycode))
+			check(int(inspector.point_select.value) == int(plugin.get("point_index"))
+				and inspector.path_select.get_selected_id() == int(plugin.get("path_index")),
+				kind + " keyboard left Inspector selection stale: " + str(keycode))
+			var part := String(plugin.get("path_part"))
+			for index in inspector.mode_buttons.size():
+				check(inspector.mode_buttons[index].button_pressed == (["point", "in", "out"][index] == part),
+					kind + " keyboard left Inspector mode stale: " + str(keycode))
+		# 複数選択になった時点の変更をUndoに残し、後続motionから切り離す。
+		manager.clear_history(history_id)
+		plugin.call("select_path_control", node, 0, 0, "point")
+		var original: Vector2 = node.call("get_path_point", 0, 0)
+		var multi_press := InputEventMouseButton.new()
+		multi_press.button_index = MOUSE_BUTTON_LEFT
+		multi_press.pressed = true
+		multi_press.position = plugin.call("path_screen_2d", node, original, 0) if kind.ends_with("2D") else \
+			camera.unproject_position(plugin.call("svg_world_3d", node, original, 0))
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", multi_press)
+		else: plugin.call("_forward_3d_gui_input", camera, multi_press)
+		var multi_motion := InputEventMouseMotion.new()
+		multi_motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		multi_motion.position = multi_press.position + Vector2(12, 8)
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", multi_motion)
+		else: plugin.call("_forward_3d_gui_input", camera, multi_motion)
+		var other := Node2D.new()
+		root.add_child(other)
+		selection.add_node(other)
+		await get_tree().process_frame
+		var changed: Vector2 = node.call("get_path_point", 0, 0)
+		multi_motion.position += Vector2(12, 8)
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", multi_motion)
+		else: plugin.call("_forward_3d_gui_input", camera, multi_motion)
+		check(node.call("get_path_point", 0, 0) == changed and not bool(plugin.get("path_dragging")),
+			kind + " multiple selection retained obsolete drag")
+		check(history.has_undo(), kind + " multiple selection lost drag Undo")
+		if history.has_undo(): history.undo()
+		check(node.call("get_path_point", 0, 0) == original, kind + " multiple selection Undo lost original point")
+		selection.remove_node(other)
+		other.free()
+		await get_tree().process_frame
+		# 選択解除が完了した後のmotionは旧ノードへ届かない。
+		plugin.call("select_path_control", node, 0, 0, "point")
+		var anchor: Vector2 = node.call("get_path_point", 0, 0)
+		var press := InputEventMouseButton.new()
+		press.button_index = MOUSE_BUTTON_LEFT
+		press.pressed = true
+		press.position = plugin.call("path_screen_2d", node, anchor, 0) if kind.ends_with("2D") else \
+			camera.unproject_position(plugin.call("svg_world_3d", node, anchor, 0))
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", press)
+		else: plugin.call("_forward_3d_gui_input", camera, press)
+		selection.clear()
+		await get_tree().process_frame
+		var unchanged: Vector2 = node.call("get_path_point", 0, 0)
+		var motion := InputEventMouseMotion.new()
+		motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		motion.position = press.position + Vector2(25, 15)
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", motion)
+		else: plugin.call("_forward_3d_gui_input", camera, motion)
+		check(node.call("get_path_point", 0, 0) == unchanged,
+			kind + " deselected target retained active drag")
+		plugin.call("finish_path_drag")
+		for source in ["", "<svg width='100' height='100'><path d='M6 7H90V90H6Z'/></svg>", "<svg width='100' height='100'><path d='M10 20H50V60H10Z'/></svg>"]:
+			node.set("src", "<svg width='100' height='100'><path d='M10 20H50V60H10Z'/></svg>")
+			selection.add_node(node)
+			await get_tree().process_frame
+			plugin.call("select_path_control", node, 0, 0, "point")
+			press = InputEventMouseButton.new()
+			press.button_index = MOUSE_BUTTON_LEFT
+			press.pressed = true
+			press.position = plugin.call("path_screen_2d", node, Vector2(10, 20), 0) if kind.ends_with("2D") else \
+				camera.unproject_position(plugin.call("svg_world_3d", node, Vector2(10, 20), 0))
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", press)
+			else: plugin.call("_forward_3d_gui_input", camera, press)
+			node.set("src", source)
+			var bytes := natural_bytes(node)
+			motion.position = press.position + Vector2(25, 15)
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", motion)
+			else: plugin.call("_forward_3d_gui_input", camera, motion)
+			check(natural_bytes(node) == bytes and not bool(plugin.get("path_dragging")),
+				kind + " source replacement retained obsolete drag")
+		selection.clear()
+		manager.clear_history(history_id)
+		inspector.free()
+		node.free()
+	viewport.free()
+
+# 本物のInspectorに接続済みのsrc入力部品を取得する。
+func source_editor_for(parent: Node, target: Node) -> EditorProperty:
+	if parent is EditorProperty and parent.get_script() == SVGSourceProperty \
+			and parent.get_edited_object() == target:
+		return parent
+	for child in parent.get_children():
+		var found := source_editor_for(child, target)
+		if found: return found
+	return null
+
+# 空srcも透明画像として比較する。
+func natural_bytes(node: Node) -> PackedByteArray:
+	var image := ShapeUtils.natural_image(node)
+	return image.get_data() if image else PackedByteArray()
+
+# 画素と全path属性を読み、src変更のUndoで編集と継承が戻ることを確認する。
+func test_inspector_source_undo(root: Node) -> void:
+	var manager := EditorInterface.get_editor_undo_redo()
+	var history_id := manager.get_object_history_id(root)
+	var history := manager.get_history_undo_redo(history_id)
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.name = "SourceUndoFixture"
+		node.set("src", "<svg width='100' height='100'><defs><path id='s' d='M10 20C20 10 40 10 50 20L50 60L10 60Z'/></defs><use href='#s' fill='none' stroke='red' stroke-width='10'/></svg>")
+		node.call("set_path_point", 0, 1, Vector2(65, 22))
+		node.call("set_out_handle", 0, 0, Vector2(28, 8))
+		node.call("set_in_handle", 0, 1, Vector2(48, 9))
+		node.set("paths/path_0/fill_color", Color.BLUE)
+		node.set("paths/path_0/fill_opacity", 0.65)
+		root.add_child(node)
+		node.owner = root
+		var values := {}
+		for info in node.get_property_list():
+			if String(info.name).begins_with("paths/path_"): values[info.name] = node.get(info.name)
+		var image := natural_bytes(node)
+		for source in ["", "<svg width='100' height='100'><path d='M5 5H90V90H5Z' fill='green'/></svg>"]:
+			EditorInterface.edit_node(node)
+			var editor: EditorProperty
+			for wait_frame in 12:
+				await get_tree().process_frame
+				editor = source_editor_for(EditorInterface.get_inspector(), node)
+				if editor: break
+			check(editor != null, kind + " actual Inspector source property unavailable")
+			if editor == null: continue
+			manager.clear_history(history_id)
+			editor.call("_file_selected", source)
+			await get_tree().process_frame
+			check(node.get("src") == source, kind + " actual Inspector did not change src")
+			var changed_image := natural_bytes(node)
+			check(history.has_undo(), kind + " Inspector src change missing Undo")
+			if history.has_undo(): history.undo()
+			await get_tree().process_frame
+			for name in values:
+				check(node.get(name) == values[name], kind + " Inspector source Undo lost " + String(name))
+			check(natural_bytes(node) == image, kind + " Inspector source Undo lost edited/inherited image")
+			check(history.redo(), kind + " Inspector source Redo failed")
+			await get_tree().process_frame
+			check(node.get("src") == source and natural_bytes(node) == changed_image,
+				kind + " Inspector source Redo changed source image")
+			history.undo()
+			await get_tree().process_frame
+		EditorInterface.edit_node(root)
+		await get_tree().process_frame
+		manager.clear_history(history_id)
+		node.free()
+
+# Inspector再生成・viewport選択後も表示と+キー対象を同じ接点に保つ。
+func test_path_inspector_selection(root: Node, plugin: Node) -> void:
+	var manager := EditorInterface.get_editor_undo_redo()
+	var history_id := manager.get_object_history_id(root)
+	var selection := EditorInterface.get_selection()
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(800, 600)
+	root.add_child(viewport)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = 2.0
+	camera.position = Vector3(0, 0, 10)
+	viewport.add_child(camera)
+	camera.current = true
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.name = "InspectorKeyFixture"
+		node.set("src", "<svg width='100' height='100'><path d='M10 20C20 10 40 10 50 20L50 60L10 60Z'/></svg>")
+		(root if kind.ends_with("2D") else viewport).add_child(node)
+		selection.clear()
+		selection.add_node(node)
+		await get_tree().process_frame
+		plugin.call("select_path_control", node, 0, 1, "in")
+		var inspector := SVGPathControl.new()
+		inspector.setup(node)
+		add_child(inspector)
+		check(int(plugin.get("point_index")) == 1 and String(plugin.get("path_part")) == "in"
+			and inspector.point_select.value == 1 and inspector.mode_buttons[1].button_pressed,
+			kind + " Inspector ready reset existing point/mode selection")
+		plugin.call("select_path_control", node, 0, 0, "point")
+		var anchor: Vector2 = node.call("get_path_point", 0, 1)
+		var press := InputEventMouseButton.new()
+		press.button_index = MOUSE_BUTTON_LEFT
+		press.pressed = true
+		press.position = plugin.call("path_screen_2d", node, anchor, 0) if kind.ends_with("2D") else \
+			camera.unproject_position(plugin.call("svg_world_3d", node, anchor, 0))
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", press)
+		else: plugin.call("_forward_3d_gui_input", camera, press)
+		var release := InputEventMouseButton.new()
+		release.button_index = MOUSE_BUTTON_LEFT
+		release.position = press.position
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", release)
+		else: plugin.call("_forward_3d_gui_input", camera, release)
+		var key := InputEventKey.new()
+		key.pressed = true
+		key.keycode = KEY_I
+		if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", key)
+		else: plugin.call("_forward_3d_gui_input", camera, key)
+		check(inspector.point_select.value == 1 and inspector.mode_buttons[1].button_pressed,
+			kind + " viewport/key selection did not reach Inspector")
+		inspector.call("_insert_key")
+		var player: AnimationPlayer = plugin.call("_find_animation_player", node)
+		check(player != null, kind + " Inspector + did not register selected control")
+		var animation := player.get_animation(player.assigned_animation) if player else null
+		check(animation != null and animation.find_track(NodePath(String(player.get_parent().get_path_to(node)) + ":paths/path_0/point_1/in_handle"), Animation.TYPE_VALUE) >= 0,
+			kind + " Inspector + keyed another selected point")
+		selection.clear()
+		manager.clear_history(history_id)
+		if player: player.free()
+		inspector.free()
+		node.free()
+	viewport.free()
+
+# シーン切替後のmotionから前シーンのドラッグ対象を守る。
+func test_scene_drag_cancel(root: Node, plugin: Node) -> void:
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		for apply_before in [false, true]:
+			var active_root := EditorInterface.get_edited_scene_root()
+			var viewport := SubViewport.new()
+			viewport.size = Vector2i(800, 600)
+			active_root.add_child(viewport)
+			var camera := Camera3D.new()
+			camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+			camera.size = 2.0
+			camera.position = Vector3(0, 0, 10)
+			viewport.add_child(camera)
+			camera.current = true
+			var node: Node = ClassDB.instantiate(kind)
+			node.set("src", "<svg width='64' height='64'><path d='M10 10H50V50H10Z'/></svg>")
+			(active_root if kind.ends_with("2D") else viewport).add_child(node)
+			node.owner = active_root
+			EditorInterface.get_selection().clear()
+			EditorInterface.get_selection().add_node(node)
+			await get_tree().process_frame
+			var before: Vector2 = node.call("get_path_point", 0, 0)
+			var press := InputEventMouseButton.new()
+			press.button_index = MOUSE_BUTTON_LEFT
+			press.pressed = true
+			press.position = plugin.call("path_screen_2d", node, before, 0) if kind.ends_with("2D") else \
+				camera.unproject_position(plugin.call("svg_world_3d", node, before, 0))
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", press)
+			else: plugin.call("_forward_3d_gui_input", camera, press)
+			var manager := EditorInterface.get_editor_undo_redo()
+			var history_id := manager.get_object_history_id(active_root)
+			var history := manager.get_history_undo_redo(history_id)
+			manager.clear_history(history_id)
+			var moved := InputEventMouseMotion.new()
+			moved.button_mask = MOUSE_BUTTON_MASK_LEFT
+			moved.position = press.position + Vector2(12, 8)
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", moved)
+			else: plugin.call("_forward_3d_gui_input", camera, moved)
+			var changed: Vector2 = node.call("get_path_point", 0, 0)
+			check(changed != before, kind + " scene switch fixture did not drag")
+			var global := manager.get_history_undo_redo(EditorUndoRedoManager.GLOBAL_HISTORY)
+			var global_count := global.get_history_count()
+			if apply_before: plugin.call("_apply_changes")
+			var next_scene := Node2D.new()
+			next_scene.name = "NextDragScene"
+			var packed := PackedScene.new()
+			packed.pack(next_scene)
+			DirAccess.make_dir_recursive_absolute("res://tmp")
+			var path := "res://tmp/review3-scene-switch-%s-%d.tscn" % [kind, Time.get_ticks_usec()]
+			ResourceSaver.save(packed, path)
+			next_scene.free()
+			EditorInterface.open_scene_from_path(path)
+			for wait_frame in 4: await get_tree().process_frame
+			check(EditorInterface.get_edited_scene_root() != active_root, "Scene switch fixture did not change scene")
+			var motion := InputEventMouseMotion.new()
+			motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+			motion.position = press.position + Vector2(25, 15)
+			if kind.ends_with("2D"): plugin.call("_forward_canvas_gui_input", motion)
+			else: plugin.call("_forward_3d_gui_input", camera, motion)
+			check(node.call("get_path_point", 0, 0) == (changed if apply_before else before) and not bool(plugin.get("path_dragging")),
+				kind + " scene switch retained drag on previous scene")
+			check(global.get_history_count() == global_count, kind + " scene switch polluted global Undo")
+			var next_id := manager.get_object_history_id(EditorInterface.get_edited_scene_root())
+			var next_history := manager.get_history_undo_redo(next_id)
+			check(not next_history.has_undo(), kind + " previous drag polluted new scene Undo")
+			if apply_before:
+				check(history.has_undo(), kind + " apply before scene switch lost previous scene Undo")
+				if history.has_undo(): history.undo()
+				check(node.call("get_path_point", 0, 0) == before, kind + " previous scene Undo lost original point")
+			else:
+				check(not history.has_undo(), kind + " cancelled scene drag created Undo")
+			manager.clear_history(history_id)
+			node.free()
+			viewport.free()
+
+
+# 自分のclickによる遅延selection通知では本体dragを止めず、release欠落時はmotionで終了する。
+func test_body_drag_selection(root: Node, plugin: Node) -> void:
+	var node: Node2D = ClassDB.instantiate("SVG2D")
+	node.set("src", "<svg width='64' height='64'><rect width='64' height='64' fill='red'/></svg>")
+	node.position = Vector2(300, 200)
+	root.add_child(node)
+	await get_tree().process_frame
+	EditorInterface.get_selection().clear()
+	var before := node.position
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = plugin.call("screen_transform", node) * Vector2(32, 32)
+	check(plugin.call("_forward_canvas_gui_input", press), "Body drag press was ignored")
+	await get_tree().process_frame
+	var motion := InputEventMouseMotion.new()
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	motion.position = press.position + Vector2(20, 10)
+	plugin.call("_forward_canvas_gui_input", motion)
+	check(node.position != before, "Own delayed selection notification cancelled body drag")
+	motion.button_mask = 0
+	plugin.call("_forward_canvas_gui_input", motion)
+	check(plugin.get("drag_node") == null, "Body drag remained active after lost release")
+	var manager := EditorInterface.get_editor_undo_redo()
+	var id := manager.get_object_history_id(root)
+	var history := manager.get_history_undo_redo(id)
+	if history.has_undo(): history.undo()
+	check(node.position == before, "Body drag after selection change lost Undo")
+	manager.clear_history(id)
+	EditorInterface.get_selection().clear()
+	node.free()
+
 func _enter_tree() -> void:
 	run_checks.call_deferred()
 
@@ -913,6 +1342,11 @@ func run_checks() -> void:
 		test_overlay_cameras(svg_plugin)
 		test_key_undo(scene_root, svg_plugin)
 		await test_editor_input_rules(scene_root, svg_plugin)
+		await test_body_drag_selection(scene_root, svg_plugin)
+		await test_drag_selection_state(scene_root, svg_plugin)
+		test_preview_reuse()
+		await test_path_inspector_selection(scene_root, svg_plugin)
+		await test_inspector_source_undo(scene_root)
 		var canvas_input := svg_plugin.get("canvas_input_control") as Control
 		check(canvas_input != null,
 			"未選択時のクリックを受ける2D編集Viewport入力面へ接続していないよ")
@@ -1448,6 +1882,7 @@ func run_checks() -> void:
 		path_control3.setup(animate3)
 		add_child(path_control3)
 		path_control3.get("point_select").value = 1
+		path_control3.call("_mode_pressed", "point")
 		var mini_key3 := path_control3.find_child("KeySelectedControlButton", true, false) as Button
 		var all_button3 := path_control3.get_node_or_null("CreateAllPointsAnimationPlayerButton") as Button
 		if mini_key3: mini_key3.pressed.emit()
@@ -1580,6 +2015,7 @@ func run_checks() -> void:
 	test_view.free()
 
 	property.free()
+	if svg_plugin: await test_scene_drag_cancel(scene_root, svg_plugin)
 	if not failed:
 		print("SVG Inspectorの試験に通ったよ")
 	await get_tree().process_frame
