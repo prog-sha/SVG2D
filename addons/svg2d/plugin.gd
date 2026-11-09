@@ -228,13 +228,68 @@ func screen_to_parent(node: Node2D, point: Vector2) -> Vector2:
 	var canvas_point := canvas_transform().affine_inverse() * point
 	var parent := node.get_parent() as CanvasItem
 	return parent.get_global_transform_with_canvas().affine_inverse() * canvas_point \
-		if parent else node.get_canvas_transform().affine_inverse() * canvas_point
+		if parent and not node.is_set_as_top_level() else node.get_canvas_transform().affine_inverse() * canvas_point
 
+# 編集不可のインスタンス内部は標準選択へ渡し、保存されない直接編集を防ぐ。
+func editable_svg(node: Node) -> bool:
+	var root := EditorInterface.get_edited_scene_root()
+	var owner := node.owner
+	while owner != null and owner != root:
+		if root == null or not root.is_editable_instance(owner): return false
+		owner = owner.owner
+	return true
+
+# 描画サーバーと同じく、各親でZを制限してから子へ渡す。
+func svg2d_order(node: CanvasItem) -> Vector2i:
+	var chain: Array[CanvasItem] = [node]
+	var item := node
+	while item.z_as_relative and not item.is_set_as_top_level() and item.get_parent() is CanvasItem:
+		item = item.get_parent() as CanvasItem
+		chain.push_front(item)
+	var z := 0
+	for part in chain:
+		z = clampi(z + part.z_index, -4096, 4096) if part.z_as_relative else part.z_index
+	var ancestor := node.get_parent()
+	while ancestor != null and not ancestor is Viewport:
+		if ancestor is CanvasLayer: return Vector2i(ancestor.layer, z)
+		ancestor = ancestor.get_parent()
+	return Vector2i(0, z)
+
+# Y整列が続く枝だけを平らにし、整列を止めた枝は一緒に描く。
+func collect_y_items(item: CanvasItem, origin: Transform2D, found: Array[Dictionary]) -> void:
+	found.append({"node": item, "y": origin.origin.y, "index": found.size()})
+	if not item.y_sort_enabled: return
+	for child in item.get_children():
+		if child is CanvasItem and not child.is_set_as_top_level() and child.is_visible_in_tree():
+			collect_y_items(child, origin * child.get_transform(), found)
+
+# 親の背面、親自身、前面の順を保持し、Y整列ではエンジンと同じ安定順を使う。
+func collect_canvas_svg(item: CanvasItem, found: Array[Node2D], sorted_y := false) -> void:
+	if not item.is_visible_in_tree(): return
+	if item.y_sort_enabled and not sorted_y:
+		var items: Array[Dictionary] = []
+		collect_y_items(item, Transform2D.IDENTITY, items)
+		items.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return a.index < b.index if is_equal_approx(a.y, b.y) else a.y < b.y)
+		for entry in items: collect_canvas_svg(entry.node, found, true)
+		return
+	if not item.y_sort_enabled:
+		for child in item.get_children():
+			if child is CanvasItem and not child.is_set_as_top_level() and child.show_behind_parent:
+				collect_canvas_svg(child, found)
+	if item.is_class("SVG2D") and not item.has_meta(&"_edit_lock_") and editable_svg(item):
+		found.append(item)
+	if not item.y_sort_enabled:
+		for child in item.get_children():
+			if child is CanvasItem and not child.is_set_as_top_level() and not child.show_behind_parent:
+				collect_canvas_svg(child, found)
+
+# top_levelや通常Node直下は独立したキャンバスの根として後から描画される。
 func collect_svg2d(node: Node, found: Array[Node2D]) -> void:
-	if node.is_class("SVG2D") and node is Node2D and node.is_visible_in_tree() and not node.has_meta(&"_edit_lock_"):
-		found.push_back(node)
-	for child in node.get_children():
-		collect_svg2d(child, found)
+	if node is Viewport: return
+	if node is CanvasItem and (not node.get_parent() is CanvasItem or node.is_set_as_top_level()):
+		collect_canvas_svg(node, found)
+	for child in node.get_children(): collect_svg2d(child, found)
 
 func pick_svg2d(screen_point: Vector2) -> Node2D:
 	var root := EditorInterface.get_edited_scene_root()
@@ -242,13 +297,19 @@ func pick_svg2d(screen_point: Vector2) -> Node2D:
 		return null
 	var nodes: Array[Node2D] = []
 	collect_svg2d(root, nodes)
+	var picked: Node2D
+	var order := Vector2i.ZERO
 	for index in range(nodes.size() - 1, -1, -1):
 		var node := nodes[index]
+		var candidate := svg2d_order(node)
+		# 手前の不透明候補が決まれば、背面画像の読戻しとマスク生成を省く。
+		if picked and (candidate.x < order.x or (candidate.x == order.x and candidate.y <= order.y)): continue
 		var local := screen_transform(node).affine_inverse() * screen_point
 		var rect := svg_rect(node)
 		if rect.has_point(local) and ShapeUtils.opaque_at(node, local - rect.position):
-			return node
-	return null
+			picked = node
+			order = candidate
+	return picked
 
 # GodotがGDExtensionへ公開していない編集矩形を、2D編集画面の上へ描く。
 func _forward_canvas_draw_over_viewport(viewport_control: Control) -> void:
@@ -311,16 +372,18 @@ func draw_path_controls_2d(control: Control, node: Node2D) -> void:
 		control.draw_circle(screen, 4.0, Color("#62d7ff"))
 
 func pick_path_control_2d(node: Node2D, screen_point: Vector2) -> Dictionary:
-	var best := PATH_HANDLE_RADIUS
+	var best := PATH_HANDLE_RADIUS * PATH_HANDLE_RADIUS
 	var hit := {}
 	for p in int(node.call("get_path_count")):
 		for instance in int(node.call("get_path_instance_count", p)):
 			for i in int(node.call("get_point_count", p)):
 				var anchor: Vector2 = node.call("get_path_point", p, i)
 				for part in ["point", "in", "out"]:
+					# 表示中のハンドルだけを拾い、見えない操作点の横取りを防ぐ。
+					if part != "point" and (p != path_index or instance != path_instance or i != point_index): continue
 					var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
 					if part != "point" and value.is_equal_approx(anchor): continue
-					var distance := path_screen_2d(node, value, p, instance).distance_to(screen_point)
+					var distance := path_screen_2d(node, value, p, instance).distance_squared_to(screen_point)
 					if distance <= best:
 						best = distance
 						hit = {"path": p, "instance": instance, "point": i, "part": part, "value": value}
@@ -877,18 +940,20 @@ func svg_point_from_world_3d(node: Node3D, world: Vector3, path := -1, instance 
 	return Vector2(node.call("document_to_path_instance", path, point, instance)) if path >= 0 else point
 
 func pick_path_control_3d(node: Node3D, camera: Camera3D, screen_point: Vector2) -> Dictionary:
-	var best := PATH_HANDLE_RADIUS
+	var best := PATH_HANDLE_RADIUS * PATH_HANDLE_RADIUS
 	var hit := {}
 	for p in int(node.call("get_path_count")):
 		for instance in int(node.call("get_path_instance_count", p)):
 			for i in int(node.call("get_point_count", p)):
 				var anchor: Vector2 = node.call("get_path_point", p, i)
 				for part in ["point", "in", "out"]:
+					# 2Dと同じく、選択接点に表示されたハンドルだけを拾う。
+					if part != "point" and (p != path_index or instance != path_instance or i != point_index): continue
 					var value := anchor if part == "point" else Vector2(node.call("get_%s_handle" % part, p, i))
 					if part != "point" and value.is_equal_approx(anchor): continue
 					var world := svg_world_3d(node, value, p, instance)
 					if camera.is_position_behind(world): continue
-					var distance := camera.unproject_position(world).distance_to(screen_point)
+					var distance := camera.unproject_position(world).distance_squared_to(screen_point)
 					if distance <= best:
 						best = distance; hit = {"path": p, "instance": instance, "point": i, "part": part, "value": value}
 	return hit

@@ -24,6 +24,7 @@ static func inspect(tree: SceneTree, image: Image, label: String, red: bool = tr
 	tree.check(image.get_pixelv(Vector2i(Vector2(9, 15) * Vector2(image.get_size()) / Vector2(64, 48))).a < 0.01, label + " symbol transform missing")
 
 static func run(tree: SceneTree) -> void:
+	await large_coordinate_inputs(tree)
 	closed_path_inputs(tree)
 	clip_cache_inputs(tree)
 	var source := FileAccess.get_file_as_string(SOURCE)
@@ -217,3 +218,26 @@ static func clip_cache_inputs(tree: SceneTree) -> void:
 	tree.check(extra <= 1024, "transparent groups retained unnecessary canvas bytes: " + str(extra))
 	plain.free()
 	hidden.free()
+
+# 画面をまたぐ巨大座標と、画面の外だけにある形を最終画素で区別する。
+static func large_coordinate_inputs(tree: SceneTree) -> void:
+	var shapes := [
+		"<rect x='-1000000000000' y='-1000000000000' width='2000000000000' height='2000000000000' fill='red'/>",
+		"<path d='M-1000000000000 -1000000000000 H1000000000000 V1000000000000 H-1000000000000Z' fill='red'/>",
+		"<rect x='1000000000000' y='1000000000000' width='100' height='100' fill='red'/>",
+	]
+	for kind in ["SVG2D", "SVG3D", "SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.set("adaptive", false)
+		tree.root.add_child(node)
+		for index in shapes.size():
+			node.set("src", "<svg width='16' height='16'>%s</svg>" % shapes[index])
+			await frame(tree)
+			var image: Image = node.call("get_texture").get_image()
+			var expected := Color.RED if index < 2 else Color(0, 0, 0, 0)
+			var mismatch := 0
+			for y in image.get_height():
+				for x in image.get_width():
+					if not image.get_pixel(x, y).is_equal_approx(expected): mismatch += 1
+			tree.check(mismatch == 0, "%s large-coordinate case %d has %d wrong pixels" % [kind, index, mismatch])
+		node.free()

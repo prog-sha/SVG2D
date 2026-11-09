@@ -19,8 +19,8 @@ cp "$root/tests/editor_visual_capture.gd" "$root/tests/editor_visual_capture_plu
 	"$root/tests/editor_transform_fixture.gd" "$project/tests/"
 log="$project/capture.log"
 if SVG2D_VISUAL_OUTPUT="$output" \
-	"$godot" --editor --path "$project" --resolution 1400x900 \
-	--position 10000,10000 --quit-after 3600 >"$log" 2>&1; then
+	GODOT="$godot" sh "$root/tests/godot_background.sh" "$log" \
+	--editor --path "$project" --quit-after 3600 > /dev/null; then
 	:
 else
 	cat "$log"
@@ -36,6 +36,8 @@ if ! grep -q 'SVG editor visual capture complete' "$log"; then
 	exit 1
 fi
 grep -q 'Nested stickman 2D/3D: two handle points, fill/stroke, camera move and flips passed' "$log"
+grep -q 'Editor canvas order: behind-parent, Y sort and top-level pixels/picking passed' "$log"
+for mode in behind ysort top-level; do test -s "$output/order-$mode.png"; done
 test -s "$output/fixture-source.png"
 for workspace in 2d 3d; do
 	for frame in 0 1; do test -s "$output/transform-$workspace-$frame.png"; done

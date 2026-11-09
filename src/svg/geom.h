@@ -18,6 +18,7 @@
 #include <godot_cpp/variant/transform2d.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -45,7 +46,7 @@ enum Join { JOIN_MITER = 0, JOIN_ROUND = 1, JOIN_BEVEL = 2 };
 inline int arc_n(double r, double span, double tol, int lo = 1, int hi = 64) {
 	if (r <= tol) return lo;
 	double step = 2.0 * std::acos(std::max(1.0 - tol / r, -1.0));
-	return std::min(std::max((int)std::ceil(span / std::max(step, 1e-4)), lo), hi);
+	return (int)std::clamp(std::ceil(span / std::max(step, 1e-4)), (double)lo, (double)hi);
 }
 
 // 曲線を何本の折れ線で表すか。ふくらみの大きさから決める（Wang の式）。
@@ -54,14 +55,16 @@ inline int quad_steps(const godot::Vector2 &a, const godot::Vector2 &b,
 		const godot::Vector2 &c, double tol) {
 	godot::Vector2 d = a - b * 2.0f + c;
 	double n = std::sqrt(d.length() / (8.0 * tol));
-	return std::min(std::max((int)std::ceil(n), 1), 300);
+	// 画面外の大きな曲線も、整数化の前に分割数の上限へ収める。
+	return std::isfinite(n) ? (int)std::clamp(std::ceil(n), 1.0, 300.0) : 300;
 }
 
 inline int cubic_steps(const godot::Vector2 &a, const godot::Vector2 &b,
 		const godot::Vector2 &c, const godot::Vector2 &d, double tol) {
 	double l = std::max((a - b * 2.0f + c).length(), (b - c * 2.0f + d).length());
 	double n = std::sqrt(0.75 * l / tol);
-	return std::min(std::max((int)std::ceil(n), 1), 300);
+	// 画面外の大きな曲線も、整数化の前に分割数の上限へ収める。
+	return std::isfinite(n) ? (int)std::clamp(std::ceil(n), 1.0, 300.0) : 300;
 }
 
 // 3 次ベジエを折れ線にして足す。始点はすでに入っているものとする。

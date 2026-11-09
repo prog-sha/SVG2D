@@ -69,7 +69,7 @@ struct Cover {
 
 // 辺を 1 本足し込む。上から下へ、1 段ずつ横切った面積を置いていく。
 inline void mask_line(Mask &m, godot::Vector2 p0, godot::Vector2 p1) {
-	if (p0.y == p1.y) return;
+	if (!p0.is_finite() || !p1.is_finite() || p0.y == p1.y) return;
 	float dir = 1.0f;
 	if (p0.y > p1.y) {
 		std::swap(p0, p1);
@@ -77,9 +77,10 @@ inline void mask_line(Mask &m, godot::Vector2 p0, godot::Vector2 p1) {
 	}
 	p0.x -= (float)m.x0; p0.y -= (float)m.y0;
 	p1.x -= (float)m.x0; p1.y -= (float)m.y0;
-	double dxdy = (double)(p1.x - p0.x) / (double)(p1.y - p0.y);
-	int ylo = std::max((int)std::floor(p0.y), 0);
-	int yhi = std::min((int)std::ceil(p1.y), m.h);
+	// 引き算も広い桁で行い、画面外の巨大な端点を安全に切り詰める。
+	double dxdy = ((double)p1.x - p0.x) / ((double)p1.y - p0.y);
+	int ylo = (int)std::clamp(std::floor((double)p0.y), 0.0, (double)m.h);
+	int yhi = (int)std::clamp(std::ceil((double)p1.y), 0.0, (double)m.h);
 	for (int y = ylo; y < yhi; y++) {
 		float *row = &m.a[(size_t)y * (size_t)(m.w + 2)];
 		double ytop = std::max((double)y, (double)p0.y);

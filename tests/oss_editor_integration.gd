@@ -13,6 +13,8 @@ func check(ok: bool, message: String) -> void:
 		push_error(message)
 
 func _enter_tree() -> void:
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(Vector2i(1000, 600))
 	DisplayServer.window_set_position(Vector2i(10000, 10000))
 	run.call_deferred()
 
@@ -105,7 +107,8 @@ func capture(label: String, camera: Camera3D) -> void:
 			camera.position = Vector3(0, 0, 0.9)
 			camera.look_at(Vector3.ZERO), CONNECT_ONE_SHOT)
 	await get_tree().process_frame
-	await RenderingServer.frame_post_draw
+	# 非表示アプリの自動描画停止に依存せず、撮影するフレームだけを描く。
+	RenderingServer.force_draw()
 	var image := EditorInterface.get_base_control().get_viewport().get_texture().get_image()
 	check(image != null and not image.is_empty(), label + " editor image missing")
 	if image:

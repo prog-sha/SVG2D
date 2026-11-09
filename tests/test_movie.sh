@@ -8,7 +8,8 @@ godot=${GODOT:-/Applications/Godot 4.7.2.app/Contents/MacOS/Godot}
 command -v ffmpeg >/dev/null || { echo "動画フレーム確認にはffmpegが必要だよ"; exit 2; }
 command -v ffprobe >/dev/null || { echo "動画情報の確認にはffprobeが必要だよ"; exit 2; }
 
-movie_root=$(mktemp -d)
+mkdir -p "$root/tmp"
+movie_root=$(mktemp -d "$root/tmp/movie.XXXXXX")
 trap 'rm -rf "$movie_root"' EXIT HUP INT TERM
 # MovieWriterへ実レンダラーの画素を渡すため、画面外のウィンドウで使う。
 render_movie() {
@@ -17,19 +18,13 @@ render_movie() {
 	copy_to=$3
 	movie="$movie_root/$label.avi"
 	log="$movie_root/$label.log"
-	if [ "$(uname -s)" = Darwin ]; then
-		"$godot" --path "$root" --position 10000,10000 \
-			--resolution 640x360 --fixed-fps 30 --disable-vsync \
-			--write-movie "$movie" --quit-after 60 "$scene" >"$log" 2>&1
-	else
-		"$godot" --path "$root" \
-			--resolution 640x360 --fixed-fps 30 --disable-vsync \
-			--write-movie "$movie" --quit-after 60 "$scene" >"$log" 2>&1
-	fi
+	GODOT="$godot" sh "$root/tests/godot_background.sh" "$log" --path "$root" \
+		--resolution 640x360 --fixed-fps 30 --disable-vsync \
+		--write-movie "$movie" --quit-after 60 "$scene" > /dev/null
 	cat "$log"
 	test -s "$movie"
 	grep -q "Done recording movie at path" "$log"
-	if grep -q '^ERROR:' "$log"; then
+	if grep -q '^ERROR:\|^SCRIPT ERROR:' "$log"; then
 		echo "$label MovieWriter実行中にGodotがエラーを出したよ"
 		exit 1
 	fi
@@ -42,7 +37,7 @@ render_movie() {
 	frame_dir="$movie_root/$label-frames"
 	mkdir "$frame_dir"
 	ffmpeg -v error -i "$movie" -vf "select='eq(n,0)+eq(n,15)+eq(n,30)+eq(n,45)'" \
-		-vsync 0 "$frame_dir/frame-%02d.png"
+		-fps_mode passthrough "$frame_dir/frame-%02d.png"
 	hashes=$(shasum -a 256 "$frame_dir"/frame-*.png | awk '{print $1}' | sort -u | wc -l | tr -d ' ')
 	[ "$hashes" -eq 4 ] || {
 		echo "$label 棒人間の4時点が変化していないよ: $hashes unique frames"

@@ -1289,7 +1289,120 @@ func test_body_drag_selection(root: Node, plugin: Node) -> void:
 	EditorInterface.get_selection().clear()
 	node.free()
 
+# 親変換から独立した本体移動と、表示中ハンドルだけの選択を検証する。
+func test_visible_controls(root: Node, plugin: Node) -> void:
+	var parent := Node2D.new()
+	parent.scale = Vector2(2, 3)
+	parent.rotation = 0.4
+	root.add_child(parent)
+	var body: Node2D = ClassDB.instantiate("SVG2D")
+	parent.add_child(body)
+	body.top_level = true
+	body.position = Vector2(20, 30)
+	var screen: Transform2D = plugin.call("screen_transform", body)
+	var start: Vector2 = plugin.call("screen_to_parent", body, screen * Vector2.ZERO)
+	var end: Vector2 = plugin.call("screen_to_parent", body, screen * Vector2(20, 10))
+	check((end - start).is_equal_approx(Vector2(20, 10)), "top_level drag inherited parent scale/rotation")
+	parent.free()
+	var holder := Node2D.new()
+	root.add_child(holder)
+	var front: Node2D = ClassDB.instantiate("SVG2D")
+	var back: Node2D = ClassDB.instantiate("SVG2D")
+	for item in [front, back]:
+		item.set("src", "<svg width='100' height='100'><rect width='100' height='100'/></svg>")
+		holder.add_child(item)
+	front.z_index = 10
+	var click: Vector2 = plugin.call("screen_transform", front) * Vector2(50, 50)
+	check(plugin.call("pick_svg2d", click) == front, "SVG pick ignored front Z index")
+	holder.z_index = 20
+	front.z_as_relative = false
+	check(plugin.call("pick_svg2d", click) == back, "SVG pick ignored relative Z")
+	var layer := CanvasLayer.new()
+	layer.layer = 1
+	holder.add_child(layer)
+	holder.remove_child(front)
+	layer.add_child(front)
+	front.z_index = -100
+	check(plugin.call("pick_svg2d", click) == front, "SVG pick compared Z across CanvasLayers")
+	holder.free()
+	var instance := Node2D.new()
+	root.add_child(instance)
+	instance.owner = root
+	var child: Node2D = ClassDB.instantiate("SVG2D")
+	instance.add_child(child)
+	child.owner = instance
+	check(not plugin.call("editable_svg", child), "Closed instance allowed direct SVG edit")
+	root.set_editable_instance(instance, true)
+	check(plugin.call("editable_svg", child), "Editable Children rejected SVG edit")
+	root.set_editable_instance(instance, false)
+	instance.free()
+	for kind in ["SVGAnimate2D", "SVGAnimate3D"]:
+		var node: Node = ClassDB.instantiate(kind)
+		node.set("src", "<svg width='100' height='100'><path d='M10 10 C20 10 40 40 50 50 C60 60 80 80 90 90'/></svg>")
+		root.add_child(node)
+		plugin.call("select_path_control", node, 0, 0, "point")
+		var camera := Camera3D.new()
+		root.add_child(camera)
+		camera.position = Vector3(0, 0, 5)
+		var hidden: Vector2 = plugin.call("path_screen_2d", node, Vector2(60, 60), 0, 0) if node is Node2D else camera.unproject_position(plugin.call("svg_world_3d", node, Vector2(60, 60), 0, 0))
+		var hit: Dictionary = plugin.call("pick_path_control_2d", node, hidden) if node is Node2D else plugin.call("pick_path_control_3d", node, camera, hidden)
+		check(hit.is_empty() or hit.part == "point", kind + " picked an invisible handle")
+		plugin.call("select_path_control", node, 0, 1, "point")
+		hit = plugin.call("pick_path_control_2d", node, hidden) if node is Node2D else plugin.call("pick_path_control_3d", node, camera, hidden)
+		check(not hit.is_empty() and hit.part == "out" and int(hit.point) == 1, kind + " missed visible handle")
+		camera.free()
+		node.free()
+	plugin.set("path_node", null)
+
+# 同じZの実描画順と、親ごとのZ制限を独立した配置で検証する。
+func test_canvas_order(root: Node, plugin: Node) -> void:
+	var holder := Node2D.new()
+	holder.position = Vector2(600, 400)
+	root.add_child(holder)
+	var parent: Node2D = ClassDB.instantiate("SVG2D")
+	var child: Node2D = ClassDB.instantiate("SVG2D")
+	for item in [parent, child]:
+		item.set("src", "<svg width='100' height='100'><rect width='100' height='100'/></svg>")
+	holder.add_child(parent)
+	parent.add_child(child)
+	var click: Vector2 = plugin.call("screen_transform", parent) * Vector2(50, 50)
+	child.show_behind_parent = true
+	check(plugin.call("pick_svg2d", click) == parent, "Behind-parent SVG intercepted its parent")
+	child.show_behind_parent = false
+	check(plugin.call("pick_svg2d", click) == child, "Front child SVG lost tree order")
+	parent.z_index = 4096
+	child.z_index = 4096
+	var leaf: Node2D = ClassDB.instantiate("SVG2D")
+	child.add_child(leaf)
+	leaf.z_index = -4096
+	check(plugin.call("svg2d_order", leaf).y == 0, "Z inheritance was clamped only after summation")
+	leaf.free()
+	parent.z_index = 0
+	child.z_index = 0
+	parent.remove_child(child)
+	holder.add_child(child)
+	holder.y_sort_enabled = true
+	parent.position.y = 20
+	check(plugin.call("pick_svg2d", click) == parent, "Y sort picked lower tree sibling")
+	parent.y_sort_enabled = true
+	var nested: Node2D = ClassDB.instantiate("SVG2D")
+	nested.set("src", child.get("src"))
+	parent.add_child(nested)
+	nested.position.y = -30
+	check(plugin.call("pick_svg2d", click) == parent, "Nested Y sort did not flatten descendants")
+	parent.y_sort_enabled = false
+	check(plugin.call("pick_svg2d", click) == nested, "Disabled Y sort did not keep its subtree together")
+	holder.y_sort_enabled = false
+	parent.top_level = true
+	parent.position = holder.position
+	check(plugin.call("pick_svg2d", click) == nested, "top_level SVG did not draw after regular canvas children")
+	holder.free()
+
 func _enter_tree() -> void:
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		DisplayServer.window_set_size(Vector2i(1000, 600))
+		DisplayServer.window_set_position(Vector2i(10000, 10000))
 	run_checks.call_deferred()
 
 func run_checks() -> void:
@@ -1339,6 +1452,8 @@ func run_checks() -> void:
 	check(svg_plugin != null, "SVG2Dの2D編集プラグインが動いていないよ")
 	if svg_plugin:
 		await get_tree().process_frame
+		test_visible_controls(scene_root, svg_plugin)
+		test_canvas_order(scene_root, svg_plugin)
 		test_overlay_cameras(svg_plugin)
 		test_key_undo(scene_root, svg_plugin)
 		await test_editor_input_rules(scene_root, svg_plugin)

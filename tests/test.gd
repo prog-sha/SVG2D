@@ -133,7 +133,7 @@ func check_zoom_2d() -> void:
 			last = texture.get_rid()
 		view.render_target_update_mode = SubViewport.UPDATE_ONCE
 		await process_frame
-		await RenderingServer.frame_post_draw
+		RenderingServer.force_draw()
 		var actual := view.get_texture().get_image()
 		var expected := expected_at(w, h)
 		var error := image_rmse(expected, actual)
@@ -178,7 +178,7 @@ func check_zoom_3d() -> void:
 		view.render_target_update_mode = SubViewport.UPDATE_ONCE
 		await process_frame
 		await process_frame
-		await RenderingServer.frame_post_draw
+		RenderingServer.force_draw()
 		var texture: Texture2D = svg.call("get_texture")
 		var actual := view.get_texture().get_image()
 		var expected := expected_at(w, h)
@@ -513,7 +513,7 @@ func check_appearance() -> void:
 	view.add_child(svg)
 	view.render_target_update_mode = SubViewport.UPDATE_ONCE
 	await process_frame
-	await RenderingServer.frame_post_draw
+	RenderingServer.force_draw()
 	var used := view.get_texture().get_image().get_used_rect()
 	check(used.position.x >= 55 and used.end.x <= 73, "SVG2Dの横反転またはoffsetが描画へ反映されないよ: %s" % used)
 	check(svg.modulate.is_equal_approx(Color(0.5, 0.25, 1.0, 0.5)), "SVG2Dのmodulateを保持できないよ")
@@ -613,7 +613,7 @@ func check_ropes() -> void:
 	rope2.set("gravity_scale", 1.0)
 	view.render_target_update_mode = SubViewport.UPDATE_ONCE
 	await process_frame
-	await RenderingServer.frame_post_draw
+	RenderingServer.force_draw()
 	check(view.get_texture().get_image().get_used_rect().has_area(),
 		"SVGRope2DのLine ModeがSVGなしで描画されないよ")
 	rope2.set("simulation_enabled", true)
@@ -668,7 +668,7 @@ func check_ropes() -> void:
 		"SVGRope2DがSVG上端から下端を自動長として扱わないよ")
 	svg_view.render_target_update_mode = SubViewport.UPDATE_ONCE
 	await process_frame
-	await RenderingServer.frame_post_draw
+	RenderingServer.force_draw()
 	check(svg_view.get_texture().get_image().get_used_rect().has_area(),
 		"SVGRope2DがSVGを粒子中心線に沿って変形描画しないよ")
 	svg_view.free()

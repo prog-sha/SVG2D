@@ -37,7 +37,12 @@ ${CXX:-c++} -std=c++17 -O2 -ffp-contract=off $math_scalar -Isrc -Igodot-cpp/incl
   -Igodot-cpp/gen/include -Igodot-cpp/gdextension tests/rope_math_test.cpp \
   "godot-cpp/bin/libgodot-cpp.$platform.template_debug.$math_arch.a" -o tmp/rope_math_test
 tmp/rope_math_test
-if animation_result=$("$godot" --resolution 64x48 --path "$root" --script tests/animate_properties.gd 2>&1); then
+# 巨大座標の切り詰めと曲線分割は描画エンジン起動前に確認する。
+${CXX:-c++} -std=c++17 -O2 -Isrc -Igodot-cpp/include -Igodot-cpp/gen/include \
+  -Igodot-cpp/gdextension tests/geometry_test.cpp \
+  "godot-cpp/bin/libgodot-cpp.$platform.template_debug.$math_arch.a" -o tmp/geometry_test
+tmp/geometry_test
+if animation_result=$(GODOT="$godot" sh "$root/tests/godot_background.sh" "$root/tmp/animate_properties-background.log" --resolution 64x48 --path "$root" --script tests/animate_properties.gd 2>&1); then
 	:
 else
 	printf '%s\n' "$animation_result"
@@ -50,7 +55,7 @@ if printf '%s\n' "$animation_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
 	exit 1
 fi
 # ダミー描画では更新済み画像を読み戻せないため、不透明度マスクは実GPUで検証する。
-if mask_result=$("$godot" --resolution 64x48 --path "$root" --script tests/editor_mask_test.gd 2>&1); then
+if mask_result=$(GODOT="$godot" sh "$root/tests/godot_background.sh" "$root/tmp/editor_mask_test-background.log" --resolution 64x48 --path "$root" --script tests/editor_mask_test.gd 2>&1); then
   :
 else
   printf '%s\n' "$mask_result"
@@ -62,7 +67,7 @@ if printf '%s\n' "$mask_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
   exit 1
 fi
 # 実シーンの描画・物理を通し、OSS由来の観点を独立した期待値と比較する。
-if integration_result=$("$godot" --resolution 64x48 --path "$root" --script tests/oss_integration.gd 2>&1); then
+if integration_result=$(GODOT="$godot" sh "$root/tests/godot_background.sh" "$root/tmp/oss_integration-background.log" --resolution 64x48 --path "$root" --script tests/oss_integration.gd 2>&1); then
   :
 else
   printf '%s\n' "$integration_result"
@@ -73,7 +78,7 @@ printf '%s\n' "$integration_result" | grep -q 'OSS integration: .* PASSED'
 if printf '%s\n' "$integration_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
   exit 1
 fi
-if result=$("$godot" --resolution 64x48 --path "$root" --script tests/test.gd 2>&1); then
+if result=$(GODOT="$godot" sh "$root/tests/godot_background.sh" "$root/tmp/test-background.log" --resolution 64x48 --path "$root" --script tests/test.gd 2>&1); then
   :
 else
   printf '%s\n' "$result"
@@ -83,7 +88,7 @@ printf '%s\n' "$result"
 printf '%s\n' "$result" | grep -q "SVG2D / SVG3Dの試験に通ったよ"
 printf '%s\n' "$result" | grep -q "SVG2D profile max RMSE"
 printf '%s\n' "$result" | grep -q "SVG3D profile max RMSE"
-if printf '%s\n' "$result" | grep -q '^ERROR:'; then
+if printf '%s\n' "$result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
   echo "Godotがエラーを出したよ"
   exit 1
 fi
@@ -112,7 +117,7 @@ else
 fi
 printf '%s\n' "$editor_result"
 printf '%s\n' "$editor_result" | grep -q "SVG Inspectorの試験に通ったよ"
-if printf '%s\n' "$editor_result" | grep -q '^ERROR:'; then
+if printf '%s\n' "$editor_result" | grep -q '^ERROR:\|^SCRIPT ERROR:'; then
   echo "Godotエディターがエラーを出したよ"
   exit 1
 fi

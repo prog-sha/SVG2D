@@ -7,6 +7,10 @@ const STICKMAN := "res://examples/stickman/stickman.svg" # 多段変換とカメ
 
 # 隔離したエディタで素材を開き、接点の選択と再生位置の変更を撮影する。
 func _enter_tree() -> void:
+	# 保存済みエディタ配置が起動引数を上書きしても、全画面を占有させない。
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(Vector2i(1000, 600))
+	DisplayServer.window_set_position(Vector2i(10000, 10000))
 	_capture.call_deferred()
 
 func _capture() -> void:
@@ -17,6 +21,7 @@ func _capture() -> void:
 		get_tree().quit(1)
 		return
 	DirAccess.make_dir_recursive_absolute(output_dir)
+	await _capture_order(output_dir)
 	await _capture_transform_fixture(output_dir)
 	await _capture_scene("res://examples/stickman/stickman_movie.tscn", "Stickman", "2D",
 		[0.0, 0.5], "editor-2d", output_dir)
@@ -56,6 +61,8 @@ func _add_point_animation(root: Node, svg: Node, player_name: String) -> Animati
 # 実エディタの描画座標で接点・ハンドルを選べることを確かめる。
 func _check_pick(plugin: Node, svg: Node, workspace: String, camera: Camera3D,
 		path: int, point: int, part: String, value: Vector2) -> void:
+	# 操作したい接点を先に選び、実際に表示されるハンドルを検証する。
+	plugin.call("select_path_control", svg, path, point, "point")
 	var screen: Vector2 = plugin.call("path_screen_2d", svg, value, path) if workspace == "2D" \
 		else camera.unproject_position(plugin.call("svg_world_3d", svg, value, path))
 	var hit: Dictionary = plugin.call("pick_path_control_2d", svg, screen) if workspace == "2D" \
@@ -75,13 +82,56 @@ func _head_alpha(image: Image) -> PackedByteArray:
 		alpha.append(pixels[index])
 	return alpha
 
-func _capture_transform_fixture(output_dir: String) -> void:
+# 実エディタの描画色と選択対象を、Godotの描画座標で独立に比較する。
+func _capture_order(output_dir: String) -> void:
 	var root := Node2D.new()
+	root.name = "CanvasOrderFixture"
+	root.position = Vector2(500, 250)
+	EditorInterface.add_root_node(root)
+	EditorInterface.set_main_screen_editor("2D")
+	var red: Node2D = ClassDB.instantiate("SVG2D")
+	var blue: Node2D = ClassDB.instantiate("SVG2D")
+	for entry in [{"node": red, "color": "red"}, {"node": blue, "color": "blue"}]:
+		entry.node.set("src", "<svg width='100' height='100'><rect width='100' height='100' fill='%s'/></svg>" % entry.color)
+		entry.node.set("adaptive", false)
+	root.add_child(red)
+	red.owner = root
+	red.add_child(blue)
+	blue.owner = root
+	var plugin := get_tree().get_first_node_in_group("svg2d_editor_plugin")
+	for mode in ["behind", "ysort", "top-level"]:
+		if mode == "behind": blue.show_behind_parent = true
+		elif mode == "ysort":
+			red.remove_child(blue)
+			root.add_child(blue)
+			blue.owner = root
+			root.y_sort_enabled = true
+			red.position.y = 20
+		else:
+			root.y_sort_enabled = false
+			red.top_level = true
+			red.position = root.position
+		await get_tree().create_timer(0.2).timeout
+		RenderingServer.force_draw(false)
+		var viewport := EditorInterface.get_editor_viewport_2d()
+		var point := viewport.get_global_canvas_transform() * red.get_global_transform_with_canvas() * Vector2(50, 50)
+		var image := viewport.get_texture().get_image()
+		if not Rect2(Vector2.ZERO, Vector2(image.get_size())).has_point(point):
+			push_error("Canvas order sample is outside editor viewport: " + str(point))
+			continue
+		var actual := image.get_pixelv(Vector2i(point))
+		if actual.r < 0.95 or actual.b > 0.05 or plugin.call("pick_svg2d", point) != red:
+			push_error("Editor canvas order disagrees with picking for %s: %s" % [mode, actual])
+		_save_editor_frame(output_dir.path_join("order-%s.png" % mode))
+	for child in root.get_children(): child.free()
+	print("Editor canvas order: behind-parent, Y sort and top-level pixels/picking passed")
+
+func _capture_transform_fixture(output_dir: String) -> void:
+	var root := EditorInterface.get_edited_scene_root() as Node2D
 	root.name = "MultilevelTransformFixture"
 	# 座標変換の階層を保ちながら、2D画面の見える位置へ置く。
 	root.position = Vector2(490, -130)
-	root.scale = Vector2(2.4, 2.4)
-	EditorInterface.add_root_node(root)
+	root.scale = Vector2(1.2, 1.2)
 	var fixture2: Dictionary = TransformFixture.create_2d(root, root, STICKMAN)
 	var fixture3: Dictionary = TransformFixture.create_3d(root, root, STICKMAN)
 	var svg2: Node2D = fixture2.svg

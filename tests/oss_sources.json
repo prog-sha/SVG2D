@@ -220,6 +220,166 @@
       "role": "symbol・svg参照の寸法、座標変換、切り抜きの実装（独立レビューで参照）",
       "test": "tests/oss_svg_integration.gd",
       "url": "https://github.com/linebender/resvg/blob/1b6c2fddbcbeffa8135df4323b02aaae84890907/crates/usvg/src/parser/use_node.rs"
+    },
+    {
+      "oss": "godotengine/godot",
+      "revision": "c51ff06e8836a70ea905701c081bf94124dcd6ce",
+      "file": "servers/rendering/renderer_canvas_cull.cpp",
+      "lines": [
+        [
+          111,
+          163
+        ],
+        [
+          431,
+          492
+        ]
+      ],
+      "role": "Zの段階制限、Y整列の平坦化、親背面→親→前面の描画順",
+      "test": "tests/editor_inspector_test.gd",
+      "url": "https://github.com/godotengine/godot/blob/c51ff06e8836a70ea905701c081bf94124dcd6ce/servers/rendering/renderer_canvas_cull.cpp"
+    },
+    {
+      "oss": "godotengine/godot",
+      "revision": "c51ff06e8836a70ea905701c081bf94124dcd6ce",
+      "file": "servers/rendering/renderer_canvas_cull.h",
+      "lines": [
+        [
+          117,
+          129
+        ]
+      ],
+      "role": "Yがほぼ等しいときの元の順序による比較",
+      "test": "tests/editor_inspector_test.gd",
+      "url": "https://github.com/godotengine/godot/blob/c51ff06e8836a70ea905701c081bf94124dcd6ce/servers/rendering/renderer_canvas_cull.h"
+    },
+    {
+      "oss": "godotengine/godot",
+      "revision": "c51ff06e8836a70ea905701c081bf94124dcd6ce",
+      "file": "scene/main/canvas_item.cpp",
+      "lines": [
+        [
+          247,
+          261
+        ],
+        [
+          522,
+          535
+        ]
+      ],
+      "role": "top_levelの独立したキャンバス描画順",
+      "test": "tests/editor_visual_capture.gd",
+      "url": "https://github.com/godotengine/godot/blob/c51ff06e8836a70ea905701c081bf94124dcd6ce/scene/main/canvas_item.cpp"
+    },
+    {
+      "oss": "godotengine/godot",
+      "revision": "c51ff06e8836a70ea905701c081bf94124dcd6ce",
+      "file": "editor/scene/canvas_item_editor_plugin.cpp",
+      "lines": [
+        [
+          2308,
+          2320
+        ],
+        [
+          2458,
+          2467
+        ]
+      ],
+      "role": "編集可能インスタンスと表示中ノードだけの編集対象化",
+      "test": "tests/editor_inspector_test.gd",
+      "url": "https://github.com/godotengine/godot/blob/c51ff06e8836a70ea905701c081bf94124dcd6ce/editor/scene/canvas_item_editor_plugin.cpp"
+    },
+    {
+      "oss": "godotengine/godot",
+      "revision": "c51ff06e8836a70ea905701c081bf94124dcd6ce",
+      "file": "editor/scene/2d/path_2d_editor_plugin.cpp",
+      "lines": [
+        [
+          83,
+          94
+        ],
+        [
+          308,
+          316
+        ]
+      ],
+      "role": "標準のパス編集と同じ画面座標の合成",
+      "test": "tests/editor_visual_capture.gd",
+      "url": "https://github.com/godotengine/godot/blob/c51ff06e8836a70ea905701c081bf94124dcd6ce/editor/scene/2d/path_2d_editor_plugin.cpp"
+    },
+    {
+      "oss": "inkscape/inkscape",
+      "revision": "7cd0c014d2f19d17da7d3417907b2a7486348df4",
+      "file": "src/ui/tool/node.cpp",
+      "lines": [
+        [
+          178,
+          190
+        ]
+      ],
+      "role": "ハンドル表示と線表示を同時に切り替える設計",
+      "test": "tests/editor_inspector_test.gd",
+      "url": "https://github.com/inkscape/inkscape/blob/7cd0c014d2f19d17da7d3417907b2a7486348df4/src/ui/tool/node.cpp"
+    },
+    {
+      "oss": "inkscape/inkscape",
+      "revision": "7cd0c014d2f19d17da7d3417907b2a7486348df4",
+      "file": "src/ui/tool/curve-drag-point.cpp",
+      "lines": [
+        [
+          72,
+          98
+        ]
+      ],
+      "role": "キャンセルと再描画を操作開始状態へ戻す設計",
+      "test": "tests/editor_inspector_test.gd",
+      "url": "https://github.com/inkscape/inkscape/blob/7cd0c014d2f19d17da7d3417907b2a7486348df4/src/ui/tool/curve-drag-point.cpp"
+    },
+    {
+      "oss": "linebender/tiny-skia",
+      "revision": "5d4754777746eef0828be166896eaf482c49f8f2",
+      "file": "src/scan/path.rs",
+      "lines": [
+        [
+          22,
+          44
+        ],
+        [
+          60,
+          98
+        ]
+      ],
+      "role": "整数化前の桁管理と飽和変換",
+      "test": "tests/geometry_test.cpp",
+      "url": "https://github.com/linebender/tiny-skia/blob/5d4754777746eef0828be166896eaf482c49f8f2/src/scan/path.rs"
+    },
+    {
+      "oss": "linebender/tiny-skia",
+      "revision": "5d4754777746eef0828be166896eaf482c49f8f2",
+      "file": "src/scan/path_aa.rs",
+      "lines": [
+        [
+          28,
+          66
+        ]
+      ],
+      "role": "描画範囲との交差を先に計算し、走査範囲を有限に制限",
+      "test": "tests/oss_svg_integration.gd",
+      "url": "https://github.com/linebender/tiny-skia/blob/5d4754777746eef0828be166896eaf482c49f8f2/src/scan/path_aa.rs"
+    },
+    {
+      "oss": "FFmpeg/FFmpeg",
+      "revision": "946fcce07b6dcd0331c8cc609192aeff5e1924f8",
+      "file": "doc/ffmpeg.texi",
+      "lines": [
+        [
+          2391,
+          2408
+        ]
+      ],
+      "role": "fps_mode passthroughで時刻を保ち、選択フレームの複製を防ぐ",
+      "test": "tests/test_movie.sh",
+      "url": "https://github.com/FFmpeg/FFmpeg/blob/946fcce07b6dcd0331c8cc609192aeff5e1924f8/doc/ffmpeg.texi"
     }
   ]
 }

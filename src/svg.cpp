@@ -841,11 +841,12 @@ static void rasterize(const Ctx &c, Mask &m, const Path &pa, const Rect2 &box,
 		const Transform2D &at, bool even_odd) {
 	m.drop();
 	Rect2 b = at.xform(box);
-	if (b.size.x < 0.0f || b.size.y < 0.0f) return;
-	int x0 = std::max((int)std::floor(b.position.x) - 1, 0);
-	int y0 = std::max((int)std::floor(b.position.y) - 1, 0);
-	int x1 = std::min((int)std::ceil(b.position.x + b.size.x) + 1, c.cv->w);
-	int y1 = std::min((int)std::ceil(b.position.y + b.size.y) + 1, c.cv->h);
+	if (!b.position.is_finite() || !b.size.is_finite() || b.size.x < 0.0f || b.size.y < 0.0f) return;
+	// 画面へ制限してから整数化し、大きなSVG座標でも桁あふれさせない。
+	int x0 = (int)std::clamp(std::floor((double)b.position.x) - 1.0, 0.0, (double)c.cv->w);
+	int y0 = (int)std::clamp(std::floor((double)b.position.y) - 1.0, 0.0, (double)c.cv->h);
+	int x1 = (int)std::clamp(std::ceil((double)b.position.x + b.size.x) + 1.0, 0.0, (double)c.cv->w);
+	int y1 = (int)std::clamp(std::ceil((double)b.position.y + b.size.y) + 1.0, 0.0, (double)c.cv->h);
 	if (x1 <= x0 || y1 <= y0) return;
 	m.make(x0, y0, x1 - x0, y1 - y0);
 	mask_add(m, pa, at);

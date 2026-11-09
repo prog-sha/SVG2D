@@ -13,6 +13,7 @@
 #define SVG2D_SVG_PAINT_H
 
 #include <godot_cpp/variant/color.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/transform2d.hpp>
 
@@ -309,6 +310,8 @@ inline std::shared_ptr<const std::vector<godot::Color>> build_lut(const std::vec
 
 // 端まで行ったあとの続けかたを当てはめる。
 inline double spread_at(double t, Spread s) {
+	// 数値域を越えた変換でも、色表の外を読まず端の色へ収める。
+	if (!std::isfinite(t)) return t < 0.0 ? 0.0 : 1.0;
 	if (s == SPREAD_PAD) return std::clamp(t, 0.0, 1.0);
 	if (s == SPREAD_REPEAT) {
 		double v = std::fmod(t, 1.0);
